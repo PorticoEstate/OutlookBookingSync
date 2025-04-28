@@ -1,0 +1,29 @@
+{
+    "name": "hc483/outlook-booking-sync",
+    "description": "Calendar sync service between Outlook and PorticoEstate/booking",
+    "type": "project",
+    "require": {
+        "slim/slim": "^4.14",
+        "microsoft/microsoft-graph": "^2.32",
+        "vlucas/phpdotenv": "^5.6",
+        "monolog/monolog": "^3.9"
+    },
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Sigurd Nes",
+            "email": "sigurdne@gmail.com"
+        }
+    ],
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true,
+            "tbachert/spi": true
+        }
+    }
+}
