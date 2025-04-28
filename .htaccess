@@ -1,0 +1,47 @@
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Security headers
+<IfModule mod_headers.c>
+   # CORS settings
+   SetEnvIf Origin "http(s)?://(www\.)?(google.com|maps.googleapis.com)$" AccessControlAllowOrigin=$0
+   Header add Access-Control-Allow-Origin %{AccessControlAllowOrigin}e env=AccessControlAllowOrigin
+   Header merge Vary Origin
+</IfModule>
+
+# Suppress .map file 404 errors
+<Files ~ "\.map$">
+  Order allow,deny
+  Deny from all
+  Satisfy All
+</Files>
+
+# Protect sensitive files
+<FilesMatch "^\.">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# Block access to .git directory and all its contents
+RewriteRule ^.git/ - [F,L]
+RewriteRule ^(.*/)?\.git/ - [F,L]
+
+# Protect configuration files
+<FilesMatch "\.(ini|log|sh|inc|bak|sql|git|svn|htaccess)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# Disable directory browsing
+Options -Indexes
+
+# PHP settings (if PHP is loaded as Apache module)
+<IfModule mod_php.c>
+  php_flag display_errors off
+  php_flag log_errors on
+  php_flag register_globals off
+  php_flag allow_url_fopen off
+  php_flag expose_php off
+</IfModule>
