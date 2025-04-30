@@ -58,10 +58,10 @@ class OutlookController
 		$authProvider = new GraphPhpLeagueAuthenticationProvider($tokenRequestContext);
 		$serverSettings = [];
 		// Create HTTP client with a Guzzle config to specify proxy
-		if (!empty($serverSettings['httpproxy_server']))
+		if (!empty($_ENV['httpproxy_server']))
 		{
 			$guzzleConfig = [
-				"proxy" => "{$serverSettings['httpproxy_server']}:{$serverSettings['httpproxy_port']}"
+				"proxy" => "{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}"
 			];
 		}
 		else
@@ -72,6 +72,7 @@ class OutlookController
 		$httpClient = GraphClientFactory::createWithConfig($guzzleConfig);
 		$requestAdapter = new GraphRequestAdapter($authProvider, $httpClient);
 		$this->graphServiceClient = GraphServiceClient::createWithRequestAdapter($requestAdapter);
+
 	}
 
 	/**
@@ -79,6 +80,7 @@ class OutlookController
 	 */
 	public function getAvailableRooms(Request $request, Response $response, $args)
 	{
+		//https://developer.microsoft.com/en-us/graph/graph-explorer
 		try
 		{
 			// Get the request adapter from the Graph service client

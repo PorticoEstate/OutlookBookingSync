@@ -14,3 +14,6 @@ services:
       - APACHE_RUN_USER=www-data
       - APACHE_RUN_GROUP=www-data
     depends_on: []
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
