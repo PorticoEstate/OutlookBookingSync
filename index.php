@@ -50,5 +50,6 @@ $app->add(function ($request, $handler) use ($container) {
 // Register routes
 $app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
 $app->get('/outlook/available-rooms', [\App\Controller\OutlookController::class, 'getAvailableRooms']);
+$app->get('/outlook/available-groups', [\App\Controller\OutlookController::class, 'getAvailableGroups']);
 
 $app->run();

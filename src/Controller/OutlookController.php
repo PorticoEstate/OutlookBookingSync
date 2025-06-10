@@ -56,7 +56,7 @@ class OutlookController
 		);
 
 		$authProvider = new GraphPhpLeagueAuthenticationProvider($tokenRequestContext);
-		$serverSettings = [];
+
 		// Create HTTP client with a Guzzle config to specify proxy
 		if (!empty($_ENV['httpproxy_server']))
 		{
@@ -76,98 +76,135 @@ class OutlookController
 	}
 
 	/**
-	 * Get available meeting rooms using direct API call to Microsoft Graph
+	 * Get available groups using direct API call to Microsoft Graph
 	 */
-	public function getAvailableRooms(Request $request, Response $response, $args)
+	public function getAvailableGroups(Request $request, Response $response, $args)
 	{
-		//https://developer.microsoft.com/en-us/graph/graph-explorer
 		try
 		{
 			// Get the request adapter from the Graph service client
 			$requestAdapter = $this->graphServiceClient->getRequestAdapter();
 
-			// Make a direct API call to get room lists
-			$roomListsRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
-			$roomListsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/places/microsoft.graph.roomList";
-			$roomListsRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
-			$roomListsRequest->addHeader("Accept", "application/json");
+			// Make a direct API call to get groups
+			$groupsRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
+			$groupsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups?\$top=999";
+			$groupsRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
+			$groupsRequest->addHeader("Accept", "application/json");
 
-			$roomListsResponse = $requestAdapter->sendAsync(
-				$roomListsRequest,
-				[Room::class, 'createFromDiscriminatorValue'],
+			$allGroups = [];
+			$nextLink = null;
+
+			do {
+				// Update URL for pagination if we have a next link
+				if ($nextLink) {
+					$groupsRequest->urlTemplate = $nextLink;
+				}
+
+				$groupsResponse = $requestAdapter->sendAsync(
+					$groupsRequest,
+					[\Microsoft\Graph\Generated\Models\GroupCollectionResponse::class, 'createFromDiscriminatorValue'],
+					[ODataError::class, 'createFromDiscriminatorValue']
+				)->wait();
+
+				if (method_exists($groupsResponse, 'getValue') && !empty($groupsResponse->getValue()))
+				{
+					$groups = $groupsResponse->getValue();
+
+					foreach ($groups as $group)
+					{
+						$groupData = [
+							'id' => $group->getId(),
+							'displayName' => $group->getDisplayName() ?? 'N/A',
+							'description' => $group->getDescription() ?? 'N/A',
+							'mail' => $group->getMail() ?? 'N/A',
+							'groupTypes' => $group->getGroupTypes() ?? []
+						];
+
+						$allGroups[] = $groupData;
+					}
+				}
+
+				// Check for next page
+				$nextLink = $groupsResponse ? $groupsResponse->getOdataNextLink() : null;
+
+			} while ($nextLink);
+
+			$response->getBody()->write(json_encode([
+				'totalGroups' => count($allGroups),
+				'groups' => $allGroups
+			]));
+			return $response->withHeader('Content-Type', 'application/json');
+		}
+		catch (\Throwable $e)
+		{
+			$response->getBody()->write(json_encode([
+				'error' => $e->getMessage(),
+				'trace' => $e->getTraceAsString()
+			]));
+			return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+		}
+	}
+
+	/**
+	 * Get group members using direct API call to Microsoft Graph
+	 */
+	public function getAvailableRooms(Request $request, Response $response, $args)
+	{
+		// Query the Microsoft Graph API like this:
+		// https://graph.microsoft.com/v1.0/groups/{GROUP_ID}/members
+
+		try
+		{
+			// Get group ID from environment variable or use default
+			$groupId = $_ENV['GRAPH_GROUP_ID'] ?? '90ba4505-3855-4739-81fa-6b0008ae9216';
+
+			// Get the request adapter from the Graph service client
+			$requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+			// Make a direct API call to get group members
+			$groupMembersRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
+			$groupMembersRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups/{$groupId}/members";
+			$groupMembersRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
+			$groupMembersRequest->addHeader("Accept", "application/json");
+
+			$groupMembersResponse = $requestAdapter->sendAsync(
+				$groupMembersRequest,
+				[\Microsoft\Graph\Generated\Models\DirectoryObjectCollectionResponse::class, 'createFromDiscriminatorValue'],
 				[ODataError::class, 'createFromDiscriminatorValue']
 			)->wait();
 
-			$result = [];
-			$allRooms = [];
+			$allMembers = [];
 
-			if ($roomListsResponse instanceof \Microsoft\Graph\Generated\Models\RoomCollectionResponse && !empty($roomListsResponse->getValue()))
+			if ($groupMembersResponse)
 			{
-				$roomLists = $roomListsResponse->getValue();
-
-				// For each room list, get rooms directly from API
-				foreach ($roomLists as $roomList)
+				$members = $groupMembersResponse->getValue();
+				if ($members && !empty($members))
 				{
-					$roomListEmail = $roomList->getEmailAddress();
-					$roomListName = $roomList->getDisplayName();
-
-					// Make direct API call to get rooms in this list
-					$roomsRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
-					$roomsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/places/microsoft.graph.roomList/{roomListEmail}/rooms";
-					$roomsRequest->urlTemplate = str_replace("{roomListEmail}", urlencode($roomListEmail), $roomsRequest->urlTemplate);
-					$roomsRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
-					$roomsRequest->setHeaders(["Accept" => "application/json"]);
-
-					$roomsResponse = $requestAdapter->sendAsync(
-						$roomsRequest,
-						[Room::class, 'createFromDiscriminatorValue'],
-						[ODataError::class, 'createFromDiscriminatorValue']
-					)->wait();
-
-					$roomsData = [];
-
-					if ($roomsResponse instanceof \Microsoft\Graph\Generated\Models\RoomCollectionResponse && !empty($roomsResponse->getValue()))
+					foreach ($members as $member)
 					{
-						$roomsInList = $roomsResponse->getValue();
+						$memberData = [
+							'id' => $member->getId(),
+							'displayName' => $member->getDisplayName() ?? 'N/A',
+							'@odata.type' => $member->getOdataType()
+						];
 
-						foreach ($roomsInList as $room)
+						// Add additional properties if it's a User object
+						if ($member instanceof \Microsoft\Graph\Generated\Models\User)
 						{
-							// Only include bookable rooms (not reserved)
-							if ($room->getBookingType() !== 'reserved')
-							{
-								$roomData = [
-									'id' => $room->getId(),
-									'displayName' => $room->getDisplayName(),
-									'emailAddress' => $room->getEmailAddress(),
-									'building' => $room->getBuilding(),
-									'floorNumber' => $room->getFloorNumber(),
-									'capacity' => $room->getCapacity(),
-									'bookingType' => $room->getBookingType(),
-									'audioDeviceName' => $room->getAudioDeviceName(),
-									'videoDeviceName' => $room->getVideoDeviceName(),
-									'displayDeviceName' => $room->getDisplayDeviceName(),
-									'isWheelChairAccessible' => $room->getIsWheelChairAccessible()
-								];
-
-								$roomsData[] = $roomData;
-								$allRooms[] = $roomData;
-							}
+							$memberData['userPrincipalName'] = $member->getUserPrincipalName();
+							$memberData['mail'] = $member->getMail();
+							$memberData['jobTitle'] = $member->getJobTitle();
 						}
-					}
 
-					$result[] = [
-						'listName' => $roomListName,
-						'emailAddress' => $roomListEmail,
-						'roomCount' => count($roomsData),
-						'rooms' => $roomsData
-					];
+						$allMembers[] = $memberData;
+					}
 				}
 			}
 
 			$response->getBody()->write(json_encode([
-				'totalRooms' => count($allRooms),
-				'roomLists' => $result,
-				'allRooms' => $allRooms
+				'totalMembers' => count($allMembers),
+				'groupId' => $groupId,
+				'members' => $allMembers
 			]));
 			return $response->withHeader('Content-Type', 'application/json');
 		}
