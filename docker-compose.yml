@@ -1,5 +1,7 @@
 services:
-  web:
+  portico_outlook:
+    container_name: portico_outlook
+    hostname: portico_outlook
     build:
         context: .
         dockerfile: Dockerfile
@@ -16,4 +18,9 @@ services:
     depends_on: []
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - portico_internal
 
+networks:
+  portico_internal:
+    external: true  # Reference the existing external network

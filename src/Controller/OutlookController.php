@@ -184,7 +184,7 @@ class OutlookController
 					{
 						$memberData = [
 							'id' => $member->getId(),
-							'displayName' => $member->getDisplayName() ?? 'N/A',
+							'name' => $member->getDisplayName() ?? 'N/A',
 							'@odata.type' => $member->getOdataType()
 						];
 
@@ -192,7 +192,7 @@ class OutlookController
 						if ($member instanceof \Microsoft\Graph\Generated\Models\User)
 						{
 							$memberData['userPrincipalName'] = $member->getUserPrincipalName();
-							$memberData['mail'] = $member->getMail();
+							$memberData['email'] = $member->getMail();
 							$memberData['jobTitle'] = $member->getJobTitle();
 						}
 
@@ -202,11 +202,11 @@ class OutlookController
 			}
 
 			$response->getBody()->write(json_encode([
-				'totalMembers' => count($allMembers),
+				'recordsTotal' => count($allMembers),
 				'groupId' => $groupId,
-				'members' => $allMembers
+				'data' => $allMembers
 			]));
-			return $response->withHeader('Content-Type', 'application/json');
+			return $response->withHeader('Content-Type', 'application/html');
 		}
 		catch (\Throwable $e)
 		{
