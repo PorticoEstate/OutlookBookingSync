@@ -88,4 +88,10 @@ $app->get('/sync/status', [\App\Controller\SyncController::class, 'getSyncStatus
 $app->get('/sync/outlook-events', [\App\Controller\SyncController::class, 'getOutlookEvents']);
 $app->post('/sync/from-outlook', [\App\Controller\SyncController::class, 'populateFromOutlook']);
 
+// Booking system integration routes
+$app->post('/booking/process-imports', [\App\Controller\BookingSystemController::class, 'processImportedEvents']);
+$app->get('/booking/processing-stats', [\App\Controller\BookingSystemController::class, 'getProcessingStats']);
+$app->get('/booking/pending-imports', [\App\Controller\BookingSystemController::class, 'getPendingImports']);
+$app->get('/booking/processed-imports', [\App\Controller\BookingSystemController::class, 'getProcessedImports']);
+
 $app->run();
