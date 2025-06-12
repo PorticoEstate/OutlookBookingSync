@@ -31,6 +31,23 @@ $container->set('db', function ()
 	return new PDO($dsn, $user, $pass, $options);
 });
 
+// Register logger service (keep this as it's used by multiple services)
+$container->set('logger', function () {
+	$logger = new \Monolog\Logger('outlook_sync');
+	$handler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
+	$logger->pushHandler($handler);
+	return $logger;
+});
+
+// Register controllers in the container
+$container->set(\App\Controller\SyncController::class, function () {
+	return new \App\Controller\SyncController();
+});
+
+$container->set(\App\Controller\SyncMappingController::class, function () {
+	return new \App\Controller\SyncMappingController();
+});
+
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
@@ -40,10 +57,12 @@ $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 // Register API key middleware globally
 $app->add(ApiKeyMiddleware::class);
 
-// Middleware to inject db object into requests
+// Middleware to inject db and logger objects into requests
 $app->add(function ($request, $handler) use ($container) {
     $db = $container->get('db');
+    $logger = $container->get('logger');
     $request = $request->withAttribute('db', $db);
+    $request = $request->withAttribute('logger', $logger);
     return $handler->handle($request);
 });
 
@@ -51,5 +70,22 @@ $app->add(function ($request, $handler) use ($container) {
 $app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
 $app->get('/outlook/available-rooms', [\App\Controller\OutlookController::class, 'getAvailableRooms']);
 $app->get('/outlook/available-groups', [\App\Controller\OutlookController::class, 'getAvailableGroups']);
+$app->get('/outlook/users/{userId}/calendar-items', [\App\Controller\OutlookController::class, 'getUserCalendarItems']);
+
+// Sync mapping routes
+$app->post('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
+$app->get('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
+$app->get('/sync/pending-items', [\App\Controller\SyncMappingController::class, 'getPendingItems']);
+$app->delete('/sync/cleanup-orphaned', [\App\Controller\SyncMappingController::class, 'cleanupOrphaned']);
+$app->get('/sync/stats', [\App\Controller\SyncMappingController::class, 'getStats']);
+
+// Outlook sync routes
+$app->post('/sync/to-outlook', [\App\Controller\SyncController::class, 'syncToOutlook']);
+$app->post('/sync/item/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\SyncController::class, 'syncSpecificItem']);
+$app->get('/sync/status', [\App\Controller\SyncController::class, 'getSyncStatus']);
+
+// Reverse sync routes (Outlook → Booking System)
+$app->get('/sync/outlook-events', [\App\Controller\SyncController::class, 'getOutlookEvents']);
+$app->post('/sync/from-outlook', [\App\Controller\SyncController::class, 'populateFromOutlook']);
 
 $app->run();

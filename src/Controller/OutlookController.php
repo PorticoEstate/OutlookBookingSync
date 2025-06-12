@@ -206,7 +206,7 @@ class OutlookController
 				'groupId' => $groupId,
 				'data' => $allMembers
 			]));
-			return $response->withHeader('Content-Type', 'application/html');
+			return $response->withHeader('Content-Type', 'application/json');
 		}
 		catch (\Throwable $e)
 		{
@@ -216,5 +216,123 @@ class OutlookController
 			]));
 			return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
 		}
+	}
+
+	//get calendar items for a specific user
+	public function getUserCalendarItems(Request $request, Response $response, $args)
+	{
+		try
+		{
+			// Get the user ID from the request parameters
+			$userId = $args['userId'] ?? null;
+			if (!$userId)
+			{
+				$response->getBody()->write('User ID is required');
+				return $response->withStatus(400);
+			}
+
+			// Get the request adapter from the Graph service client
+			$requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+			// Make a direct API call to get calendar items for the user
+			$calendarItemsRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
+			$calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$userId}/events";
+			$calendarItemsRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
+			$calendarItemsRequest->addHeader("Accept", "application/json");
+
+			$calendarItemsResponse = $requestAdapter->sendAsync(
+				$calendarItemsRequest,
+				[\Microsoft\Graph\Generated\Models\EventCollectionResponse::class, 'createFromDiscriminatorValue'],
+				[ODataError::class, 'createFromDiscriminatorValue']
+			)->wait();
+
+			if ($calendarItemsResponse && method_exists($calendarItemsResponse, 'getValue'))
+			{
+				$items = $calendarItemsResponse->getValue();
+				if ($items && !empty($items))
+				{
+					$data = [];
+					foreach ($items as $item)
+					{
+						$data[] = [
+							'id' => $item->getId(),
+							'subject' => $item->getSubject(),
+							'start' => $item->getStart()->getDateTime(),
+							'end' => $item->getEnd()->getDateTime(),
+							'organizer' => $item->getOrganizer()->getEmailAddress()->getAddress()
+						];
+					}
+					$response->getBody()->write(json_encode($data));
+					return $response->withHeader('Content-Type', 'application/json');
+				}
+			}
+
+			$response->getBody()->write('No calendar items found for this user');
+			return $response->withStatus(404);
+		}
+		catch (\Throwable $e)
+		{
+			$response->getBody()->write('Error: ' . $e->getMessage());
+			return $response->withStatus(500);
+		}
+	}
+	//get calendar items for a specific room
+	public function getCalendarItems(Request $request, Response $response, $args)
+	{
+		try
+		{
+			// Get the room ID from the request parameters
+			$roomId = $args['roomId'] ?? null;
+			if (!$roomId)
+			{
+				$response->getBody()->write('Room ID is required');
+				return $response->withStatus(400);
+			}
+
+			// Get the request adapter from the Graph service client
+			$requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+			// Make a direct API call to get calendar items for the room
+			$calendarItemsRequest = new \Microsoft\Kiota\Abstractions\RequestInformation();
+			$calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$this->userPrincipalName}/calendars/{$roomId}/events";
+			$calendarItemsRequest->httpMethod = \Microsoft\Kiota\Abstractions\HttpMethod::GET;
+			$calendarItemsRequest->addHeader("Accept", "application/json");
+
+			$calendarItemsResponse = $requestAdapter->sendAsync(
+				$calendarItemsRequest,
+				[\Microsoft\Graph\Generated\Models\EventCollectionResponse::class, 'createFromDiscriminatorValue'],
+				[ODataError::class, 'createFromDiscriminatorValue']
+			)->wait();
+
+			if ($calendarItemsResponse && method_exists($calendarItemsResponse, 'getValue'))
+			{
+				$items = $calendarItemsResponse->getValue();
+				if ($items && !empty($items))
+				{
+					$data = [];
+					foreach ($items as $item)
+					{
+						$data[] = [
+							'id' => $item->getId(),
+							'subject' => $item->getSubject(),
+							'start' => $item->getStart()->getDateTime(),
+							'end' => $item->getEnd()->getDateTime(),
+							'organizer' => $item->getOrganizer()->getEmailAddress()->getAddress()
+						];
+					}
+					$response->getBody()->write(json_encode($data));
+					return $response->withHeader('Content-Type', 'application/json');
+				}
+			}
+
+			$response->getBody()->write('No calendar items found for this room');
+			return $response->withStatus(404);
+		}
+		catch (\Throwable $e)
+		{
+			$response->getBody()->write('Error: ' . $e->getMessage());
+			return $response->withStatus(500);
+		}
+
 	}
 }
