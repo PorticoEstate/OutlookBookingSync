@@ -327,7 +327,7 @@ class CancellationService
     }
 
     /**
-     * Cancel an event (set active = 0)
+     * Cancel an event (set active = 0 and update description)
      * 
      * @param int $eventId
      * @return array
@@ -335,12 +335,41 @@ class CancellationService
     private function cancelEvent($eventId)
     {
         try {
-            $sql = "UPDATE bb_event SET active = 0 WHERE id = :event_id";
+            // First get the current description to preserve it
+            $selectSql = "SELECT description FROM bb_event WHERE id = :event_id";
+            $selectStmt = $this->db->prepare($selectSql);
+            $selectStmt->execute(['event_id' => $eventId]);
+            $result = $selectStmt->fetch(PDO::FETCH_ASSOC);
+            
+            $currentDescription = $result['description'] ?? '';
+            $cancellationNote = "\n\n--- Cancelled from Outlook ---";
+            
+            // Only add the cancellation note if it's not already there
+            if (!str_contains($currentDescription, 'Cancelled from Outlook')) {
+                $newDescription = $currentDescription . $cancellationNote;
+            } else {
+                $newDescription = $currentDescription;
+            }
+            
+            $sql = "UPDATE bb_event SET active = 0, description = :description WHERE id = :event_id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute(['event_id' => $eventId]);
+            $stmt->execute([
+                'event_id' => $eventId,
+                'description' => $newDescription
+            ]);
+            
+            $this->logger->info('Successfully cancelled event from Outlook', [
+                'event_id' => $eventId,
+                'description_updated' => !str_contains($currentDescription, 'Cancelled from Outlook')
+            ]);
             
             return ['success' => true];
         } catch (\Exception $e) {
+            $this->logger->error('Failed to cancel event', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+            
             return [
                 'success' => false,
                 'error' => $e->getMessage()
@@ -349,7 +378,7 @@ class CancellationService
     }
 
     /**
-     * Cancel a booking (set active = 0)
+     * Cancel a booking (set active = 0 and update description)
      * 
      * @param int $bookingId
      * @return array
@@ -357,12 +386,57 @@ class CancellationService
     private function cancelBooking($bookingId)
     {
         try {
-            $sql = "UPDATE bb_booking SET active = 0 WHERE id = :booking_id";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(['booking_id' => $bookingId]);
+            // Check if bb_booking table has a description field
+            $checkColumnSql = "
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'bb_booking' AND column_name = 'description'
+            ";
+            $checkStmt = $this->db->prepare($checkColumnSql);
+            $checkStmt->execute();
+            $hasDescription = $checkStmt->fetch() !== false;
+            
+            if ($hasDescription) {
+                // Get current description and update it
+                $selectSql = "SELECT description FROM bb_booking WHERE id = :booking_id";
+                $selectStmt = $this->db->prepare($selectSql);
+                $selectStmt->execute(['booking_id' => $bookingId]);
+                $result = $selectStmt->fetch(PDO::FETCH_ASSOC);
+                
+                $currentDescription = $result['description'] ?? '';
+                $cancellationNote = "\n\n--- Cancelled from Outlook ---";
+                
+                if (!str_contains($currentDescription, 'Cancelled from Outlook')) {
+                    $newDescription = $currentDescription . $cancellationNote;
+                } else {
+                    $newDescription = $currentDescription;
+                }
+                
+                $sql = "UPDATE bb_booking SET active = 0, description = :description WHERE id = :booking_id";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    'booking_id' => $bookingId,
+                    'description' => $newDescription
+                ]);
+            } else {
+                // No description field, just set active = 0
+                $sql = "UPDATE bb_booking SET active = 0 WHERE id = :booking_id";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute(['booking_id' => $bookingId]);
+            }
+            
+            $this->logger->info('Successfully cancelled booking from Outlook', [
+                'booking_id' => $bookingId,
+                'description_updated' => $hasDescription
+            ]);
             
             return ['success' => true];
         } catch (\Exception $e) {
+            $this->logger->error('Failed to cancel booking', [
+                'booking_id' => $bookingId,
+                'error' => $e->getMessage()
+            ]);
+            
             return [
                 'success' => false,
                 'error' => $e->getMessage()
@@ -371,7 +445,7 @@ class CancellationService
     }
 
     /**
-     * Cancel an allocation (set active = 0)
+     * Cancel an allocation (set active = 0 and update description)
      * 
      * @param int $allocationId
      * @return array
@@ -379,12 +453,57 @@ class CancellationService
     private function cancelAllocation($allocationId)
     {
         try {
-            $sql = "UPDATE bb_allocation SET active = 0 WHERE id = :allocation_id";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(['allocation_id' => $allocationId]);
+            // Check if bb_allocation table has a description field
+            $checkColumnSql = "
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'bb_allocation' AND column_name = 'description'
+            ";
+            $checkStmt = $this->db->prepare($checkColumnSql);
+            $checkStmt->execute();
+            $hasDescription = $checkStmt->fetch() !== false;
+            
+            if ($hasDescription) {
+                // Get current description and update it
+                $selectSql = "SELECT description FROM bb_allocation WHERE id = :allocation_id";
+                $selectStmt = $this->db->prepare($selectSql);
+                $selectStmt->execute(['allocation_id' => $allocationId]);
+                $result = $selectStmt->fetch(PDO::FETCH_ASSOC);
+                
+                $currentDescription = $result['description'] ?? '';
+                $cancellationNote = "\n\n--- Cancelled from Outlook ---";
+                
+                if (!str_contains($currentDescription, 'Cancelled from Outlook')) {
+                    $newDescription = $currentDescription . $cancellationNote;
+                } else {
+                    $newDescription = $currentDescription;
+                }
+                
+                $sql = "UPDATE bb_allocation SET active = 0, description = :description WHERE id = :allocation_id";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    'allocation_id' => $allocationId,
+                    'description' => $newDescription
+                ]);
+            } else {
+                // No description field, just set active = 0
+                $sql = "UPDATE bb_allocation SET active = 0 WHERE id = :allocation_id";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute(['allocation_id' => $allocationId]);
+            }
+            
+            $this->logger->info('Successfully cancelled allocation from Outlook', [
+                'allocation_id' => $allocationId,
+                'description_updated' => $hasDescription
+            ]);
             
             return ['success' => true];
         } catch (\Exception $e) {
+            $this->logger->error('Failed to cancel allocation', [
+                'allocation_id' => $allocationId,
+                'error' => $e->getMessage()
+            ]);
+            
             return [
                 'success' => false,
                 'error' => $e->getMessage()

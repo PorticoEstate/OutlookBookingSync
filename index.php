@@ -159,4 +159,37 @@ $app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\Ca
 // Get statistics about cancellation detection process
 $app->get('/cancel/detection-stats', [\App\Controller\CancellationController::class, 'getDetectionStats']);
 
+// Webhook routes for real-time Outlook change notifications
+
+// Handle incoming webhook notifications from Microsoft Graph
+$app->post('/webhook/outlook-notifications', [\App\Controller\WebhookController::class, 'handleOutlookNotification']);
+
+// Create webhook subscriptions for all room calendars
+$app->post('/webhook/create-subscriptions', [\App\Controller\WebhookController::class, 'createWebhookSubscriptions']);
+
+// Renew expiring webhook subscriptions
+$app->post('/webhook/renew-subscriptions', [\App\Controller\WebhookController::class, 'renewWebhookSubscriptions']);
+
+// Get webhook subscription statistics
+$app->get('/webhook/stats', [\App\Controller\WebhookController::class, 'getWebhookStats']);
+
+// Outlook polling routes for change detection (alternative to webhooks)
+
+// Initialize polling state for all room calendars
+$app->post('/polling/initialize', [\App\Controller\OutlookPollingController::class, 'initializePolling']);
+
+// Poll all Outlook calendars for changes - main polling endpoint
+$app->post('/polling/poll-changes', [\App\Controller\OutlookPollingController::class, 'pollForChanges']);
+
+// Detect missing events by checking if mapped events still exist in Outlook
+$app->post('/polling/detect-missing-events', [\App\Controller\OutlookPollingController::class, 'detectMissingEvents']);
+
+// Get polling statistics and health status
+$app->get('/polling/stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
+
+// Legacy routes for backward compatibility
+$app->post('/outlook/poll-changes', [\App\Controller\OutlookPollingController::class, 'pollForChanges']);
+$app->post('/outlook/detect-missing-events', [\App\Controller\OutlookPollingController::class, 'detectMissingEvents']);
+$app->get('/outlook/polling-stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
+
 $app->run();
