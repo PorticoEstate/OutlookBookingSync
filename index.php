@@ -5,6 +5,8 @@ use Slim\Factory\AppFactory;
 use DI\Container;
 use Dotenv\Dotenv;
 use App\Middleware\ApiKeyMiddleware;
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
 
 
 // Load environment variables
@@ -46,6 +48,14 @@ $container->set(\App\Controller\SyncController::class, function () {
 
 $container->set(\App\Controller\SyncMappingController::class, function () {
 	return new \App\Controller\SyncMappingController();
+});
+
+$container->set(\App\Controller\HealthController::class, function () use ($container) {
+	return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
+});
+
+$container->set(\App\Controller\AlertController::class, function () use ($container) {
+	return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
 });
 
 AppFactory::setContainer($container);
@@ -186,5 +196,45 @@ $app->post('/polling/detect-missing-events', [\App\Controller\OutlookPollingCont
 
 // Get polling statistics and health status
 $app->get('/polling/stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
+
+// Health monitoring and dashboard routes
+
+// Quick health check for load balancers
+$app->get('/health', [\App\Controller\HealthController::class, 'getQuickHealth']);
+
+// Comprehensive system health check
+$app->get('/health/system', [\App\Controller\HealthController::class, 'getSystemHealth']);
+
+// Dashboard data endpoint
+$app->get('/health/dashboard', [\App\Controller\HealthController::class, 'getDashboardData']);
+
+// Alert monitoring routes
+
+// Run alert checks
+$app->post('/alerts/check', [\App\Controller\AlertController::class, 'runAlertChecks']);
+
+// Get recent alerts
+$app->get('/alerts', [\App\Controller\AlertController::class, 'getRecentAlerts']);
+
+// Get alert statistics
+$app->get('/alerts/stats', [\App\Controller\AlertController::class, 'getAlertStats']);
+
+// Acknowledge an alert
+$app->post('/alerts/{id}/acknowledge', [\App\Controller\AlertController::class, 'acknowledgeAlert']);
+
+// Clear old alerts
+$app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAlerts']);
+
+// Serve the monitoring dashboard HTML
+$app->get('/dashboard', function (Request $request, Response $response, $args) {
+    $dashboardPath = __DIR__ . '/public/dashboard.html';
+    if (file_exists($dashboardPath)) {
+        $response->getBody()->write(file_get_contents($dashboardPath));
+        return $response->withHeader('Content-Type', 'text/html');
+    } else {
+        $response->getBody()->write('<h1>Dashboard Not Found</h1><p>The monitoring dashboard is not available.</p>');
+        return $response->withHeader('Content-Type', 'text/html')->withStatus(404);
+    }
+});
 
 $app->run();

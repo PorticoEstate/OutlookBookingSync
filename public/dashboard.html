@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OutlookBookingSync - Monitoring Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-healthy {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .status-critical {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-degraded {
+            background-color: #ffeaa7;
+            color: #8b7500;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 500;
+            color: #555;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .overview-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .error-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .error-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background-color: #fff5f5;
+            border-left: 4px solid #e53e3e;
+            border-radius: 4px;
+        }
+
+        .error-message {
+            font-weight: 500;
+            color: #e53e3e;
+            margin-bottom: 5px;
+        }
+
+        .error-details {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .activity-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .activity-header {
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+
+        .activity-details {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .refresh-info {
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        .icon {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .overview-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>OutlookBookingSync</h1>
+        <p>Real-time Monitoring Dashboard</p>
+    </header>
+
+    <div class="container">
+        <div class="refresh-info">
+            <span id="lastUpdate">Loading...</span> | Auto-refresh every 30 seconds
+        </div>
+
+        <div id="systemOverview" class="overview-stats">
+            <div class="loading">Loading system overview</div>
+        </div>
+
+        <div id="dashboardContent" class="dashboard-grid">
+            <div class="loading">Loading dashboard data</div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+        
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`Error fetching ${endpoint}:`, error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        function getStatusBadge(status) {
+            return `<span class="status-badge status-${status}">${status}</span>`;
+        }
+
+        function formatTimestamp(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
+
+        function renderSystemOverview(data) {
+            if (!data.success || !data.dashboard) {
+                return '<div class="stat-box"><div class="stat-number">ERROR</div><div class="stat-label">System Data</div></div>';
+            }
+
+            const overview = data.dashboard.system_overview;
+            return `
+                <div class="stat-box">
+                    <div class="stat-number">${overview.total_mappings || 0}</div>
+                    <div class="stat-label">Total Mappings</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">${overview.synced_count || 0}</div>
+                    <div class="stat-label">Synced</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">${overview.pending_count || 0}</div>
+                    <div class="stat-label">Pending</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">${overview.error_count || 0}</div>
+                    <div class="stat-label">Errors</div>
+                </div>
+            `;
+        }
+
+        function renderHealthChecks(healthData) {
+            if (!healthData.success || !healthData.health) {
+                return '<div class="card"><h3>❌ Health Check Failed</h3><p>Unable to retrieve health data</p></div>';
+            }
+
+            const health = healthData.health;
+            const checks = health.checks;
+
+            let html = `
+                <div class="card">
+                    <h3>🏥 System Health ${getStatusBadge(health.status)}</h3>
+                    <div class="metric">
+                        <span class="metric-label">Last Check</span>
+                        <span class="metric-value">${formatTimestamp(health.timestamp)}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">System Uptime</span>
+                        <span class="metric-value">${health.uptime}</span>
+                    </div>
+                </div>
+            `;
+
+            // Database Health
+            if (checks.database) {
+                html += `
+                    <div class="card">
+                        <h3>🗄️ Database ${getStatusBadge(checks.database.status)}</h3>
+                        <div class="metric">
+                            <span class="metric-label">Response Time</span>
+                            <span class="metric-value">${checks.database.response_time_ms || 'N/A'}ms</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Total Mappings</span>
+                            <span class="metric-value">${checks.database.total_mappings || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Active Queries</span>
+                            <span class="metric-value">${checks.database.active_queries || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Cron Jobs Health
+            if (checks.cron_jobs) {
+                html += `
+                    <div class="card">
+                        <h3>⏰ Cron Jobs ${getStatusBadge(checks.cron_jobs.status)}</h3>
+                        <div class="metric">
+                            <span class="metric-label">Daemon Running</span>
+                            <span class="metric-value">${checks.cron_jobs.cron_daemon_running ? '✅ Yes' : '❌ No'}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Recent Automated Syncs</span>
+                            <span class="metric-value">${checks.cron_jobs.recent_automated_syncs || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Last Automated Sync</span>
+                            <span class="metric-value">${checks.cron_jobs.last_automated_sync ? formatTimestamp(checks.cron_jobs.last_automated_sync) : 'None'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // System Resources
+            if (checks.memory_usage && checks.disk_space) {
+                html += `
+                    <div class="card">
+                        <h3>💾 System Resources</h3>
+                        <div class="metric">
+                            <span class="metric-label">Memory Usage</span>
+                            <span class="metric-value">${checks.memory_usage.usage_percent || 0}% (${checks.memory_usage.current_usage_mb || 0}MB)</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Disk Usage</span>
+                            <span class="metric-value">${checks.disk_space.usage_percent || 0}% (${checks.disk_space.free_space_gb || 0}GB free)</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return html;
+        }
+
+        function renderSyncStatus(dashboardData) {
+            if (!dashboardData.success || !dashboardData.dashboard) {
+                return '<div class="card"><h3>📊 Sync Status</h3><p>Unable to retrieve sync data</p></div>';
+            }
+
+            const dashboard = dashboardData.dashboard;
+            let html = '';
+
+            // Recent Activity
+            if (dashboard.recent_activity && dashboard.recent_activity.length > 0) {
+                html += `
+                    <div class="card">
+                        <h3>📈 Recent Activity</h3>
+                        <div class="activity-list">
+                `;
+                
+                dashboard.recent_activity.slice(0, 10).forEach(activity => {
+                    const statusColor = activity.sync_status === 'synced' ? '#28a745' : 
+                                       activity.sync_status === 'error' ? '#dc3545' : '#ffc107';
+                    html += `
+                        <div class="activity-item" style="border-left-color: ${statusColor}">
+                            <div class="activity-header">
+                                ${activity.reservation_type} - ${activity.sync_direction} - ${activity.sync_status}
+                            </div>
+                            <div class="activity-details">
+                                ${formatTimestamp(activity.updated_at)}
+                                ${activity.error_message ? `<br>Error: ${activity.error_message}` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Error Summary
+            if (dashboard.error_summary && dashboard.error_summary.length > 0) {
+                html += `
+                    <div class="card">
+                        <h3>🚨 Recent Errors (24h)</h3>
+                        <div class="error-list">
+                `;
+                
+                dashboard.error_summary.forEach(error => {
+                    html += `
+                        <div class="error-item">
+                            <div class="error-message">${error.error_message}</div>
+                            <div class="error-details">
+                                Count: ${error.error_count} | Last: ${formatTimestamp(error.last_occurrence)}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Performance Metrics
+            if (dashboard.performance_metrics) {
+                const perf = dashboard.performance_metrics;
+                html += `
+                    <div class="card">
+                        <h3>⚡ Performance Metrics</h3>
+                        <div class="metric">
+                            <span class="metric-label">Current Memory</span>
+                            <span class="metric-value">${perf.memory_usage?.current_mb || 0}MB</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Peak Memory</span>
+                            <span class="metric-value">${perf.memory_usage?.peak_mb || 0}MB</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">DB Connections</span>
+                            <span class="metric-value">${perf.database_connections || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Syncs/Hour</span>
+                            <span class="metric-value">${perf.sync_throughput?.syncs_last_hour || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return html;
+        }
+
+        async function loadDashboard() {
+            try {
+                document.getElementById('lastUpdate').textContent = 'Loading...';
+                
+                // Fetch health and dashboard data in parallel
+                const [healthData, dashboardData] = await Promise.all([
+                    fetchData('/health/system'),
+                    fetchData('/health/dashboard')
+                ]);
+
+                // Update system overview
+                document.getElementById('systemOverview').innerHTML = renderSystemOverview(dashboardData);
+
+                // Update dashboard content
+                let dashboardHTML = renderHealthChecks(healthData);
+                dashboardHTML += renderSyncStatus(dashboardData);
+                
+                document.getElementById('dashboardContent').innerHTML = dashboardHTML;
+                
+                document.getElementById('lastUpdate').textContent = `Last updated: ${formatTimestamp(new Date())}`;
+                
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                document.getElementById('dashboardContent').innerHTML = `
+                    <div class="card">
+                        <h3>❌ Error Loading Dashboard</h3>
+                        <p>Unable to load dashboard data: ${error.message}</p>
+                        <p>Please check the API endpoints and try again.</p>
+                    </div>
+                `;
+                document.getElementById('lastUpdate').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboard();
+            
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(loadDashboard, 30000);
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>
