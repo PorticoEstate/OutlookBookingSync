@@ -67,43 +67,93 @@ $app->add(function ($request, $handler) use ($container) {
 });
 
 // Register routes
+
+// Get resource to Outlook calendar mapping information
 $app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
+
+// Get available Outlook room calendars
 $app->get('/outlook/available-rooms', [\App\Controller\OutlookController::class, 'getAvailableRooms']);
+
+// Get available Outlook distribution groups
 $app->get('/outlook/available-groups', [\App\Controller\OutlookController::class, 'getAvailableGroups']);
+
+// Get calendar items for a specific user
 $app->get('/outlook/users/{userId}/calendar-items', [\App\Controller\OutlookController::class, 'getUserCalendarItems']);
 
 // Sync mapping routes
+
+// Populate mapping table with booking system items (create sync mappings)
 $app->post('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
 $app->get('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
+
+// Get items pending synchronization to Outlook
 $app->get('/sync/pending-items', [\App\Controller\SyncMappingController::class, 'getPendingItems']);
+
+// Clean up orphaned mappings (remove mappings for deleted calendar items)
 $app->delete('/sync/cleanup-orphaned', [\App\Controller\SyncMappingController::class, 'cleanupOrphaned']);
+
+// Get comprehensive sync statistics with directional tracking
 $app->get('/sync/stats', [\App\Controller\SyncMappingController::class, 'getStats']);
 
-// Outlook sync routes
+// Outlook sync routes (Booking System → Outlook)
+
+// Sync pending booking system items to Outlook calendars
 $app->post('/sync/to-outlook', [\App\Controller\SyncController::class, 'syncToOutlook']);
+
+// Sync a specific booking system item to Outlook
 $app->post('/sync/item/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\SyncController::class, 'syncSpecificItem']);
+
+// Get sync status summary (legacy endpoint)
 $app->get('/sync/status', [\App\Controller\SyncController::class, 'getSyncStatus']);
 
 // Reverse sync routes (Outlook → Booking System)
+
+// Get Outlook events that aren't in the booking system
 $app->get('/sync/outlook-events', [\App\Controller\SyncController::class, 'getOutlookEvents']);
+
+// Import Outlook events to mapping table for processing
 $app->post('/sync/from-outlook', [\App\Controller\SyncController::class, 'populateFromOutlook']);
 
 // Booking system integration routes
+
+// Convert imported Outlook events to complete booking system entries
 $app->post('/booking/process-imports', [\App\Controller\BookingSystemController::class, 'processImportedEvents']);
+
+// Get statistics about import processing operations
 $app->get('/booking/processing-stats', [\App\Controller\BookingSystemController::class, 'getProcessingStats']);
+
+// Get Outlook events awaiting conversion to booking entries
 $app->get('/booking/pending-imports', [\App\Controller\BookingSystemController::class, 'getPendingImports']);
+
+// Get successfully processed imports with reservation IDs
 $app->get('/booking/processed-imports', [\App\Controller\BookingSystemController::class, 'getProcessedImports']);
 
 // Cancellation routes
+
+// Cancel a specific booking system reservation and its Outlook event
 $app->delete('/cancel/reservation/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\CancellationController::class, 'cancelReservation']);
+
+// Cancel a specific Outlook event and update booking system
 $app->delete('/cancel/outlook-event/{outlookEventId}', [\App\Controller\CancellationController::class, 'cancelOutlookEvent']);
+
+// Process multiple cancellations in bulk
 $app->post('/cancel/bulk', [\App\Controller\CancellationController::class, 'processBulkCancellations']);
+
+// Get comprehensive cancellation statistics
 $app->get('/cancel/stats', [\App\Controller\CancellationController::class, 'getCancellationStats']);
+
+// Get list of all cancelled reservations
 $app->get('/cancel/cancelled-reservations', [\App\Controller\CancellationController::class, 'getCancelledReservations']);
 
 // Cancellation detection routes
+
+// Automatically detect and process cancelled reservations
 $app->post('/cancel/detect', [\App\Controller\CancellationController::class, 'detectCancellations']);
+
+// Check if a specific reservation is cancelled
 $app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\CancellationController::class, 'checkReservationStatus']);
+
+// Get statistics about cancellation detection process
 $app->get('/cancel/detection-stats', [\App\Controller\CancellationController::class, 'getDetectionStats']);
 
 $app->run();
