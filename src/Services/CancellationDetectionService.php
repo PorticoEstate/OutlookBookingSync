@@ -35,7 +35,10 @@ class CancellationDetectionService
             'errors' => [],
             'cancelled_events' => [],
             'cancelled_bookings' => [],
-            'cancelled_allocations' => []
+            'cancelled_allocations' => [],
+            'reenabled_events' => [],
+            'reenabled_bookings' => [],
+            'reenabled_allocations' => []
         ];
 
         try {
@@ -54,6 +57,21 @@ class CancellationDetectionService
             $results['cancelled_allocations'] = $cancelledAllocations;
             $results['detected'] += count($cancelledAllocations);
 
+            // Detect re-enabled events
+            $reenabledEvents = $this->detectReenabledEvents();
+            $results['reenabled_events'] = $reenabledEvents;
+            $results['detected'] += count($reenabledEvents);
+
+            // Detect re-enabled bookings
+            $reenabledBookings = $this->detectReenabledBookings();
+            $results['reenabled_bookings'] = $reenabledBookings;
+            $results['detected'] += count($reenabledBookings);
+
+            // Detect re-enabled allocations
+            $reenabledAllocations = $this->detectReenabledAllocations();
+            $results['reenabled_allocations'] = $reenabledAllocations;
+            $results['detected'] += count($reenabledAllocations);
+
             // Process each detected cancellation
             foreach ($cancelledEvents as $event) {
                 $this->processCancellation('event', $event, $results);
@@ -67,7 +85,20 @@ class CancellationDetectionService
                 $this->processCancellation('allocation', $allocation, $results);
             }
 
-            $this->logger->info('Completed cancellation detection', $results);
+            // Process each detected re-enable
+            foreach ($reenabledEvents as $event) {
+                $this->processReenabling('event', $event, $results);
+            }
+
+            foreach ($reenabledBookings as $booking) {
+                $this->processReenabling('booking', $booking, $results);
+            }
+
+            foreach ($reenabledAllocations as $allocation) {
+                $this->processReenabling('allocation', $allocation, $results);
+            }
+
+            $this->logger->info('Completed cancellation and re-enable detection', $results);
 
         } catch (\Exception $e) {
             $results['errors'][] = 'Detection failed: ' . $e->getMessage();
@@ -411,5 +442,226 @@ class CancellationDetectionService
         }
 
         return $results;
+    }
+
+    /**
+     * Detect re-enabled reservations that need to be re-synced to Outlook
+     * These are reservations that are now active but have cancelled sync status
+     * 
+     * @return array Results of re-enable detection and processing
+     */
+    public function detectAndProcessReenabledReservations()
+    {
+        $results = [
+            'detected' => 0,
+            'processed' => 0,
+            'errors' => [],
+            'reenabled_events' => [],
+            'reenabled_bookings' => [],
+            'reenabled_allocations' => []
+        ];
+
+        try {
+            // Detect re-enabled events
+            $reenabledEvents = $this->detectReenabledEvents();
+            $results['reenabled_events'] = $reenabledEvents;
+            $results['detected'] += count($reenabledEvents);
+
+            // Detect re-enabled bookings
+            $reenabledBookings = $this->detectReenabledBookings();
+            $results['reenabled_bookings'] = $reenabledBookings;
+            $results['detected'] += count($reenabledBookings);
+
+            // Detect re-enabled allocations
+            $reenabledAllocations = $this->detectReenabledAllocations();
+            $results['reenabled_allocations'] = $reenabledAllocations;
+            $results['detected'] += count($reenabledAllocations);
+
+            // Process each detected re-enable
+            foreach ($reenabledEvents as $event) {
+                $this->processReenabling('event', $event, $results);
+            }
+
+            foreach ($reenabledBookings as $booking) {
+                $this->processReenabling('booking', $booking, $results);
+            }
+
+            foreach ($reenabledAllocations as $allocation) {
+                $this->processReenabling('allocation', $allocation, $results);
+            }
+
+            $this->logger->info('Completed re-enable detection', $results);
+
+        } catch (\Exception $e) {
+            $results['errors'][] = 'Re-enable detection failed: ' . $e->getMessage();
+            $this->logger->error('Error in re-enable detection', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+
+        return $results;
+    }
+
+    /**
+     * Detect re-enabled events (active = 1) that have cancelled sync mappings
+     * 
+     * @return array
+     */
+    private function detectReenabledEvents()
+    {
+        $sql = "
+            SELECT 
+                e.id,
+                e.name,
+                e.active,
+                m.resource_id,
+                m.id as mapping_id,
+                m.outlook_event_id,
+                m.sync_status
+            FROM bb_event e
+            INNER JOIN outlook_calendar_mapping m ON (
+                m.reservation_type = 'event' 
+                AND m.reservation_id = e.id
+                AND m.sync_status = 'cancelled'
+            )
+            WHERE e.active = 1
+        ";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Detect re-enabled bookings (active = 1) that have cancelled sync mappings
+     * 
+     * @return array
+     */
+    private function detectReenabledBookings()
+    {
+        $sql = "
+            SELECT 
+                b.id,
+                b.active,
+                m.resource_id,
+                m.id as mapping_id,
+                m.outlook_event_id,
+                m.sync_status
+            FROM bb_booking b
+            INNER JOIN outlook_calendar_mapping m ON (
+                m.reservation_type = 'booking' 
+                AND m.reservation_id = b.id
+                AND m.sync_status = 'cancelled'
+            )
+            WHERE b.active = 1
+        ";
+
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Exception $e) {
+            $this->logger->warning('bb_booking table may not exist', [
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Detect re-enabled allocations (active = 1) that have cancelled sync mappings
+     * 
+     * @return array
+     */
+    private function detectReenabledAllocations()
+    {
+        $sql = "
+            SELECT 
+                a.id,
+                a.active,
+                m.resource_id,
+                m.id as mapping_id,
+                m.outlook_event_id,
+                m.sync_status
+            FROM bb_allocation a
+            INNER JOIN outlook_calendar_mapping m ON (
+                m.reservation_type = 'allocation' 
+                AND m.reservation_id = a.id
+                AND m.sync_status = 'cancelled'
+            )
+            WHERE a.active = 1
+        ";
+
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Exception $e) {
+            $this->logger->warning('bb_allocation table may not exist', [
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Process a detected re-enabling by resetting sync status to pending
+     * 
+     * @param string $type
+     * @param array $item
+     * @param array &$results
+     */
+    private function processReenabling($type, $item, &$results)
+    {
+        try {
+            $this->logger->info('Processing re-enabled reservation', [
+                'type' => $type,
+                'id' => $item['id'],
+                'resource_id' => $item['resource_id']
+            ]);
+
+            // Reset mapping to pending status and clear old Outlook event ID
+            $sql = "
+                UPDATE outlook_calendar_mapping 
+                SET 
+                    sync_status = 'pending',
+                    outlook_event_id = NULL,
+                    error_message = NULL,
+                    updated_at = NOW()
+                WHERE id = :mapping_id
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(['mapping_id' => $item['mapping_id']]);
+
+            if ($stmt->rowCount() > 0) {
+                $results['processed']++;
+                $this->logger->info('Successfully reset mapping for re-sync', [
+                    'mapping_id' => $item['mapping_id'],
+                    'type' => $type,
+                    'id' => $item['id']
+                ]);
+            } else {
+                $results['errors'][] = [
+                    'type' => $type,
+                    'id' => $item['id'],
+                    'error' => 'Failed to update mapping status'
+                ];
+            }
+
+        } catch (\Exception $e) {
+            $results['errors'][] = [
+                'type' => $type,
+                'id' => $item['id'],
+                'error' => $e->getMessage()
+            ];
+            
+            $this->logger->error('Error processing re-enable', [
+                'type' => $type,
+                'id' => $item['id'],
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

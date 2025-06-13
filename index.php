@@ -150,6 +150,9 @@ $app->get('/cancel/cancelled-reservations', [\App\Controller\CancellationControl
 // Automatically detect and process cancelled reservations
 $app->post('/cancel/detect', [\App\Controller\CancellationController::class, 'detectCancellations']);
 
+// Automatically detect and process re-enabled reservations (reset to pending for sync)
+$app->post('/cancel/detect-reenabled', [\App\Controller\CancellationController::class, 'detectReenabled']);
+
 // Check if a specific reservation is cancelled
 $app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\CancellationController::class, 'checkReservationStatus']);
 
