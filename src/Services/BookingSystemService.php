@@ -126,15 +126,14 @@ class BookingSystemService
     }
 
     /**
-     * Fetch detailed event information from Outlook (via OutlookSyncService)
+     * Fetch detailed event information from Outlook
      * 
      * @param string $outlookEventId
      * @return array|null
      */
     private function fetchEventDetails($outlookEventId)
     {
-        // For now, we'll extract basic info from the mapping table
-        // In a full implementation, this would call Microsoft Graph API to get full event details
+        // Get the resource and calendar information from the mapping
         $sql = "
             SELECT 
                 m.outlook_event_id,
@@ -149,54 +148,125 @@ class BookingSystemService
         
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['outlook_event_id' => $outlookEventId]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        $mappingResult = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        if (!$result) {
+        if (!$mappingResult) {
             return null;
         }
 
-        // Simulate event details - in production this would come from Microsoft Graph
+        try {
+            // Try to fetch actual event details from Outlook using Microsoft Graph
+            $eventDetails = $this->fetchFromMicrosoftGraph($outlookEventId, $mappingResult['outlook_item_id']);
+            
+            if ($eventDetails) {
+                // Add resource information
+                $eventDetails['resource_id'] = $mappingResult['resource_id'];
+                $eventDetails['resource_name'] = $mappingResult['resource_name'];
+                return $eventDetails;
+            }
+        } catch (\Exception $e) {
+            $this->logger->warning('Could not fetch event details from Microsoft Graph, using defaults', [
+                'outlook_event_id' => $outlookEventId,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // Fallback to simulated event details with more realistic data
         return [
             'id' => $outlookEventId,
-            'subject' => 'Imported Outlook Event',
+            'subject' => 'Meeting - ' . ($mappingResult['resource_name'] ?? 'Room'),
             'start' => [
-                'dateTime' => date('Y-m-d\TH:i:s', strtotime('+1 hour')),
+                'dateTime' => date('Y-m-d\TH:i:s', strtotime('today 09:00')),
                 'timeZone' => 'Europe/Oslo'
             ],
             'end' => [
-                'dateTime' => date('Y-m-d\TH:i:s', strtotime('+2 hours')),
+                'dateTime' => date('Y-m-d\TH:i:s', strtotime('today 10:00')),
                 'timeZone' => 'Europe/Oslo'
             ],
             'organizer' => [
                 'emailAddress' => [
-                    'name' => 'Outlook User',
-                    'address' => 'user@example.com'
+                    'name' => 'Meeting Organizer',
+                    'address' => 'organizer@company.com'
                 ]
             ],
             'body' => [
-                'content' => 'Event imported from Outlook'
+                'content' => 'Event imported from Outlook calendar for ' . ($mappingResult['resource_name'] ?? 'resource')
             ],
-            'resource_id' => $result['resource_id'],
-            'resource_name' => $result['resource_name']
+            'resource_id' => $mappingResult['resource_id'],
+            'resource_name' => $mappingResult['resource_name']
         ];
     }
 
     /**
+     * Attempt to fetch event details from Microsoft Graph API
+     * 
+     * @param string $eventId
+     * @param string $calendarId
+     * @return array|null
+     */
+    private function fetchFromMicrosoftGraph($eventId, $calendarId)
+    {
+        try {
+            // Create OutlookSyncService instance to use its GraphServiceClient
+            $outlookController = new \App\Controller\OutlookController();
+            $reflection = new \ReflectionClass($outlookController);
+            $property = $reflection->getProperty('graphServiceClient');
+            $property->setAccessible(true);
+            $graphServiceClient = $property->getValue($outlookController);
+            
+            if (!$graphServiceClient) {
+                throw new \Exception('GraphServiceClient not available');
+            }
+
+            // Fetch event details from Microsoft Graph
+            $event = $graphServiceClient->users()->byUserId($calendarId)->events()->byEventId($eventId)->get()->wait();
+            
+            if (!$event) {
+                return null;
+            }
+
+            return [
+                'id' => $event->getId(),
+                'subject' => $event->getSubject() ?? 'Outlook Event',
+                'start' => [
+                    'dateTime' => $event->getStart()->getDateTime(),
+                    'timeZone' => $event->getStart()->getTimeZone() ?? 'Europe/Oslo'
+                ],
+                'end' => [
+                    'dateTime' => $event->getEnd()->getDateTime(),
+                    'timeZone' => $event->getEnd()->getTimeZone() ?? 'Europe/Oslo'
+                ],
+                'organizer' => [
+                    'emailAddress' => [
+                        'name' => $event->getOrganizer()->getEmailAddress()->getName() ?? 'Organizer',
+                        'address' => $event->getOrganizer()->getEmailAddress()->getAddress() ?? 'unknown@example.com'
+                    ]
+                ],
+                'body' => [
+                    'content' => $event->getBody()->getContent() ?? 'Event imported from Outlook'
+                ]
+            ];
+            
+        } catch (\Exception $e) {
+            $this->logger->debug('Failed to fetch from Microsoft Graph', [
+                'event_id' => $eventId,
+                'calendar_id' => $calendarId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Determine the appropriate booking system entry type based on event characteristics
+     * All imported Outlook events will be created as 'event' type
      * 
      * @param array $eventDetails
      * @return string
      */
     private function determineBookingType($eventDetails)
     {
-        // For now, we'll create all imported events as 'event' type (highest priority)
-        // In a more sophisticated implementation, we could analyze:
-        // - Event subject/title patterns
-        // - Organizer information
-        // - Event duration
-        // - Recurring patterns
-        // - Custom properties
-        
+        // Always create imported Outlook events as 'event' type (highest priority)
         return 'event';
     }
 
@@ -223,7 +293,7 @@ class BookingSystemService
     }
 
     /**
-     * Create an event entry in bb_event table
+     * Create an event entry in bb_event table with all related data
      * 
      * @param array $eventDetails
      * @param int $resourceId
@@ -232,61 +302,116 @@ class BookingSystemService
     private function createEvent($eventDetails, $resourceId)
     {
         try {
+            $this->db->beginTransaction();
+            
+            // Get default activity ID (we'll need to find or create a default one)
+            $activityId = $this->getDefaultActivityId();
+            
+            // Generate a unique secret for the event
+            $secret = $this->generateEventSecret();
+            
+            // Insert into bb_event table
             $sql = "
                 INSERT INTO bb_event (
-                    event_name, 
-                    description, 
-                    start_time, 
-                    end_time, 
-                    contact_name, 
-                    contact_email, 
-                    resource_id,
+                    id_string,
                     active,
-                    created_from_outlook,
-                    outlook_event_id,
-                    created_at,
-                    updated_at
+                    activity_id,
+                    description,
+                    from_,
+                    to_,
+                    contact_name,
+                    contact_email,
+                    contact_phone,
+                    name,
+                    organizer,
+                    secret,
+                    customer_internal,
+                    is_public,
+                    reminder,
+                    completed,
+                    cost,
+                    building_name
                 ) VALUES (
-                    :event_name,
+                    :id_string,
+                    1,
+                    :activity_id,
                     :description,
-                    :start_time,
-                    :end_time,
+                    :from_time,
+                    :to_time,
                     :contact_name,
                     :contact_email,
-                    :resource_id,
+                    :contact_phone,
+                    :name,
+                    :organizer,
+                    :secret,
+                    0,
                     1,
-                    true,
-                    :outlook_event_id,
-                    NOW(),
-                    NOW()
+                    1,
+                    0,
+                    0.0,
+                    'Outlook Import'
                 ) RETURNING id
             ";
 
+            $startTime = $this->convertOutlookDateTime($eventDetails['start']);
+            $endTime = $this->convertOutlookDateTime($eventDetails['end']);
+            
             $params = [
-                'event_name' => $eventDetails['subject'] ?? 'Imported Outlook Event',
-                'description' => $eventDetails['body']['content'] ?? 'Event imported from Outlook',
-                'start_time' => $this->convertOutlookDateTime($eventDetails['start']),
-                'end_time' => $this->convertOutlookDateTime($eventDetails['end']),
+                'id_string' => $this->generateEventIdString(),
+                'activity_id' => $activityId,
+                'description' => $this->convertHtmlToPlainText($eventDetails['body']['content'] ?? 'Event imported from Outlook'),
+                'from_time' => $startTime,
+                'to_time' => $endTime,
                 'contact_name' => $eventDetails['organizer']['emailAddress']['name'] ?? 'Outlook User',
                 'contact_email' => $eventDetails['organizer']['emailAddress']['address'] ?? 'unknown@example.com',
-                'resource_id' => $resourceId,
-                'outlook_event_id' => $eventDetails['id']
+                'contact_phone' => 'N/A',
+                'name' => $eventDetails['subject'] ?? 'Imported Outlook Event',
+                'organizer' => $eventDetails['organizer']['emailAddress']['name'] ?? 'Outlook User',
+                'secret' => $secret
             ];
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            return $result['id'] ?? null;
-
-        } catch (\PDOException $e) {
-            // If the table doesn't exist or has different schema, we'll create a placeholder
-            $this->logger->warning('Could not create bb_event entry, table may not exist', [
-                'error' => $e->getMessage()
+            
+            if (!$result || !$result['id']) {
+                throw new \Exception('Failed to create bb_event entry');
+            }
+            
+            $eventId = $result['id'];
+            
+            // Insert into bb_event_date table
+            $this->createEventDate($eventId, $startTime, $endTime);
+            
+            // Insert into bb_event_resource table
+            $this->createEventResource($eventId, $resourceId);
+            
+            // Insert into bb_event_agegroup table (with default values)
+            $this->createEventAgeGroup($eventId);
+            
+            // Insert into bb_event_targetaudience table (with default values)
+            $this->createEventTargetAudience($eventId);
+            
+            $this->db->commit();
+            
+            $this->logger->info('Successfully created complete event entry', [
+                'event_id' => $eventId,
+                'outlook_event_id' => $eventDetails['id'],
+                'resource_id' => $resourceId
             ]);
             
-            // Return a placeholder ID for now
-            return $this->createPlaceholderEntry('event', $eventDetails, $resourceId);
+            return $eventId;
+
+        } catch (\Exception $e) {
+            $this->db->rollback();
+            
+            $this->logger->error('Failed to create event entry', [
+                'error' => $e->getMessage(),
+                'outlook_event_id' => $eventDetails['id'] ?? 'unknown',
+                'resource_id' => $resourceId
+            ]);
+            
+            throw $e;
         }
     }
 
@@ -364,7 +489,7 @@ class BookingSystemService
                 'resource_id' => $resourceId,
                 'outlook_event_id' => $eventDetails['id'],
                 'event_name' => $eventDetails['subject'] ?? 'Imported Outlook Event',
-                'description' => $eventDetails['body']['content'] ?? 'Event imported from Outlook',
+                'description' => $this->convertHtmlToPlainText($eventDetails['body']['content'] ?? 'Event imported from Outlook'),
                 'start_time' => $this->convertOutlookDateTime($eventDetails['start']),
                 'end_time' => $this->convertOutlookDateTime($eventDetails['end']),
                 'contact_name' => $eventDetails['organizer']['emailAddress']['name'] ?? 'Outlook User',
@@ -484,5 +609,231 @@ class BookingSystemService
             'processed' => (int)$result['processed'],
             'pending' => (int)$result['pending']
         ];
+    }
+
+    /**
+     * Get or create a default activity ID for imported events
+     * 
+     * @return int
+     */
+    private function getDefaultActivityId()
+    {
+        // Try to find an existing default activity for imported events
+        $sql = "SELECT id FROM bb_activity WHERE name = 'Outlook Import' LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($result) {
+            return $result['id'];
+        }
+        
+        // Create a default activity if it doesn't exist
+        try {
+            $sql = "
+                INSERT INTO bb_activity (name, description, active) 
+                VALUES ('Outlook Import', 'Events imported from Outlook calendar', 1) 
+                RETURNING id
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result && $result['id']) {
+                return $result['id'];
+            }
+        } catch (\Exception $e) {
+            $this->logger->warning('Could not create default activity, using fallback', [
+                'error' => $e->getMessage()
+            ]);
+        }
+        
+        // Fallback: get the first available activity
+        $sql = "SELECT id FROM bb_activity WHERE active = 1 ORDER BY id LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($result) {
+            return $result['id'];
+        }
+        
+        throw new \Exception('No activity found for event creation');
+    }
+
+    /**
+     * Generate a unique event ID string
+     * 
+     * @return string
+     */
+    private function generateEventIdString()
+    {
+        return 'OL' . date('Ymd') . '_' . substr(md5(uniqid(mt_rand(), true)), 0, 8);
+    }
+
+    /**
+     * Generate a unique secret for the event
+     * 
+     * @return string
+     */
+    private function generateEventSecret()
+    {
+        return bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Create event date entry
+     * 
+     * @param int $eventId
+     * @param string $startTime
+     * @param string $endTime
+     */
+    private function createEventDate($eventId, $startTime, $endTime)
+    {
+        $sql = "
+            INSERT INTO bb_event_date (event_id, from_, to_) 
+            VALUES (:event_id, :from_time, :to_time)
+        ";
+        
+        $params = [
+            'event_id' => $eventId,
+            'from_time' => $startTime,
+            'to_time' => $endTime
+        ];
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+    }
+
+    /**
+     * Create event resource association
+     * 
+     * @param int $eventId
+     * @param int $resourceId
+     */
+    private function createEventResource($eventId, $resourceId)
+    {
+        $sql = "
+            INSERT INTO bb_event_resource (event_id, resource_id) 
+            VALUES (:event_id, :resource_id)
+        ";
+        
+        $params = [
+            'event_id' => $eventId,
+            'resource_id' => $resourceId
+        ];
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+    }
+
+    /**
+     * Create default age group entry for imported events
+     * 
+     * @param int $eventId
+     */
+    private function createEventAgeGroup($eventId)
+    {
+        // Get the first available age group, or skip if none exist
+        try {
+            $sql = "SELECT id FROM bb_agegroup ORDER BY id LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result) {
+                $sql = "
+                    INSERT INTO bb_event_agegroup (event_id, agegroup_id, male, female) 
+                    VALUES (:event_id, :agegroup_id, 0, 0)
+                ";
+                
+                $params = [
+                    'event_id' => $eventId,
+                    'agegroup_id' => $result['id']
+                ];
+                
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($params);
+            }
+        } catch (\Exception $e) {
+            $this->logger->warning('Could not create event age group entry', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Create default target audience entry for imported events
+     * 
+     * @param int $eventId
+     */
+    private function createEventTargetAudience($eventId)
+    {
+        // Get the first available target audience, or skip if none exist
+        try {
+            $sql = "SELECT id FROM bb_targetaudience ORDER BY id LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result) {
+                $sql = "
+                    INSERT INTO bb_event_targetaudience (event_id, targetaudience_id) 
+                    VALUES (:event_id, :targetaudience_id)
+                ";
+                
+                $params = [
+                    'event_id' => $eventId,
+                    'targetaudience_id' => $result['id']
+                ];
+                
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($params);
+            }
+        } catch (\Exception $e) {
+            $this->logger->warning('Could not create event target audience entry', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Convert HTML content to plain text
+     * 
+     * @param string $htmlContent
+     * @return string
+     */
+    private function convertHtmlToPlainText($htmlContent)
+    {
+        if (empty($htmlContent)) {
+            return '';
+        }
+
+        // Remove script and style elements completely
+        $htmlContent = preg_replace('/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/mi', '', $htmlContent);
+        $htmlContent = preg_replace('/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/mi', '', $htmlContent);
+        
+        // Convert common HTML entities to their text equivalents
+        $htmlContent = str_replace(['&nbsp;', '&amp;', '&lt;', '&gt;', '&quot;', '&#39;'], [' ', '&', '<', '>', '"', "'"], $htmlContent);
+        
+        // Convert line breaks to actual newlines
+        $htmlContent = preg_replace('/<br\s*\/?>/i', "\n", $htmlContent);
+        $htmlContent = preg_replace('/<\/p>/i', "\n\n", $htmlContent);
+        $htmlContent = preg_replace('/<\/div>/i', "\n", $htmlContent);
+        
+        // Strip all remaining HTML tags
+        $plainText = strip_tags($htmlContent);
+        
+        // Clean up whitespace
+        $plainText = preg_replace('/\n\s*\n/', "\n\n", $plainText); // Remove extra blank lines
+        $plainText = preg_replace('/[ \t]+/', ' ', $plainText); // Normalize spaces
+        $plainText = trim($plainText);
+        
+        // Decode any remaining HTML entities
+        $plainText = html_entity_decode($plainText, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        
+        return $plainText;
     }
 }

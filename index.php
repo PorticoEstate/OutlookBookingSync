@@ -94,4 +94,16 @@ $app->get('/booking/processing-stats', [\App\Controller\BookingSystemController:
 $app->get('/booking/pending-imports', [\App\Controller\BookingSystemController::class, 'getPendingImports']);
 $app->get('/booking/processed-imports', [\App\Controller\BookingSystemController::class, 'getProcessedImports']);
 
+// Cancellation routes
+$app->delete('/cancel/reservation/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\CancellationController::class, 'cancelReservation']);
+$app->delete('/cancel/outlook-event/{outlookEventId}', [\App\Controller\CancellationController::class, 'cancelOutlookEvent']);
+$app->post('/cancel/bulk', [\App\Controller\CancellationController::class, 'processBulkCancellations']);
+$app->get('/cancel/stats', [\App\Controller\CancellationController::class, 'getCancellationStats']);
+$app->get('/cancel/cancelled-reservations', [\App\Controller\CancellationController::class, 'getCancelledReservations']);
+
+// Cancellation detection routes
+$app->post('/cancel/detect', [\App\Controller\CancellationController::class, 'detectCancellations']);
+$app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\CancellationController::class, 'checkReservationStatus']);
+$app->get('/cancel/detection-stats', [\App\Controller\CancellationController::class, 'getDetectionStats']);
+
 $app->run();
