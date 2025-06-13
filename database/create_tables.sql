@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS outlook_calendar_mapping (
     CONSTRAINT unique_outlook_event UNIQUE (outlook_event_id)
 );
 
+-- Add index for performance
+CREATE INDEX IF NOT EXISTS idx_outlook_event_id ON outlook_calendar_mapping(outlook_event_id);
+CREATE INDEX IF NOT EXISTS idx_sync_direction ON outlook_calendar_mapping(sync_direction);
 
 
 -- Sync state tracking
@@ -67,6 +70,19 @@ CREATE TABLE IF NOT EXISTS outlook_webhook_subscriptions (
     -- Ensure one active subscription per calendar
     CONSTRAINT unique_active_calendar UNIQUE (calendar_id, is_active) DEFERRABLE INITIALLY DEFERRED
 );
+
+-- Index for finding expiring subscriptions
+CREATE INDEX IF NOT EXISTS idx_webhook_expires_at ON outlook_webhook_subscriptions(expires_at);
+
+-- Index for looking up by calendar
+CREATE INDEX IF NOT EXISTS idx_webhook_calendar_id ON outlook_webhook_subscriptions(calendar_id);
+
+-- Index for looking up by subscription ID
+CREATE INDEX IF NOT EXISTS idx_webhook_subscription_id ON outlook_webhook_subscriptions(subscription_id);
+
+-- Optional: Add a comment
+COMMENT ON TABLE outlook_webhook_subscriptions IS 'Stores Microsoft Graph webhook subscriptions for room calendars to detect real-time Outlook changes';
+
 
 -- Webhook notification log for debugging and monitoring
 CREATE TABLE IF NOT EXISTS outlook_webhook_notifications (
@@ -181,3 +197,30 @@ COMMENT ON TABLE outlook_sync_state IS 'Tracks sync state and health for each re
 COMMENT ON TABLE outlook_webhook_subscriptions IS 'Stores Microsoft Graph webhook subscriptions for real-time change notifications';
 COMMENT ON TABLE outlook_webhook_notifications IS 'Logs all webhook notifications received from Microsoft Graph for debugging';
 COMMENT ON TABLE outlook_event_changes IS 'Tracks detected changes in Outlook events for fallback polling mechanism';
+
+-- Outlook sync alerts table for monitoring and alerting
+CREATE TABLE IF NOT EXISTS outlook_sync_alerts (
+    id SERIAL PRIMARY KEY,
+    alert_type VARCHAR(100) NOT NULL,
+    severity VARCHAR(20) NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    message TEXT NOT NULL,
+    alert_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    acknowledged_at TIMESTAMP WITH TIME ZONE,
+    acknowledged_by VARCHAR(255)
+);
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_outlook_sync_alerts_created_at ON outlook_sync_alerts(created_at);
+CREATE INDEX IF NOT EXISTS idx_outlook_sync_alerts_severity ON outlook_sync_alerts(severity);
+CREATE INDEX IF NOT EXISTS idx_outlook_sync_alerts_type ON outlook_sync_alerts(alert_type);
+CREATE INDEX IF NOT EXISTS idx_outlook_sync_alerts_acknowledged ON outlook_sync_alerts(acknowledged_at) WHERE acknowledged_at IS NULL;
+
+-- Add comments
+COMMENT ON TABLE outlook_sync_alerts IS 'Outlook sync monitoring alerts and notifications';
+COMMENT ON COLUMN outlook_sync_alerts.alert_type IS 'Type of alert (e.g., high_error_rate, stalled_syncs, database_connectivity)';
+COMMENT ON COLUMN outlook_sync_alerts.severity IS 'Alert severity level: info, warning, or critical';
+COMMENT ON COLUMN outlook_sync_alerts.message IS 'Human-readable alert message';
+COMMENT ON COLUMN outlook_sync_alerts.alert_data IS 'Additional alert data in JSON format';
+COMMENT ON COLUMN outlook_sync_alerts.acknowledged_at IS 'When the alert was acknowledged by an administrator';
+COMMENT ON COLUMN outlook_sync_alerts.acknowledged_by IS 'Who acknowledged the alert';
