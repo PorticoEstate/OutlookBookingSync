@@ -102,9 +102,11 @@ The system includes automated cron jobs that run inside the container:
 - `POST /webhook/outlook-notifications` - Handle Microsoft Graph webhooks
 - `POST /webhook/create-subscriptions` - Set up webhook subscriptions
 
+**📋 Webhook Setup Required:** For real-time sync, webhooks require SSL certificates and public domain access. See [Webhook Setup Guide](doc/sync_usage_guide.md#webhook-setup-real-time-sync) for complete configuration instructions.
+
 ## 📖 Documentation
 
-- **[Complete Usage Guide](doc/sync_usage_guide.md)** - Comprehensive API documentation
+- **[Complete Usage Guide](doc/sync_usage_guide.md)** - Comprehensive API documentation **+ Webhook Setup**
 - **[Service Planning](doc/calendar_sync_service_plan.md)** - Architecture and design
 - **[Cancellation Detection](doc/outlook_cancellation_detection.md)** - Cancellation handling
 - **[Database Schema](doc/create_tables.sql)** - Required database tables

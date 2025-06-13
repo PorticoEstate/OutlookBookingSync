@@ -39,6 +39,140 @@ This sync system is **production-ready** with the following verified capabilitie
 3. Required Graph permissions are granted
 4. API key is optional (works without API key if not configured in environment)
 
+## Webhook Setup (Real-time Sync)
+
+The system supports both **webhook-based real-time sync** and **polling-based sync**. Webhooks provide immediate synchronization when Outlook events change, while polling is a fallback mechanism.
+
+### Steps to Get Webhooks Working
+
+#### 1. Update Environment Variables
+
+First, update your `.env` file with your actual server URL:
+
+```bash
+# Change from placeholder to your actual server URL
+WEBHOOK_BASE_URL=https://your-domain.com
+```
+
+#### 2. Prerequisites for Webhooks
+
+**A. Public Internet Access**
+- Your server must be accessible from the internet for Microsoft Graph to send webhook notifications
+- The webhook endpoint needs to be reachable at: `https://your-domain.com/webhook/outlook-notifications`
+
+**B. SSL Certificate Required**
+- Microsoft Graph **requires HTTPS** for webhook endpoints
+- You need a valid SSL certificate for your domain
+- Self-signed certificates will not work
+
+**C. Microsoft Graph App Permissions**
+Your app registration needs these permissions (likely already configured):
+- `Calendars.ReadWrite.All`
+- `Calendars.Read.Shared` 
+- `Calendars.ReadWrite.Shared`
+
+#### 3. Create Webhook Subscriptions
+
+Once your server is publicly accessible with HTTPS, create webhook subscriptions:
+
+```bash
+# Create webhook subscription for a specific calendar
+curl -X POST "https://your-domain.com/webhook/create" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "calendar_id": "room1@company.com"
+  }'
+
+# List active subscriptions
+curl "https://your-domain.com/webhook/subscriptions"
+
+# Test webhook endpoint (should return validation response)
+curl "https://your-domain.com/webhook/outlook-notifications"
+```
+
+#### 4. Webhook Endpoints
+
+The system provides several webhook management endpoints:
+
+- `POST /webhook/create` - Create new webhook subscription
+- `GET /webhook/subscriptions` - List active subscriptions  
+- `POST /webhook/outlook-notifications` - Receive webhook notifications (Microsoft Graph calls this)
+- `DELETE /webhook/delete/{subscriptionId}` - Delete subscription
+- `POST /webhook/renew/{subscriptionId}` - Renew expiring subscription
+
+#### 5. Webhook Validation
+
+Microsoft Graph requires webhook endpoint validation. The system automatically handles:
+- **Validation Token Response** - Returns validation token during subscription creation
+- **Notification Processing** - Processes incoming change notifications
+- **Subscription Renewal** - Automatically renews subscriptions before expiration
+
+#### 6. Production Deployment Considerations
+
+**For Production Webhook Setup:**
+
+1. **Domain and SSL**
+   ```bash
+   # Example with Let's Encrypt
+   certbot --nginx -d your-domain.com
+   ```
+
+2. **Firewall Configuration**
+   ```bash
+   # Allow HTTPS traffic
+   ufw allow 443
+   ```
+
+3. **Reverse Proxy (Nginx)**
+   ```nginx
+   server {
+       listen 443 ssl;
+       server_name your-domain.com;
+       
+       ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+       ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+       
+       location / {
+           proxy_pass http://localhost:8082;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
+   ```
+
+4. **Docker Port Mapping**
+   ```yaml
+   # docker-compose.yml
+   services:
+     portico_outlook:
+       ports:
+         - "8082:80"  # Internal container port
+   ```
+
+#### 7. Fallback to Polling
+
+If webhooks cannot be configured, the system automatically falls back to polling mode:
+- Polling runs every 15 minutes via cron
+- Detects changes by comparing event modification dates
+- Provides reliable sync without real-time capabilities
+
+**Verify Polling Status:**
+```bash
+curl "http://localhost:8082/polling/stats"
+```
+
+### Webhook vs Polling Comparison
+
+| Feature | Webhooks | Polling |
+|---------|----------|---------|
+| **Real-time** | ✅ Immediate | ❌ 15-minute delay |
+| **Setup Complexity** | ❌ High (SSL, public IP) | ✅ Low |
+| **Reliability** | ❌ Depends on network | ✅ High |
+| **Resource Usage** | ✅ Low | ❌ Higher API calls |
+| **Production Ready** | ✅ Yes (if configured) | ✅ Yes |
+
+**Recommendation**: Use webhooks for real-time requirements, polling for simpler deployments or as a reliable fallback.
+
 ## API Endpoints
 
 ### 1. Setup Endpoints
