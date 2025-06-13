@@ -42,13 +42,13 @@ $container->set('logger', function () {
 });
 
 // Register controllers in the container
-$container->set(\App\Controller\SyncController::class, function () {
-	return new \App\Controller\SyncController();
-});
+// $container->set(\App\Controller\SyncController::class, function () {
+// 	return new \App\Controller\SyncController();
+// });
 
-$container->set(\App\Controller\SyncMappingController::class, function () {
-	return new \App\Controller\SyncMappingController();
-});
+// $container->set(\App\Controller\SyncMappingController::class, function () {
+// 	return new \App\Controller\SyncMappingController();
+// });
 
 $container->set(\App\Controller\HealthController::class, function () use ($container) {
 	return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
