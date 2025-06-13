@@ -194,44 +194,74 @@ The system provides comprehensive cancellation handling for both directions with
 
 #### Detect and Process Cancellations
 
-Automatically detects cancelled reservations in the booking system and processes them.
+Automatically detects cancelled reservations in the booking system and processes them. **This endpoint now also handles re-enabled reservations.**
 
 ```bash
-# Automatically detect cancelled reservations and process them
+# Automatically detect cancelled and re-enabled reservations and process them
 curl -X POST "http://localhost:8082/cancel/detect"
 ```
 
 **What this endpoint does:**
-- Monitors booking system for reservations where `active != 1`
+- Monitors booking system for reservations where `active != 1` (cancellations)
+- Monitors booking system for reservations where `active = 1` but sync status is 'cancelled' (re-enables)
 - Detects cancellations across all reservation types (events, bookings, allocations)
-- Automatically deletes corresponding Outlook calendar events
-- Updates mapping table status to 'cancelled'
+- Automatically deletes corresponding Outlook calendar events for cancellations
+- Resets cancelled mappings to 'pending' status for re-enabled reservations
+- Updates mapping table status appropriately
 - Provides comprehensive processing statistics
 
-**Expected Response:**
+**Expected Response (with both cancellations and re-enables):**
 ```json
 {
   "success": true,
   "message": "Cancellation detection and processing completed",
   "results": {
-    "detected": 2,
-    "processed": 2,
+    "detected": 4,
+    "processed": 4,
     "success_rate": "100%",
-    "outlook_deletions": 2,
-    "errors": 0,
-    "details": [
+    "cancelled_events": [
       {
-        "reservation_type": "event",
-        "reservation_id": 78266,
+        "id": 78265,
+        "name": "Cancelled Meeting",
+        "active": 0,
         "resource_id": 431,
+        "mapping_id": 8,
         "outlook_event_id": "AAMkAGUxZWM3YWY2...",
-        "action": "deleted_from_outlook",
-        "status": "success"
+        "sync_status": "synced"
       }
-    ]
+    ],
+    "reenabled_events": [
+      {
+        "id": 78266,
+        "name": "Re-enabled Meeting",
+        "active": 1,
+        "resource_id": 431,
+        "mapping_id": 9,
+        "outlook_event_id": "AAMkAGUxZWM3YWY2...",
+        "sync_status": "cancelled"
+      }
+    ],
+    "outlook_deletions": 1,
+    "pending_resets": 1,
+    "errors": 0
   }
 }
 ```
+
+#### Process Re-enabled Reservations Only
+
+For dedicated re-enable processing:
+
+```bash
+# Detect and process only re-enabled reservations
+curl -X POST "http://localhost:8082/cancel/detect-reenabled"
+```
+
+**What this endpoint does:**
+- Focuses specifically on re-enabled reservations (active=1 with cancelled sync status)
+- Resets sync mappings from 'cancelled' to 'pending'
+- Clears old Outlook event IDs to allow fresh event creation
+- Prepares re-enabled reservations for normal sync processing
 
 #### Get Cancellation Detection Statistics
 
@@ -514,18 +544,26 @@ curl -X POST "http://localhost:8082/booking/process-imports"
 curl -X GET "http://localhost:8082/booking/processed-imports"
 ```
 
-#### 4. **Handle Cancellations (Both Directions)**
+#### 4. **Handle Cancellations and Re-enables (Both Directions)**
 
 ```bash
-# Automatically detect cancelled reservations in booking system
+# Automatically detect cancelled and re-enabled reservations in booking system
 curl -X POST "http://localhost:8082/cancel/detect"
 
-# View cancellation statistics
+# View cancellation and re-enable statistics
 curl -X GET "http://localhost:8082/cancel/stats"
 
 # View all cancelled reservations
 curl -X GET "http://localhost:8082/cancel/cancelled-reservations"
 ```
+
+**Re-enable Workflow:**
+When you re-enable a cancelled reservation in your booking system (`UPDATE bb_event SET active = 1 WHERE id = X`):
+
+1. **Detection**: `/cancel/detect` automatically finds reservations with `active = 1` but `sync_status = 'cancelled'`
+2. **Reset**: Mapping status changes from 'cancelled' to 'pending', old Outlook event ID is cleared
+3. **Sync**: Normal sync process (`/sync/to-outlook`) creates a fresh Outlook event
+4. **Result**: Re-enabled reservation gets a completely new Outlook calendar event
 
 #### 5. **Monitor and Maintain**
 
@@ -559,17 +597,72 @@ After running the complete workflow, you should see:
 }
 ```
 
-**Cancellation Processing Results:**
+**Cancellation and Re-enable Processing Results:**
 ```json
 {
   "success": true,
   "message": "Cancellation detection and processing completed",
   "results": {
-    "detected": 2,
-    "processed": 2,
+    "detected": 4,
+    "processed": 4,
     "success_rate": "100%",
-    "outlook_deletions": 2,
+    "cancelled_events": [
+      {
+        "id": 78265,
+        "active": 0,
+        "resource_id": 431,
+        "mapping_id": 8
+      }
+    ],
+    "reenabled_events": [
+      {
+        "id": 78266,
+        "active": 1,
+        "resource_id": 431,
+        "mapping_id": 9
+      },
+      {
+        "id": 78267,
+        "active": 1,
+        "resource_id": 431,
+        "mapping_id": 10
+      }
+    ],
+    "outlook_deletions": 1,
+    "pending_resets": 2,
     "errors": 0
+  }
+}
+```
+
+**Re-enable Sync Results:**
+```json
+{
+  "success": true,
+  "message": "Sync completed",
+  "results": {
+    "processed": 2,
+    "created": 2,
+    "updated": 0,
+    "errors": 0,
+    "details": [
+      {
+        "item_type": "event",
+        "item_id": 78266,
+        "resource_id": 431,
+        "action": "created",
+        "outlook_event_id": "AAMkAGUxZWM3YWY2...AFJA42AAA=",
+        "title": "Test på outlook integrasjon"
+      },
+      {
+        "item_type": "event",
+        "item_id": 78267,
+        "resource_id": 431,
+        "action": "created",
+        "outlook_event_id": "AAMkAGUxZWM3YWY2...AFJA43AAA=",
+        "title": "Test på outlook integrasjon"
+      }
+    ]
   }
 }
 ```
@@ -752,7 +845,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 # Process imported events every 30 minutes
 */30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
 
-# Detect and process cancellations every 10 minutes
+# Detect and process cancellations and re-enables every 10 minutes
 */10 * * * * www-data curl -X POST "http://localhost:8082/cancel/detect" > /dev/null 2>&1
 
 # Cleanup orphaned mappings daily at 2 AM

@@ -342,19 +342,23 @@ $mappingService->cleanupOrphanedMappings();
 - ✅ **Full Database Integration**: Complete bb_event, bb_event_date, bb_event_resource, bb_event_agegroup, bb_event_targetaudience creation
 - ✅ **Real Database IDs**: Actual reservation IDs (78268+) proving full integration
 
-**🔄 Cancellation System:**
+**🔄 Cancellation & Re-enable System:**
 - ✅ **Automatic Detection**: Monitors `active` status changes in booking system
 - ✅ **Bidirectional Cancellation**: Handles cancellations from both Booking System and Outlook
 - ✅ **Outlook Event Deletion**: Automatically deletes corresponding Outlook events
 - ✅ **Status Management**: Updates mapping status to 'cancelled'
-- ✅ **Bulk Processing**: Handles multiple cancellations efficiently
-- ✅ **Zero Errors**: 100% success rate in cancellation processing
+- ✅ **Re-enable Detection**: Automatically detects re-enabled reservations (active=1 with cancelled status)
+- ✅ **Re-enable Processing**: Resets cancelled mappings to 'pending' for normal sync
+- ✅ **Fresh Event Creation**: Creates new Outlook events for re-enabled reservations
+- ✅ **Bulk Processing**: Handles multiple cancellations and re-enables efficiently
+- ✅ **Zero Errors**: 100% success rate in cancellation and re-enable processing
 
 **📈 System Statistics:**
-- ✅ **Total Events Processed**: 13+ events across both directions
+- ✅ **Total Events Processed**: 15+ events across both directions
 - ✅ **Error Rate**: 0% (perfect reliability)
 - ✅ **Cancellations Processed**: 2 cancellations successfully handled
-- ✅ **API Endpoints**: 20+ endpoints covering all sync and cancellation operations
+- ✅ **Re-enables Processed**: 2 re-enabled reservations successfully reset and synced
+- ✅ **API Endpoints**: 21+ endpoints covering all sync, cancellation, and re-enable operations
 
 ### ✅ **PRODUCTION FEATURES COMPLETED**
 - [x] **Multi-table Database Integration** - Full bb_event ecosystem support
@@ -362,9 +366,12 @@ $mappingService->cleanupOrphanedMappings();
 - [x] **Content Processing** - HTML to plain text conversion for descriptions
 - [x] **Error Recovery** - Comprehensive error handling with fallback mechanisms
 - [x] **Cancellation Detection** - Real-time monitoring of reservation status changes
+- [x] **Re-enable Detection** - Automatic detection and processing of re-enabled reservations
+- [x] **Status Reset Mechanism** - Intelligent reset of cancelled mappings to pending status
+- [x] **Fresh Event Creation** - New Outlook events for re-enabled reservations
 - [x] **Audit Trails** - Complete logging and status tracking
 - [x] **API Security** - API key middleware and secure endpoints
-- [x] **Statistics and Monitoring** - Real-time sync and cancellation statistics
+- [x] **Statistics and Monitoring** - Real-time sync, cancellation, and re-enable statistics
 
 ### ⚠️ **IN DEVELOPMENT**
 - [ ] **Webhook subscription management** for real-time Outlook change notifications
