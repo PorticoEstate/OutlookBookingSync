@@ -187,9 +187,4 @@ $app->post('/polling/detect-missing-events', [\App\Controller\OutlookPollingCont
 // Get polling statistics and health status
 $app->get('/polling/stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
 
-// Legacy routes for backward compatibility
-$app->post('/outlook/poll-changes', [\App\Controller\OutlookPollingController::class, 'pollForChanges']);
-$app->post('/outlook/detect-missing-events', [\App\Controller\OutlookPollingController::class, 'detectMissingEvents']);
-$app->get('/outlook/polling-stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
-
 $app->run();

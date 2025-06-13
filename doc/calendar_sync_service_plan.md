@@ -22,10 +22,37 @@ Synchronize room bookings between the internal booking system and Outlook (Micro
 ---
 
 ## 4. **Triggers**
-- The booking system should detect changes in Outlook by subscribing to Microsoft Graph webhooks.
-- How changes should be detected in the booking system: Modify the booking system to emit events (e.g., via a message queue like RabbitMQ, Kafka, or even Redis) whenever a booking is created, updated, or deleted.
+### **Real-time Change Detection** ✅ IMPLEMENTED
+- **Microsoft Graph Webhooks**: Primary method for detecting Outlook changes
+  - Subscribes to calendar change notifications
+  - Processes events in real-time when publicly accessible webhook endpoint available
+  - Automatic subscription renewal and management
+
+### **Polling-based Fallback** ✅ IMPLEMENTED  
+- **Delta Query Polling**: Alternative method when webhooks unavailable
+  - Uses Microsoft Graph delta queries for efficient change detection
+  - Graceful fallback to full calendar sync when delta tokens unavailable
+  - Configurable polling intervals (recommended: 15-30 minutes)
+  - Detects both event changes and deletions
+
+### **Outlook Deletion Detection** ✅ IMPLEMENTED
+- **Automatic Cancellation Processing**: 
+  - Missing event detection via existence checks
+  - Deleted Outlook events automatically cancel corresponding bookings
+  - Updates booking status (`active = 0`) and appends cancellation note
+  - Prevents duplicate cancellation processing
+  - Comprehensive audit logging for all cancellation operations
+
+### **Booking System Change Detection**
+- Modify the booking system to emit events (e.g., via a message queue like RabbitMQ, Kafka, or even Redis) whenever a booking is created, updated, or deleted.
 - The sync-service subscribes to these events and processes them in real time.
 - Fallback reconciliation should run as a cron job every X minutes
+
+### **Available Polling Endpoints** ✅ IMPLEMENTED
+- `POST /polling/initialize` - Initialize polling state for all room calendars
+- `POST /polling/poll-changes` - Detect calendar changes and process deletions
+- `POST /polling/detect-missing-events` - Find deleted events for cancellation processing
+- `GET /polling/stats` - Monitor polling health and statistics
 
 ---
 
@@ -464,15 +491,22 @@ $mappingService->cleanupOrphanedMappings();
 **✅ FULLY OPERATIONAL:**
 - **Core Sync Engine**: 100% functional bidirectional sync
 - **Database Integration**: Complete multi-table support
-- **Cancellation Handling**: Automatic detection and processing
+- **Cancellation Handling**: Automatic detection and processing of Outlook deletions
+- **Polling System**: Robust polling with delta queries and fallback mechanisms
+- **Change Detection**: Dual-mode operation (webhooks + polling) for maximum reliability
 - **Error Handling**: Production-grade transaction safety
-- **API Endpoints**: 20+ endpoints covering all operations
+- **API Endpoints**: 25+ endpoints covering all operations including polling
 - **Statistics & Monitoring**: Real-time tracking and reporting
 
-**🔄 NEXT PHASE:**
-- **Real-time Notifications**: Webhook implementation for instant sync
-- **Automated Scheduling**: Cron jobs for continuous operation
+**🔄 OPERATIONAL READY:**
+- **Webhook Notifications**: Implemented for real-time sync when endpoint publicly accessible
+- **Polling Fallback**: Active for environments without public webhook endpoints
+- **Outlook Deletion Detection**: Automatic cancellation processing for deleted events
+
+**🎯 NEXT PHASE:**
+- **Automated Scheduling**: Cron jobs for continuous polling operation
 - **Enterprise Monitoring**: Advanced health checks and alerting
+- **Performance Optimization**: Fine-tuning polling intervals and batch processing
 
 **🎉 ACHIEVEMENT SUMMARY:**
 The system has successfully evolved from a basic sync concept to a **production-ready bidirectional calendar synchronization platform** with:

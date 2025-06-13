@@ -4,13 +4,14 @@ This guide explains how to use the **production-ready bidirectional calendar syn
 
 ## Overview
 
-The sync system provides complete bidirectional synchronization with five main phases:
+The sync system provides complete bidirectional synchronization with six main phases:
 
 1. **Setup Phase**: Populate the mapping tables
 2. **Sync Phase**: Transfer bookings bidirectionally (Booking System ↔ Outlook)
 3. **Processing Phase**: Convert imported Outlook events to booking system entries
 4. **Cancellation Phase**: Handle cancellations in both directions
-5. **Monitoring Phase**: Track sync status and handle errors
+5. **Polling Phase**: Monitor Outlook changes when webhooks unavailable
+6. **Monitoring Phase**: Track sync status and handle errors
 
 ### ✅ Production-Ready System Features
 
@@ -18,13 +19,15 @@ This sync system is **production-ready** with the following verified capabilitie
 - ✅ **Complete Bidirectional Sync** - Events flow seamlessly in both directions
 - ✅ **Full Database Integration** - Creates complete booking system entries across all related tables
 - ✅ **Automatic Cancellation Handling** - Detects and processes cancellations from both systems
+- ✅ **Outlook Deletion Detection** - Polling-based detection of deleted Outlook events with automatic cancellation processing
+- ✅ **Dual-Mode Operation** - Supports both webhook and polling-based change detection
 - ✅ **HTML to Plain Text Conversion** - Proper content formatting for event descriptions
 - ✅ **Transaction Safety** - Database transactions with rollback support
 - ✅ **Real Reservation IDs** - Actual database integration (78268+ IDs proving real entries)
 - ✅ **Zero Error Rate** - 100% success rate in all sync operations
 - ✅ **Loop Prevention** - Avoids infinite sync cycles with custom properties
 - ✅ **Comprehensive Statistics** - Real-time tracking and monitoring
-- ✅ **20+ API Endpoints** - Complete management interface
+- ✅ **25+ API Endpoints** - Complete management interface including polling endpoints
 - ✅ **Multi-Table Creation** - Complete event entries with dates, resources, age groups, and target audiences
 - ✅ **Cancellation Detection** - Automatic monitoring of active status changes
 - ✅ **Production Tested** - Verified with 11+ imported events and 2+ cancellation processes
@@ -329,6 +332,86 @@ curl -X GET "http://localhost:8082/sync/status"
 # Remove mappings for deleted calendar items
 curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
 ```
+
+### 6. Polling-Based Change Detection
+
+When webhook endpoints aren't publicly accessible, the system provides robust polling-based change detection as an alternative to real-time webhooks.
+
+#### Initialize Polling State
+
+```bash
+# Initialize polling for all room calendars
+curl -X POST "http://localhost:8082/polling/initialize"
+```
+
+**Response includes:**
+- Number of calendars initialized/updated
+- Delta token status for each calendar
+- Detailed setup information
+
+#### Poll for Outlook Changes
+
+```bash
+# Main polling endpoint - detects calendar changes and deletions
+curl -X POST "http://localhost:8082/polling/poll-changes"
+```
+
+**What it does:**
+- Uses Microsoft Graph delta queries for efficient change detection
+- Automatically detects deleted Outlook events
+- Processes deletions as cancellations in the booking system
+- Updates booking status (`active = 0`) and appends "Cancelled from Outlook" note
+- Prevents duplicate cancellation processing
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Outlook polling completed successfully",
+  "calendars_checked": 1,
+  "changes_detected": 2,
+  "deletions_processed": 0,
+  "details": [
+    {
+      "calendar_id": "b61092f8-9334-4d0a-ac40-ed20e117a520",
+      "resource_id": 431,
+      "changes_detected": 2,
+      "deletions_processed": 0
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Detect Missing Events (Deletion Detection)
+
+```bash
+# Alternative method to detect deleted Outlook events
+curl -X POST "http://localhost:8082/polling/detect-missing-events"
+```
+
+**What it does:**
+- Checks all synced events to see if they still exist in Outlook
+- Processes missing events as cancellations
+- Comprehensive fallback for deletion detection
+
+#### Get Polling Statistics
+
+```bash
+# Monitor polling health and status
+curl -X GET "http://localhost:8082/polling/stats"
+```
+
+**Response includes:**
+- Total calendars being polled
+- Last poll times
+- Recently polled calendars
+- Polling health status
+
+**Recommended Usage:**
+- Set up a cron job to run `/polling/poll-changes` every 15-30 minutes
+- Use `/polling/detect-missing-events` as a weekly backup check
+- Monitor `/polling/stats` for system health
 
 ## Production Database Integration
 
@@ -786,9 +869,7 @@ curl -X GET "http://localhost:8082/booking/pending-imports" | jq '.count'
 curl -X GET "http://localhost:8082/cancel/detection-stats"
 ```
 
-### Reset and Recovery
-
-#### Complete System Reset
+#### Reset and Recovery
 
 If you need to reset the entire synchronization state:
 
