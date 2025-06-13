@@ -19,9 +19,9 @@ RUN if [ -n "${http_proxy}" ]; then pear config-set http_proxy ${http_proxy}; fi
     pear config-set php_ini $PHP_INI_DIR/php.ini
 
 
-# Install system dependencies for PostgreSQL and Xdebug
+# Install system dependencies for PostgreSQL, Xdebug, and cron
 RUN apt-get update \
-    && apt-get install -y libpq-dev \
+    && apt-get install -y libpq-dev cron curl \
     && pecl install xdebug \
     && docker-php-ext-enable xdebug \
     && docker-php-ext-install pdo pdo_pgsql
@@ -38,11 +38,15 @@ WORKDIR /var/www/html
 # Copy project files
 COPY . /var/www/html
 
+# Copy and make the entrypoint script executable
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Set permissions (optional, for dev)
 RUN chown -R www-data:www-data /var/www/html
 
 # Expose port 80 (Apache default)
 EXPOSE 80
 
-# Use the default Apache start command
-CMD ["apache2-foreground"]
+# Use our custom entrypoint script
+CMD ["/usr/local/bin/docker-entrypoint.sh"]

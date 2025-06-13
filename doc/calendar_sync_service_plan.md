@@ -46,7 +46,14 @@ Synchronize room bookings between the internal booking system and Outlook (Micro
 ### **Booking System Change Detection**
 - Modify the booking system to emit events (e.g., via a message queue like RabbitMQ, Kafka, or even Redis) whenever a booking is created, updated, or deleted.
 - The sync-service subscribes to these events and processes them in real time.
-- Fallback reconciliation should run as a cron job every X minutes
+- **Fallback reconciliation implemented** - Cron jobs running automated sync operations
+
+### **Automated Cron Jobs** ✅ IMPLEMENTED
+The following cron jobs are active in the Docker container:
+- **Every 15 minutes**: `curl -s -X POST "http://localhost/polling/poll-changes"` - Poll Outlook for changes
+- **Every hour**: `curl -s -X POST "http://localhost/polling/detect-missing-events"` - Detect missing/deleted events  
+- **Every 10 minutes**: `curl -s -X POST "http://localhost/cancel/detect-and-process"` - Process cancellation detection
+- **Daily at 8 AM**: `curl -s -X GET "http://localhost/polling/stats"` - Generate statistics logs
 
 ### **Available Polling Endpoints** ✅ IMPLEMENTED
 - `POST /polling/initialize` - Initialize polling state for all room calendars
@@ -399,10 +406,11 @@ $mappingService->cleanupOrphanedMappings();
 - [x] **Audit Trails** - Complete logging and status tracking
 - [x] **API Security** - API key middleware and secure endpoints
 - [x] **Statistics and Monitoring** - Real-time sync, cancellation, and re-enable statistics
+- [x] **Automated Scheduling** - Cron jobs for continuous sync operations implemented
+- [x] **Docker Integration** - Containerized deployment with cron daemon support
 
 ### ⚠️ **IN DEVELOPMENT**
 - [ ] **Webhook subscription management** for real-time Outlook change notifications
-- [ ] **Automated scheduling** via cron jobs for continuous sync
 
 ### 📋 **FUTURE ENHANCEMENTS**
 - [ ] **Real-time webhooks** for instant change notifications
@@ -424,11 +432,11 @@ $mappingService->cleanupOrphanedMappings();
    - Create webhook handler for processing real-time changes
    - Implement proper webhook validation and security
 
-2. **Automated Sync Orchestration** (High Priority)
-   - Create cron job for fallback reconciliation
-   - Implement scheduled bidirectional sync (every 15-30 minutes)
-   - Add sync health monitoring and alerting
-   - Create manual sync trigger endpoints for immediate processing
+2. **Advanced Monitoring and Health Checks** (High Priority)
+   - Comprehensive health check endpoints for all services
+   - Performance metrics and monitoring dashboards
+   - Alert system for persistent failures and sync issues
+   - Load balancing and horizontal scaling support
 
 ### 🔄 **MEDIUM PRIORITY (Next 2-4 weeks)**
 
@@ -503,8 +511,8 @@ $mappingService->cleanupOrphanedMappings();
 - **Polling Fallback**: Active for environments without public webhook endpoints
 - **Outlook Deletion Detection**: Automatic cancellation processing for deleted events
 
-**🎯 NEXT PHASE:**
-- **Automated Scheduling**: Cron jobs for continuous polling operation
+**🎯 CURRENT STATUS:**
+- **Automated Scheduling**: ✅ IMPLEMENTED - Cron jobs actively running for continuous polling
 - **Enterprise Monitoring**: Advanced health checks and alerting
 - **Performance Optimization**: Fine-tuning polling intervals and batch processing
 
