@@ -130,46 +130,33 @@ OUTLOOK_TENANT_ID=your_outlook_tenant_id</pre>
 $container = new Container();
 
 // Register PDO as a shared service with error handling
-$container->set('db', function ()
-{
-	try
-	{
-		// For demo purposes, use SQLite to avoid requiring PostgreSQL setup
-		$dbPath = '/tmp/bridge_demo.db';
-		$dsn = "sqlite:$dbPath";
-		$options = [
-			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-		];
-
-		$pdo = new PDO($dsn, null, null, $options);
-
-		// Create basic tables for demo if they don't exist
-		$pdo->exec("CREATE TABLE IF NOT EXISTS sync_mappings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_id TEXT,
-            target_id TEXT,
-            sync_status TEXT DEFAULT 'pending',
-            last_sync_at DATETIME,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )");
-
-		$pdo->exec("CREATE TABLE IF NOT EXISTS sync_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            operation TEXT,
-            status TEXT,
-            message TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )");
-
-		return $pdo;
-	}
-	catch (PDOException $e)
-	{
-		// For dashboard access, we can continue without database
-		error_log("Database connection failed: " . $e->getMessage());
-		return null; // Return null instead of throwing
-	}
+$container->set('db', function () {
+    try {
+        // Use PostgreSQL from environment variables
+        $host = $_ENV['DB_HOST'] ?? 'localhost';
+        $port = $_ENV['DB_PORT'] ?? '5432';
+        $dbname = $_ENV['DB_NAME'] ?? 'calendar_bridge';
+        $username = $_ENV['DB_USER'] ?? 'bridge_user';
+        $password = $_ENV['DB_PASS'] ?? 'bridge_password';
+        
+        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+        
+        $pdo = new PDO($dsn, $username, $password, $options);
+        
+        // Test connection
+        $pdo->query('SELECT 1');
+        
+        return $pdo;
+    } catch (PDOException $e) {
+        error_log("Database connection failed: " . $e->getMessage());
+        // For dashboard/health endpoints, we can return null and handle gracefully
+        return null;
+    }
 });
 
 // Register logger service (keep this as it's used by multiple services)
