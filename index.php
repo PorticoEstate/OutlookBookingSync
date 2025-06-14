@@ -237,4 +237,65 @@ $app->get('/dashboard', function (Request $request, Response $response, $args) {
     }
 });
 
+// Register Bridge Manager and related services
+$container->set('bridgeManager', function () use ($container) {
+    $manager = new \App\Service\BridgeManager($container->get('logger'), $container->get('db'));
+    
+    // Register Outlook bridge
+    $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
+        'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
+        'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
+        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID']
+    ]);
+    
+    // Register Booking System bridge
+    $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
+        'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
+        'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null
+    ]);
+    
+    return $manager;
+});
+
+$container->set(\App\Controller\BridgeController::class, function () use ($container) {
+    return new \App\Controller\BridgeController(
+        $container->get('bridgeManager'),
+        $container->get('logger')
+    );
+});
+
+// Generic Bridge API Routes
+
+// List all available bridges
+$app->get('/bridges', [\App\Controller\BridgeController::class, 'listBridges']);
+
+// Get calendars for a specific bridge
+$app->get('/bridges/{bridgeName}/calendars', [\App\Controller\BridgeController::class, 'getCalendars']);
+
+// Sync between two bridges
+$app->post('/bridges/sync/{sourceBridge}/{targetBridge}', [\App\Controller\BridgeController::class, 'syncBridges']);
+
+// Handle webhook from any bridge
+$app->post('/bridges/webhook/{bridgeName}', [\App\Controller\BridgeController::class, 'handleWebhook']);
+
+// Create webhook subscriptions for a bridge
+$app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeController::class, 'createSubscriptions']);
+
+// Get health status of all bridges
+$app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealthStatus']);
+
+// Backwards compatibility routes (redirect to bridge endpoints)
+$app->get('/webhook/outlook-notifications', function(Request $request, Response $response, $args) use ($container) {
+    // Redirect Outlook webhooks to bridge webhook handler
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    $request = $request->withAttribute('bridgeName', 'outlook');
+    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+});
+
+$app->post('/webhook/outlook-notifications', function(Request $request, Response $response, $args) use ($container) {
+    // Redirect Outlook webhooks to bridge webhook handler
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+});
+
 $app->run();

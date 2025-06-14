@@ -1,23 +1,66 @@
-# Calendar Synchronization Service Planning Document
+# Generic Calendar Bridge Service Planning Document
 
 ## 1. **Objective**
-Synchronize room bookings between the internal booking system and Outlook (Microsoft 365) room calendars, ensuring both systems reflect the current state of all room reservations.
+Create a generic, extensible calendar bridge service that can synchronize events between Outlook (Microsoft 365) and any target calendar system. The bridge acts as a middleware service that communicates via REST APIs in both directions, providing a flexible foundation for calendar integration across different platforms.
+
+### **Primary Goals:**
+- **Generic Architecture**: Extensible bridge pattern supporting any calendar system
+- **REST API Communication**: Standard HTTP/REST interfaces for all integrations
+- **Self-Hosted Solution**: Full control and customization for organizations
+- **Production Ready**: Enterprise-grade reliability and monitoring
+- **Developer Friendly**: Easy to extend with new calendar system adapters
 
 ---
 
-## 2. **Scope**
-- Calendars involved: Outlook, booking system
-- The types of events: create, update, delete, recurring events, all-day events, cancellations.
-- The types of resources: rooms and equipment.
-- The types of users: internal for Outlook, external and internal for the booking system.
-- The types of events: meetings, appointments, etc.
+## 2. **Scope & Architecture**
+
+### **Generic Calendar Bridge Components:**
+
+- **Bridge Architecture**: Abstract bridge pattern with concrete implementations
+- **Supported Systems**: Outlook (Microsoft Graph API), Booking Systems (REST API), extensible to Google Calendar, Exchange, CalDAV
+- **Communication**: Pure REST API communication in both directions
+- **Database**: Own mapping and configuration database for sync relationships
+- **Event Types**: Create, update, delete, recurring events, all-day events, cancellations
+- **Resource Types**: Rooms, equipment, any calendar resource
+- **User Types**: Internal, external, service accounts
+
+### **Key Components:**
+
+- **AbstractCalendarBridge**: Base class for all calendar system integrations
+- **BridgeManager**: Central service for managing multiple bridge instances
+- **EventMapper**: Generic event format conversion between systems
+- **SyncOrchestrator**: Handles bidirectional synchronization logic
+- **WebhookProcessor**: Unified webhook handling for real-time updates
 
 ---
 
-## 3. **Direction of Synchronization**
-- [X] Outlook → Booking System ✅ **IMPLEMENTED**
-- [X] Booking System → Outlook ✅ **IMPLEMENTED**
-- [X] Both directions (bi-directional) ✅ **IMPLEMENTED**
+## 3. **Generic Bridge Architecture**
+
+### **Bridge Pattern Implementation:**
+
+- **AbstractCalendarBridge**: Base class defining standard interface for all calendar systems
+- **OutlookBridge**: Microsoft Graph API implementation using REST calls
+- **BookingSystemBridge**: Target calendar system implementation using REST APIs
+- **BridgeManager**: Central orchestrator managing multiple bridge instances
+- **Extensible Design**: Easy to add Google Calendar, Exchange, CalDAV bridges
+
+### **REST API Communication Pattern:**
+
+```
+┌─────────────────┐    REST API    ┌─────────────────┐    REST API    ┌─────────────────┐
+│                 │◄──────────────►│                 │◄──────────────►│                 │
+│ Booking System  │                │ Calendar Bridge │                │ Microsoft Graph │
+│                 │                │   (Your App)    │                │      API        │
+└─────────────────┘                └─────────────────┘                └─────────────────┘
+```
+
+### **Key Benefits:**
+
+- **Pure API Orchestration**: Calendar bridge acts as middleware service
+- **Standardized Communication**: HTTP/REST for all integrations
+- **Independent Scaling**: Each system can scale independently
+- **Easy Testing**: API mocking for development and testing
+- **Technology Agnostic**: Any system that supports REST APIs can integrate
 
 ---
 
@@ -526,4 +569,89 @@ The system has successfully evolved from a basic sync concept to a **production-
 
 ---
 
-*Use this file as a living document. Update and refine as you clarify requirements and design decisions. When ready, submit the updated file for further planning or code generation.*
+## 15. **Implementation Roadmap - Generic Bridge Transformation**
+
+### 🎯 **Phase 1: Core Bridge Infrastructure** (Week 1-2)
+
+#### **Step 1: Create Abstract Bridge Foundation**
+- [x] Create `AbstractCalendarBridge` base class
+- [x] Define standardized interface for all calendar operations
+- [x] Implement `BridgeManager` for orchestrating multiple bridges
+- [x] Create generic event mapping interfaces
+
+#### **Step 2: Refactor Existing Code to Bridge Pattern**
+- [ ] Convert existing Outlook integration to `OutlookBridge` class
+- [ ] Create `BookingSystemBridge` for REST API communication
+- [ ] Update database schema for generic bridge mappings
+- [ ] Migrate existing sync logic to bridge pattern
+
+#### **Step 3: REST API Standardization**
+- [ ] Define standard REST API contract for booking systems
+- [ ] Create webhook handling for bridge communications
+- [ ] Implement unified queue processing for all bridges
+- [ ] Add bridge configuration management
+
+### 🔄 **Phase 2: Enhanced Bridge Features** (Week 3-4)
+
+#### **Step 4: Advanced Bridge Capabilities**
+- [ ] Add Google Calendar bridge implementation
+- [ ] Implement CalDAV bridge for generic calendar support
+- [ ] Create bridge plugin system for extensibility
+- [ ] Add bridge health monitoring and statistics
+
+#### **Step 5: Production Hardening**
+- [ ] Comprehensive error handling across all bridges
+- [ ] Bridge failover and redundancy mechanisms
+- [ ] Performance optimization for multi-bridge scenarios
+- [ ] Security hardening for bridge communications
+
+### 📈 **Phase 3: Enterprise Features** (Month 2)
+
+#### **Step 6: Advanced Integration**
+- [ ] Multi-tenant bridge configurations
+- [ ] Custom field mapping per bridge
+- [ ] Advanced conflict resolution across bridges
+- [ ] Bridge marketplace and community adapters
+
+### 🎯 **Current Focus: Phase 1 Implementation**
+
+The next immediate steps are:
+1. Create the abstract bridge infrastructure
+2. Refactor existing code to use bridge pattern  
+3. Implement REST API communication for booking systems
+4. Test generic bridge functionality with current Outlook integration
+
+---
+
+## 16. **Bridge Implementation Status**
+
+### ✅ **Foundation Ready**
+- [x] Existing PHP/Slim4 framework
+- [x] Database infrastructure
+- [x] Microsoft Graph integration
+- [x] REST API endpoints
+- [x] Docker containerization
+
+### 🔨 **In Progress: Bridge Transformation**
+- [ ] Abstract bridge classes
+- [ ] Bridge manager service
+- [ ] Generic event mapping
+- [ ] REST API standardization
+
+### 🎯 **Target Architecture**
+```
+Generic Calendar Bridge Service
+├── src/Bridge/
+│   ├── AbstractCalendarBridge.php
+│   ├── OutlookBridge.php
+│   └── BookingSystemBridge.php
+├── src/Service/
+│   ├── BridgeManager.php
+│   └── SyncOrchestrator.php
+├── src/Model/
+│   ├── GenericEvent.php
+│   └── BridgeMapping.php
+└── adapters/
+    ├── GoogleCalendarBridge.php
+    └── ExchangeBridge.php
+```
