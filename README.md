@@ -124,30 +124,21 @@ curl -X POST http://localhost:8080/cancel/detect
 
 ### Bridge Configuration
 
-```bash
-# Register Outlook bridge
-curl -X POST http://localhost:8080/bridges/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bridge_type": "outlook",
-    "config": {
-      "tenant_id": "your-tenant-id",
-      "client_id": "your-client-id",
-      "client_secret": "your-client-secret"
-    }
-  }'
+Bridges are automatically registered on service startup using environment variables. Configure your credentials in the `.env` file:
 
-# Register booking system bridge
-curl -X POST http://localhost:8080/bridges/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bridge_type": "booking_system",
-    "config": {
-      "base_url": "https://your-booking-system.com/api",
-      "api_key": "your-api-key"
-    }
-  }'
+```env
+# Microsoft Graph API
+OUTLOOK_CLIENT_ID=your_client_id
+OUTLOOK_CLIENT_SECRET=your_client_secret
+OUTLOOK_TENANT_ID=your_tenant_id
+OUTLOOK_GROUP_ID=your_group_id
+
+# Booking System API
+BOOKING_SYSTEM_API_URL=http://your-booking-system/api
+BOOKING_SYSTEM_API_KEY=your_api_key
 ```
+
+The bridges will be automatically available once the service starts.
 
 ## 📊 API Endpoints
 

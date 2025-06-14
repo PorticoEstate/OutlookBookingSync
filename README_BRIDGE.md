@@ -1375,6 +1375,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # System monitoring
 */10 * * * * www-data curl -s -X GET "http://localhost/bridges/health" >/dev/null 2>&1
+# Run comprehensive system health checks every 15 minutes
+*/15 * * * * www-data curl -s -X GET "http://localhost/health/system" >/dev/null 2>&1
 ```
 
 ### **📊 Monitoring Cancellations**

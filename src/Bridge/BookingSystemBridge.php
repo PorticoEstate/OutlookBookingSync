@@ -4,6 +4,20 @@ namespace App\Bridge;
 
 use App\Bridge\AbstractCalendarBridge;
 
+/**
+ * BookingSystemBridge - Pure API-based bridge for booking systems
+ * 
+ * This bridge communicates exclusively through the booking system's REST API.
+ * It does NOT directly access booking system database tables (like bb_event).
+ * The booking system is responsible for managing its own data layer.
+ * 
+ * Required API endpoints:
+ * - GET /api/events?resource_id={id}&start={date}&end={date} - List events
+ * - POST /api/events - Create event  
+ * - PUT /api/events/{id} - Update event
+ * - DELETE /api/events/{id} - Delete event
+ * - GET /api/resources - List available resources
+ */
 class BookingSystemBridge extends AbstractCalendarBridge
 {
     private $apiBaseUrl;
@@ -45,75 +59,35 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $this->logOperation('get_events', ['resource_id' => $resourceId]);
         
-        // Try API first, fallback to direct database if API not available
-        try {
-            return $this->getEventsViaApi($resourceId, $startDate, $endDate);
-        } catch (\Exception $e) {
-            $this->logger->warning('API unavailable, falling back to direct database access', [
-                'error' => $e->getMessage()
-            ]);
-            return $this->getEventsViaDatabase($resourceId, $startDate, $endDate);
-        }
+        return $this->getEventsViaApi($resourceId, $startDate, $endDate);
     }
     
     public function createEvent($resourceId, $event): string
     {
         $this->logOperation('create_event', ['resource_id' => $resourceId]);
         
-        // Try API first, fallback to direct database if API not available
-        try {
-            return $this->createEventViaApi($resourceId, $event);
-        } catch (\Exception $e) {
-            $this->logger->warning('API unavailable, falling back to direct database access', [
-                'error' => $e->getMessage()
-            ]);
-            return $this->createEventViaDatabase($resourceId, $event);
-        }
+        return $this->createEventViaApi($resourceId, $event);
     }
     
     public function updateEvent($resourceId, $eventId, $event): bool
     {
         $this->logOperation('update_event', ['resource_id' => $resourceId, 'event_id' => $eventId]);
         
-        // Try API first, fallback to direct database if API not available
-        try {
-            return $this->updateEventViaApi($resourceId, $eventId, $event);
-        } catch (\Exception $e) {
-            $this->logger->warning('API unavailable, falling back to direct database access', [
-                'error' => $e->getMessage()
-            ]);
-            return $this->updateEventViaDatabase($resourceId, $eventId, $event);
-        }
+        return $this->updateEventViaApi($resourceId, $eventId, $event);
     }
     
     public function deleteEvent($resourceId, $eventId): bool
     {
         $this->logOperation('delete_event', ['resource_id' => $resourceId, 'event_id' => $eventId]);
         
-        // Try API first, fallback to direct database if API not available
-        try {
-            return $this->deleteEventViaApi($resourceId, $eventId);
-        } catch (\Exception $e) {
-            $this->logger->warning('API unavailable, falling back to direct database access', [
-                'error' => $e->getMessage()
-            ]);
-            return $this->deleteEventViaDatabase($resourceId, $eventId);
-        }
+        return $this->deleteEventViaApi($resourceId, $eventId);
     }
     
     public function getCalendars(): array
     {
         $this->logOperation('get_calendars');
         
-        // Try API first, fallback to direct database if API not available
-        try {
-            return $this->getCalendarsViaApi();
-        } catch (\Exception $e) {
-            $this->logger->warning('API unavailable, falling back to direct database access', [
-                'error' => $e->getMessage()
-            ]);
-            return $this->getCalendarsViaDatabase();
-        }
+        return $this->getCalendarsViaApi();
     }
     
     public function subscribeToChanges($resourceId, $webhookUrl): string
@@ -223,175 +197,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'raw_data' => $resource
             ];
         }, $response['resources'] ?? []);
-    }
-    
-    // Database Fallback Methods
-    private function getEventsViaDatabase($resourceId, $startDate, $endDate): array
-    {
-        $sql = "
-            SELECT 
-                v.id,
-                v.reservation_type,
-                v.name as subject,
-                v.start_time as start,
-                v.end_time as end,
-                v.description,
-                v.contact_name,
-                v.contact_email,
-                v.organization_name,
-                v.resource_name as location,
-                v.active
-            FROM v_all_calendar_items v
-            WHERE v.resource_id = :resource_id
-            AND v.start_time >= :start_date
-            AND v.end_time <= :end_date
-            AND v.active = 1
-            ORDER BY v.start_time ASC
-        ";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':resource_id' => $resourceId,
-            ':start_date' => $startDate,
-            ':end_date' => $endDate
-        ]);
-        
-        return array_map([$this, 'mapBookingEventToGeneric'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-    }
-    
-    private function createEventViaDatabase($resourceId, $event): string
-    {
-        $this->db->beginTransaction();
-        
-        try {
-            // Insert into bb_event
-            $sql = "
-                INSERT INTO bb_event (
-                    name, description, start_time, end_time, active, 
-                    contact_name, contact_email, created_at
-                ) VALUES (
-                    :name, :description, :start_time, :end_time, 1,
-                    :contact_name, :contact_email, CURRENT_TIMESTAMP
-                ) RETURNING id
-            ";
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':name' => $event['subject'],
-                ':description' => $event['description'] ?? '',
-                ':start_time' => $event['start'],
-                ':end_time' => $event['end'],
-                ':contact_name' => $event['organizer'] ?? 'Bridge Import',
-                ':contact_email' => !empty($event['attendees']) ? $event['attendees'][0] : ''
-            ]);
-            
-            $eventId = $stmt->fetchColumn();
-            
-            // Link to resource
-            $sql = "INSERT INTO bb_event_resource (event_id, resource_id) VALUES (:event_id, :resource_id)";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([':event_id' => $eventId, ':resource_id' => $resourceId]);
-            
-            // Add event date
-            $sql = "
-                INSERT INTO bb_event_date (event_id, event_date, start_time, end_time)
-                VALUES (:event_id, :event_date, :start_time, :end_time)
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':event_id' => $eventId,
-                ':event_date' => date('Y-m-d', strtotime($event['start'])),
-                ':start_time' => date('H:i:s', strtotime($event['start'])),
-                ':end_time' => date('H:i:s', strtotime($event['end']))
-            ]);
-            
-            $this->db->commit();
-            return (string)$eventId;
-            
-        } catch (\Exception $e) {
-            $this->db->rollback();
-            throw $e;
-        }
-    }
-    
-    private function updateEventViaDatabase($resourceId, $eventId, $event): bool
-    {
-        $this->db->beginTransaction();
-        
-        try {
-            // Update bb_event
-            $sql = "
-                UPDATE bb_event SET
-                    name = :name,
-                    description = :description,
-                    start_time = :start_time,
-                    end_time = :end_time,
-                    contact_name = :contact_name,
-                    contact_email = :contact_email
-                WHERE id = :event_id
-            ";
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':event_id' => $eventId,
-                ':name' => $event['subject'],
-                ':description' => $event['description'] ?? '',
-                ':start_time' => $event['start'],
-                ':end_time' => $event['end'],
-                ':contact_name' => $event['organizer'] ?? 'Bridge Import',
-                ':contact_email' => !empty($event['attendees']) ? $event['attendees'][0] : ''
-            ]);
-            
-            // Update event date
-            $sql = "
-                UPDATE bb_event_date SET
-                    event_date = :event_date,
-                    start_time = :start_time,
-                    end_time = :end_time
-                WHERE event_id = :event_id
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':event_id' => $eventId,
-                ':event_date' => date('Y-m-d', strtotime($event['start'])),
-                ':start_time' => date('H:i:s', strtotime($event['start'])),
-                ':end_time' => date('H:i:s', strtotime($event['end']))
-            ]);
-            
-            $this->db->commit();
-            return true;
-            
-        } catch (\Exception $e) {
-            $this->db->rollback();
-            throw $e;
-        }
-    }
-    
-    private function deleteEventViaDatabase($resourceId, $eventId): bool
-    {
-        // Soft delete by setting active = 0
-        $sql = "UPDATE bb_event SET active = 0 WHERE id = :event_id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':event_id' => $eventId]);
-        
-        return $stmt->rowCount() > 0;
-    }
-    
-    private function getCalendarsViaDatabase(): array
-    {
-        $sql = "SELECT id, name, description FROM bb_resource WHERE active = 1 ORDER BY name";
-        $stmt = $this->db->query($sql);
-        
-        return array_map(function($resource) {
-            return [
-                'id' => $resource['id'],
-                'name' => $resource['name'],
-                'description' => $resource['description'] ?? '',
-                'type' => 'resource',
-                'bridge_type' => $this->getBridgeType(),
-                'raw_data' => $resource
-            ];
-        }, $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
     
     /**
