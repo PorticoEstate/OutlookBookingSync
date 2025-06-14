@@ -1331,13 +1331,11 @@ Set up comprehensive automation for the bridge system with cron jobs:
 # === CORE BRIDGE SYNCHRONIZATION ===
 # Sync from booking system to Outlook every 5 minutes
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
-  -H "Content-Type: application/json" \
-  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+  -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # Sync from Outlook to booking system every 10 minutes  
 */10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
-  -H "Content-Type: application/json" \
-  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+  -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # === DELETION & CANCELLATION PROCESSING ===
 # Process deletion queue from webhooks every 5 minutes
@@ -1431,3 +1429,46 @@ The cancellation system monitors these tables:
 Events are considered cancelled when `active != 1` in these tables. The bridge maintains sync mappings in `outlook_calendar_mapping` and updates their status appropriately.
 
 ---
+
+## 🚫 **Working Without Webhooks**
+
+**Perfect for systems not reachable from the internet!**
+
+The bridge system works excellently without webhooks using polling-based synchronization. This is ideal for:
+- Internal networks behind firewalls
+- Systems without public IP addresses  
+- Development/testing environments
+- High-security environments
+
+### **✅ Full Functionality Without Webhooks:**
+
+- **✅ Bidirectional Sync**: Complete event synchronization both ways
+- **✅ Cancellation Detection**: Inactive events → Outlook deletion (your use case!)
+- **✅ Real-time Performance**: 5-minute polling provides near-instant sync
+- **✅ Reliability**: Often more reliable than webhook delivery
+- **✅ No Configuration**: No firewall rules or public endpoints needed
+
+### **🔧 Optimized Polling Configuration:**
+
+The default cron jobs are already optimized for webhook-free operation:
+
+```bash
+# Current default (recommended)
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
+*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system  
+*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+
+# For faster response (every 2 minutes)
+*/2 * * * * curl -X POST http://localhost:8080/cancel/detect
+```
+
+### **🎯 Your Inactive Event Use Case:**
+
+This works perfectly with polling:
+
+1. **Set Event Inactive**: `UPDATE bb_event SET active = 0 WHERE id = 12345`
+2. **Automatic Detection**: Within 5 minutes, cron job runs `/cancel/detect`
+3. **Outlook Deletion**: Corresponding Outlook event automatically deleted
+4. **No Webhooks Needed**: Pure polling-based detection
+
+**See [WEBHOOK_FREE_OPERATION.md](WEBHOOK_FREE_OPERATION.md) for detailed configuration options.**

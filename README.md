@@ -19,7 +19,8 @@ A **production-ready, extensible calendar synchronization platform** that acts a
 - ✅ **Complete Bidirectional Sync** - Events flow seamlessly between systems
 - ✅ **Automatic Deletion Handling** - Detects and syncs deletions across systems
 - ✅ **Resource Mapping Management** - Map booking resources to calendar systems
-- ✅ **Real-time Webhooks** - Instant synchronization via webhook notifications
+- ✅ **Webhook-Free Operation** - Works perfectly with polling (no public IP needed)
+- ✅ **Real-time Webhooks** - Optional instant sync for internet-accessible systems
 - ✅ **RESTful API** - Comprehensive endpoints for all operations
 - ✅ **Health Monitoring** - Statistics, logs, and system monitoring
 - ✅ **Docker Containerized** - Easy deployment and scaling
