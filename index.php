@@ -78,7 +78,7 @@ $app->add(function ($request, $handler) use ($container) {
 
 // Register routes
 
-// Get resource to Outlook calendar mapping information
+// Get resource to Outlook calendar mapping information (legacy)
 $app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
 
 // Get available Outlook room calendars
@@ -264,6 +264,12 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
     );
 });
 
+$container->set(\App\Controller\ResourceMappingController::class, function () use ($container) {
+    return new \App\Controller\ResourceMappingController(
+        $container->get('db')
+    );
+});
+
 // Generic Bridge API Routes
 
 // List all available bridges
@@ -283,6 +289,26 @@ $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeControl
 
 // Get health status of all bridges
 $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealthStatus']);
+
+// Resource Mapping API Routes
+
+// Get all resource mappings
+$app->get('/mappings/resources', [\App\Controller\ResourceMappingController::class, 'getResourceMappings']);
+
+// Create new resource mapping
+$app->post('/mappings/resources', [\App\Controller\ResourceMappingController::class, 'createResourceMapping']);
+
+// Update existing resource mapping
+$app->put('/mappings/resources/{id}', [\App\Controller\ResourceMappingController::class, 'updateResourceMapping']);
+
+// Delete resource mapping
+$app->delete('/mappings/resources/{id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMapping']);
+
+// Get resource mapping by booking system resource ID
+$app->get('/mappings/resources/by-resource/{resourceId}', [\App\Controller\ResourceMappingController::class, 'getResourceMappingByResource']);
+
+// Trigger sync for specific resource mapping
+$app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingController::class, 'syncResourceMapping']);
 
 // Backwards compatibility routes (redirect to bridge endpoints)
 $app->get('/webhook/outlook-notifications', function(Request $request, Response $response, $args) use ($container) {

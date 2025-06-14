@@ -945,3 +945,196 @@ curl -X POST -H "Authorization: Bearer your_api_key" \
      -d '{"title":"Test Meeting","start_time":"2025-06-15T10:00:00Z","end_time":"2025-06-15T11:00:00Z"}' \
      http://your-booking-system/api/resources/123/events
 ```
+
+## 🔗 Resource Mapping Management
+
+The bridge provides a comprehensive API to manage resource mappings between your booking system and calendar systems like Outlook.
+
+### Resource Mapping Endpoints
+
+#### **1. Get All Resource Mappings**
+```http
+GET /mappings/resources?bridge_from=booking_system&bridge_to=outlook&active_only=true
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "mappings": [
+    {
+      "id": 1,
+      "bridge_from": "booking_system",
+      "bridge_to": "outlook", 
+      "resource_id": "123",
+      "calendar_id": "room1@company.com",
+      "calendar_name": "Conference Room 1",
+      "sync_direction": "bidirectional",
+      "is_active": true,
+      "sync_enabled": true,
+      "last_synced_at": "2025-06-14T10:00:00Z",
+      "sync_freshness": "recent",
+      "mapped_events": 5
+    }
+  ],
+  "count": 1
+}
+```
+
+#### **2. Create Resource Mapping**
+```http
+POST /mappings/resources
+```
+
+**Request Body:**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "resource_id": "123",
+  "calendar_id": "room1@company.com", 
+  "calendar_name": "Conference Room 1",
+  "sync_direction": "bidirectional"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "mapping_id": 1,
+  "message": "Resource mapping created successfully"
+}
+```
+
+#### **3. Update Resource Mapping**
+```http
+PUT /mappings/resources/{id}
+```
+
+**Request Body:**
+```json
+{
+  "calendar_name": "Updated Room Name",
+  "sync_enabled": false
+}
+```
+
+#### **4. Get Mapping by Resource ID**
+```http
+GET /mappings/resources/by-resource/{resourceId}?bridge_from=booking_system
+```
+
+This endpoint is particularly useful for your booking system to check if a resource is mapped before creating events:
+
+```json
+{
+  "success": true,
+  "resource_id": "123",
+  "mappings": [
+    {
+      "id": 1,
+      "bridge_to": "outlook",
+      "calendar_id": "room1@company.com",
+      "sync_direction": "bidirectional",
+      "is_active": true
+    }
+  ],
+  "count": 1
+}
+```
+
+#### **5. Trigger Resource Sync**
+```http
+POST /mappings/resources/{id}/sync
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "mapping_id": 1,
+  "message": "Resource sync queued successfully"
+}
+```
+
+### Integration in Your Booking System
+
+You can integrate resource mapping checks directly into your booking system:
+
+```php
+<?php
+// Before creating/updating events, check for mappings
+function getResourceMappings($resourceId) {
+    $bridgeUrl = 'https://your-bridge.com';
+    $url = "{$bridgeUrl}/mappings/resources/by-resource/{$resourceId}";
+    
+    $response = file_get_contents($url);
+    $data = json_decode($response, true);
+    
+    return $data['success'] ? $data['mappings'] : [];
+}
+
+// Use in your event creation/update logic
+function createOrUpdateEvent($resourceId, $eventData) {
+    // Check if resource has calendar mappings
+    $mappings = getResourceMappings($resourceId);
+    
+    if (!empty($mappings)) {
+        // Resource is mapped - events will be synced automatically
+        $eventData['bridge_import'] = true;
+        $eventData['sync_mappings'] = $mappings;
+    }
+    
+    // Create/update your event as normal
+    $eventId = $this->createEvent($resourceId, $eventData);
+    
+    // Trigger bridge sync if mapped
+    if (!empty($mappings)) {
+        foreach ($mappings as $mapping) {
+            $this->triggerBridgeSync($mapping['id']);
+        }
+    }
+    
+    return $eventId;
+}
+
+private function triggerBridgeSync($mappingId) {
+    $bridgeUrl = 'https://your-bridge.com';
+    $url = "{$bridgeUrl}/mappings/resources/{$mappingId}/sync";
+    
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json',
+            'timeout' => 5
+        ]
+    ]);
+    
+    @file_get_contents($url, false, $context);
+}
+```
+
+### Testing Resource Mappings
+
+```bash
+# Create a resource mapping
+curl -X POST http://localhost:8080/mappings/resources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bridge_from": "booking_system",
+    "bridge_to": "outlook", 
+    "resource_id": "123",
+    "calendar_id": "room1@company.com",
+    "calendar_name": "Conference Room 1"
+  }'
+
+# Check mapping for a resource
+curl http://localhost:8080/mappings/resources/by-resource/123
+
+# Get all mappings
+curl http://localhost:8080/mappings/resources
+
+# Trigger sync for a mapping  
+curl -X POST http://localhost:8080/mappings/resources/1/sync
+```

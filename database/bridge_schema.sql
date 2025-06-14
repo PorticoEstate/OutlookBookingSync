@@ -73,7 +73,28 @@ CREATE TABLE IF NOT EXISTS bridge_queue (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Bridge resource mappings table - maps booking system resources to calendar systems
+CREATE TABLE IF NOT EXISTS bridge_resource_mappings (
+    id SERIAL PRIMARY KEY,
+    bridge_from VARCHAR(50) NOT NULL, -- e.g., 'booking_system'
+    bridge_to VARCHAR(50) NOT NULL,   -- e.g., 'outlook'
+    resource_id VARCHAR(255) NOT NULL, -- booking system resource ID
+    calendar_id VARCHAR(255) NOT NULL, -- Outlook calendar ID or email
+    calendar_name VARCHAR(255),        -- human-readable calendar name
+    sync_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'source_to_target', 'target_to_source', 'bidirectional'
+    is_active BOOLEAN DEFAULT TRUE,
+    sync_enabled BOOLEAN DEFAULT TRUE,
+    last_synced_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bridge_from, bridge_to, resource_id, calendar_id)
+);
+
 -- Indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_from ON bridge_resource_mappings(bridge_from, resource_id);
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_to ON bridge_resource_mappings(bridge_to, calendar_id);
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_active ON bridge_resource_mappings(is_active, sync_enabled);
+
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_synced_at);
@@ -89,6 +110,27 @@ CREATE INDEX IF NOT EXISTS idx_bridge_queue_status ON bridge_queue(status, sched
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_priority ON bridge_queue(priority, scheduled_at) WHERE status = 'pending';
 
 -- Views for easy querying
+
+-- Active resource mappings view
+CREATE OR REPLACE VIEW v_active_resource_mappings AS
+SELECT 
+    brm.*,
+    CASE 
+        WHEN brm.last_synced_at > NOW() - INTERVAL '1 hour' THEN 'recent'
+        WHEN brm.last_synced_at > NOW() - INTERVAL '1 day' THEN 'daily'
+        WHEN brm.last_synced_at > NOW() - INTERVAL '1 week' THEN 'weekly'
+        ELSE 'stale'
+    END as sync_freshness,
+    COUNT(bm.id) as mapped_events
+FROM bridge_resource_mappings brm
+LEFT JOIN bridge_mappings bm ON (
+    brm.resource_id = bm.source_calendar_id AND brm.calendar_id = bm.target_calendar_id
+    OR brm.resource_id = bm.target_calendar_id AND brm.calendar_id = bm.source_calendar_id
+)
+WHERE brm.is_active = true
+GROUP BY brm.id, brm.bridge_from, brm.bridge_to, brm.resource_id, brm.calendar_id, 
+         brm.calendar_name, brm.sync_direction, brm.sync_enabled, brm.last_synced_at, 
+         brm.created_at, brm.updated_at;
 
 -- Active bridge mappings view
 CREATE OR REPLACE VIEW v_active_bridge_mappings AS

@@ -71,12 +71,47 @@ REVERSE_SYNC_DATA='{
 
 api_call "POST" "/bridges/sync/booking_system/outlook" "$REVERSE_SYNC_DATA" "Test dry run sync (Booking System → Outlook)"
 
+echo ""
+echo "🔗 Testing Resource Mapping API"
+echo "==============================="
+
+# Test 7: Create resource mapping
+MAPPING_DATA='{
+    "bridge_from": "booking_system",
+    "bridge_to": "outlook",
+    "resource_id": "123",
+    "calendar_id": "room1@company.com",
+    "calendar_name": "Conference Room 1",
+    "sync_direction": "bidirectional"
+}'
+
+api_call "POST" "/mappings/resources" "$MAPPING_DATA" "Create resource mapping"
+
+# Test 8: Get all resource mappings
+api_call "GET" "/mappings/resources" "" "Get all resource mappings"
+
+# Test 9: Get resource mapping by resource ID
+api_call "GET" "/mappings/resources/by-resource/123" "" "Get mapping by resource ID"
+
+# Test 10: Update resource mapping (assuming ID 1 was created)
+UPDATE_MAPPING_DATA='{
+    "calendar_name": "Updated Conference Room 1",
+    "sync_enabled": true
+}'
+
+api_call "PUT" "/mappings/resources/1" "$UPDATE_MAPPING_DATA" "Update resource mapping"
+
+# Test 11: Trigger resource sync
+api_call "POST" "/mappings/resources/1/sync" "" "Trigger resource sync"
+
 echo "🎉 Generic Calendar Bridge testing completed!"
 echo ""
 echo "Key endpoints tested:"
 echo "  ✅ Bridge listing and health checks"
-echo "  ✅ Calendar discovery for both bridges"
+echo "  ✅ Calendar discovery for both bridges" 
 echo "  ✅ Bidirectional sync capabilities (dry run)"
+echo "  ✅ Resource mapping management"
+echo "  ✅ Resource-specific sync triggers"
 echo ""
 echo "To perform actual sync operations, remove 'dry_run': true from the requests."
 echo "Make sure to configure proper calendar IDs for your environment."
