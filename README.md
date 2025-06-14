@@ -119,7 +119,7 @@ curl -X POST http://localhost:8080/cancel/detect
 ### Environment Variables
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` - Database configuration
-- `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `GRAPH_TENANT_ID` - Microsoft Graph API
+- `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID`, `OUTLOOK_GROUP_ID` - Microsoft Graph API
 - `API_KEY` - Optional API key for endpoint security
 
 ### Bridge Configuration

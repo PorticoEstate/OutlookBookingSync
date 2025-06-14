@@ -197,7 +197,7 @@ class HealthController
     {
         try {
             // Check if Graph credentials are configured
-            $clientId = $_ENV['GRAPH_CLIENT_ID'] ?? null;
+            $clientId = $_ENV['OUTLOOK_CLIENT_ID'] ?? null;
             $clientSecret = $_ENV['GRAPH_CLIENT_SECRET'] ?? null;
             
             if (!$clientId || !$clientSecret) {

@@ -44,7 +44,7 @@ class OutlookController
 		//https://learn.microsoft.com/en-us/graph/tutorials/php?tabs=aad&tutorial-step=3
 		//https://github.com/microsoftgraph/msgraph-sdk-php/issues/1483
 		$tenantId = $_ENV['GRAPH_TENANT_ID'];
-		$clientId = $_ENV['GRAPH_CLIENT_ID'];
+		$clientId = $_ENV['OUTLOOK_CLIENT_ID'];
 		$clientSecret = $_ENV['GRAPH_CLIENT_SECRET'];
 		$this->userPrincipalName = $_ENV['GRAPH_USER_PRINCIPAL_NAME'];
 
@@ -156,7 +156,7 @@ class OutlookController
 		try
 		{
 			// Get group ID from environment variable or use default
-			$groupId = $_ENV['GRAPH_GROUP_ID'] ?? '90ba4505-3855-4739-81fa-6b0008ae9216';
+			$groupId = $_ENV['OUTLOOK_GROUP_ID'] ?? '90ba4505-3855-4739-81fa-6b0008ae9216';
 
 			// Get the request adapter from the Graph service client
 			$requestAdapter = $this->graphServiceClient->getRequestAdapter();

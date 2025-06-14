@@ -176,7 +176,8 @@ $container->set('bridgeManager', function () use ($container) {
     $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
         'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
         'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
-        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID']
+        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
+        'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
     ]);
     
     // Register Booking System bridge

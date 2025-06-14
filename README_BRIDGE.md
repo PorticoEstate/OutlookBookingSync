@@ -89,6 +89,7 @@ DB_PASS=your_password
 OUTLOOK_CLIENT_ID=your_client_id
 OUTLOOK_CLIENT_SECRET=your_client_secret  
 OUTLOOK_TENANT_ID=your_tenant_id
+OUTLOOK_GROUP_ID=your_group_id_for_room_calendars
 
 # Booking System API (optional)
 BOOKING_SYSTEM_API_URL=http://your-booking-system/api
@@ -1472,3 +1473,104 @@ This works perfectly with polling:
 4. **No Webhooks Needed**: Pure polling-based detection
 
 **See [WEBHOOK_FREE_OPERATION.md](WEBHOOK_FREE_OPERATION.md) for detailed configuration options.**
+
+## 🔧 Microsoft Graph API Setup
+
+To configure Outlook integration, you'll need to set up an application in Azure Active Directory:
+
+#### **1. Create Azure AD Application**
+
+1. Go to [Azure Portal](https://portal.azure.com) → **Azure Active Directory** → **App registrations**
+2. Click **New registration**
+3. Configure your application:
+   - **Name**: `Outlook Calendar Bridge`
+   - **Supported account types**: `Accounts in this organizational directory only`
+   - **Redirect URI**: Leave blank (not needed for service-to-service)
+
+#### **2. Get Required Credentials**
+
+After creating the app, collect these values for your `.env` file:
+
+- **OUTLOOK_CLIENT_ID**: Found on app's **Overview** page → **Application (client) ID**
+- **OUTLOOK_TENANT_ID**: Found on app's **Overview** page → **Directory (tenant) ID**
+- **OUTLOOK_CLIENT_SECRET**: 
+  1. Go to **Certificates & secrets** → **Client secrets**
+  2. Click **New client secret**
+  3. Copy the **Value** (not the Secret ID)
+
+#### **3. Configure API Permissions**
+
+1. Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Application permissions**
+2. Add these permissions:
+   - `Calendars.ReadWrite` - Read and write calendars
+   - `User.Read.All` - Read user profiles
+   - `Group.Read.All` - Read group information and members
+   - `Place.Read.All` - Read room and resource mailboxes
+
+3. Click **Grant admin consent** for your organization
+
+#### **4. Find Your OUTLOOK_GROUP_ID**
+
+The `OUTLOOK_GROUP_ID` is used to discover room calendars from a specific Outlook distribution group:
+
+**Option A: Use Graph Explorer**
+1. Go to [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
+2. Sign in and run: `GET https://graph.microsoft.com/v1.0/groups`
+3. Find your room calendars group and copy its `id`
+
+**Option B: Use PowerShell**
+```powershell
+# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "Group.Read.All"
+
+# List all groups to find your room calendars group
+Get-MgGroup | Where-Object {$_.DisplayName -like "*room*"} | Select-Object DisplayName, Id
+
+# Example output:
+# DisplayName          Id
+# -----------          --
+# Room Calendars       12345678-1234-1234-1234-123456789abc
+```
+
+**Option C: Use Azure Portal**
+1. Go to **Azure Active Directory** → **Groups**
+2. Find your group containing room calendars
+3. Click on the group → copy the **Object ID**
+
+#### **5. Configure Calendar Discovery**
+
+**With OUTLOOK_GROUP_ID** (Recommended for specific room groups):
+```env
+OUTLOOK_GROUP_ID=12345678-1234-1234-1234-123456789abc
+```
+- Bridge will discover calendars from group members
+- Perfect for curated lists of room calendars
+- Supports rooms, resources, and mailbox-enabled users
+
+**Without OUTLOOK_GROUP_ID** (Default):
+```env
+# OUTLOOK_GROUP_ID=  # Leave empty or omit
+```
+- Bridge will use `/places/microsoft.graph.room` endpoint
+- Discovers all room mailboxes in your tenant
+- May include rooms you don't want to sync
+
+#### **6. Test Your Configuration**
+
+```bash
+# Test calendar discovery
+curl http://localhost:8080/bridges/outlook/calendars
+
+# Expected response:
+{
+  "calendars": [
+    {
+      "id": "room1@company.com",
+      "name": "Conference Room A",
+      "email": "room1@company.com", 
+      "type": "room",
+      "bridge_type": "outlook"
+    }
+  ]
+}
+```

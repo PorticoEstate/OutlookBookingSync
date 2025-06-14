@@ -18,6 +18,9 @@ class OutlookBridge extends AbstractCalendarBridge
                 throw new \InvalidArgumentException("Outlook bridge requires '{$key}' in configuration");
             }
         }
+        
+        // group_id is optional - used for discovering room calendars from a specific group
+        // If not provided, will use the default /places/microsoft.graph.room endpoint
     }
     
     protected function initialize()
@@ -106,7 +109,12 @@ class OutlookBridge extends AbstractCalendarBridge
     {
         $this->logOperation('get_calendars');
         
-        // Get room mailboxes
+        // If group_id is configured, get calendars from group members
+        if (isset($this->config['group_id']) && !empty($this->config['group_id'])) {
+            return $this->getCalendarsFromGroup($this->config['group_id']);
+        }
+        
+        // Default: Get room mailboxes from /places endpoint
         $url = "{$this->graphBaseUrl}/places/microsoft.graph.room";
         $response = $this->makeGraphRequest('GET', $url);
         
@@ -120,6 +128,63 @@ class OutlookBridge extends AbstractCalendarBridge
                 'raw_data' => $room
             ];
         }, $response['value'] ?? []);
+    }
+    
+    /**
+     * Get calendars from a specific Outlook group
+     */
+    private function getCalendarsFromGroup($groupId): array
+    {
+        $this->logOperation('get_calendars_from_group', ['group_id' => $groupId]);
+        
+        // Get group members
+        $url = "{$this->graphBaseUrl}/groups/{$groupId}/members";
+        $response = $this->makeGraphRequest('GET', $url);
+        
+        $calendars = [];
+        
+        foreach ($response['value'] ?? [] as $member) {
+            // Filter for mailbox-enabled members (rooms, resources, or users with calendars)
+            if (isset($member['mail']) && !empty($member['mail'])) {
+                $calendars[] = [
+                    'id' => $member['mail'], // Use email as calendar ID for group members
+                    'name' => $member['displayName'] ?? $member['mail'],
+                    'email' => $member['mail'],
+                    'type' => $this->determineCalendarType($member),
+                    'bridge_type' => $this->getBridgeType(),
+                    'raw_data' => $member
+                ];
+            }
+        }
+        
+        return $calendars;
+    }
+    
+    /**
+     * Determine the type of calendar based on member properties
+     */
+    private function determineCalendarType($member): string
+    {
+        // Check if it's a room mailbox
+        if (isset($member['@odata.type']) && strpos($member['@odata.type'], 'room') !== false) {
+            return 'room';
+        }
+        
+        // Check if it's a resource mailbox  
+        if (isset($member['@odata.type']) && strpos($member['@odata.type'], 'equipment') !== false) {
+            return 'equipment';
+        }
+        
+        // Check for room-like properties in the display name
+        $displayName = strtolower($member['displayName'] ?? '');
+        if (strpos($displayName, 'room') !== false || 
+            strpos($displayName, 'conference') !== false ||
+            strpos($displayName, 'meeting') !== false) {
+            return 'room';
+        }
+        
+        // Default to resource for mailbox-enabled group members
+        return 'resource';
     }
     
     public function subscribeToChanges($calendarId, $webhookUrl): string
