@@ -37,7 +37,7 @@ A **production-ready, extensible calendar synchronization platform** that acts a
 
 ### **Supported Calendar Systems:**
 - ✅ **Microsoft Outlook/Graph API** (Full implementation)
-- ✅ **Generic Booking Systems** (REST API + Database fallback)
+- ✅ **Generic Booking Systems** (REST API)
 - 🔄 **Google Calendar** (Extensible - implement GoogleBridge)
 - 🔄 **CalDAV Systems** (Extensible - implement CalDAVBridge)
 - 🔄 **Any Custom System** (Implement AbstractCalendarBridge)
@@ -242,7 +242,7 @@ Generic Calendar Bridge (Port 8080)
 
 ### **Supported Integrations:**
 - ✅ **Microsoft Outlook/365** (Full webhook + API support)
-- ✅ **Booking Systems** (REST API + Database fallback)
+- ✅ **Booking Systems** (REST API)
 - 🔄 **Extensible** (Add new calendar systems by implementing AbstractCalendarBridge)
 
 ## 🚀 Getting Started

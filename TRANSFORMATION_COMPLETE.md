@@ -14,7 +14,7 @@
 
 ### 🔌 **Bridge Implementations**
 - ✅ **OutlookBridge**: Microsoft Graph API implementation with webhook support
-- ✅ **BookingSystemBridge**: Generic booking system with REST API and database fallback
+- ✅ **BookingSystemBridge**: Generic booking system with REST API
 - ✅ **BridgeManager**: Central orchestration service managing all bridge instances
 - ✅ **DeletionSyncService**: Robust deletion detection and synchronization
 
