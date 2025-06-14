@@ -42,13 +42,6 @@ $container->set('logger', function () {
 });
 
 // Register controllers in the container
-// $container->set(\App\Controller\SyncController::class, function () {
-// 	return new \App\Controller\SyncController();
-// });
-
-// $container->set(\App\Controller\SyncMappingController::class, function () {
-// 	return new \App\Controller\SyncMappingController();
-// });
 
 $container->set(\App\Controller\HealthController::class, function () use ($container) {
 	return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
@@ -89,40 +82,6 @@ $app->get('/outlook/available-groups', [\App\Controller\OutlookController::class
 
 // Get calendar items for a specific user
 $app->get('/outlook/users/{userId}/calendar-items', [\App\Controller\OutlookController::class, 'getUserCalendarItems']);
-
-// Sync mapping routes
-
-// Populate mapping table with booking system items (create sync mappings)
-$app->post('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
-$app->get('/sync/populate-mapping', [\App\Controller\SyncMappingController::class, 'populateMapping']);
-
-// Get items pending synchronization to Outlook
-$app->get('/sync/pending-items', [\App\Controller\SyncMappingController::class, 'getPendingItems']);
-
-// Clean up orphaned mappings (remove mappings for deleted calendar items)
-$app->delete('/sync/cleanup-orphaned', [\App\Controller\SyncMappingController::class, 'cleanupOrphaned']);
-
-// Get comprehensive sync statistics with directional tracking
-$app->get('/sync/stats', [\App\Controller\SyncMappingController::class, 'getStats']);
-
-// Outlook sync routes (Booking System → Outlook)
-
-// Sync pending booking system items to Outlook calendars
-$app->post('/sync/to-outlook', [\App\Controller\SyncController::class, 'syncToOutlook']);
-
-// Sync a specific booking system item to Outlook
-$app->post('/sync/item/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\SyncController::class, 'syncSpecificItem']);
-
-// Get sync status summary (legacy endpoint)
-$app->get('/sync/status', [\App\Controller\SyncController::class, 'getSyncStatus']);
-
-// Reverse sync routes (Outlook → Booking System)
-
-// Get Outlook events that aren't in the booking system
-$app->get('/sync/outlook-events', [\App\Controller\SyncController::class, 'getOutlookEvents']);
-
-// Import Outlook events to mapping table for processing
-$app->post('/sync/from-outlook', [\App\Controller\SyncController::class, 'populateFromOutlook']);
 
 // Booking system integration routes
 
@@ -168,34 +127,6 @@ $app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\Ca
 
 // Get statistics about cancellation detection process
 $app->get('/cancel/detection-stats', [\App\Controller\CancellationController::class, 'getDetectionStats']);
-
-// Webhook routes for real-time Outlook change notifications
-
-// Handle incoming webhook notifications from Microsoft Graph
-$app->post('/webhook/outlook-notifications', [\App\Controller\WebhookController::class, 'handleOutlookNotification']);
-
-// Create webhook subscriptions for all room calendars
-$app->post('/webhook/create-subscriptions', [\App\Controller\WebhookController::class, 'createWebhookSubscriptions']);
-
-// Renew expiring webhook subscriptions
-$app->post('/webhook/renew-subscriptions', [\App\Controller\WebhookController::class, 'renewWebhookSubscriptions']);
-
-// Get webhook subscription statistics
-$app->get('/webhook/stats', [\App\Controller\WebhookController::class, 'getWebhookStats']);
-
-// Outlook polling routes for change detection (alternative to webhooks)
-
-// Initialize polling state for all room calendars
-$app->post('/polling/initialize', [\App\Controller\OutlookPollingController::class, 'initializePolling']);
-
-// Poll all Outlook calendars for changes - main polling endpoint
-$app->post('/polling/poll-changes', [\App\Controller\OutlookPollingController::class, 'pollForChanges']);
-
-// Detect missing events by checking if mapped events still exist in Outlook
-$app->post('/polling/detect-missing-events', [\App\Controller\OutlookPollingController::class, 'detectMissingEvents']);
-
-// Get polling statistics and health status
-$app->get('/polling/stats', [\App\Controller\OutlookPollingController::class, 'getPollingStats']);
 
 // Health monitoring and dashboard routes
 
@@ -289,6 +220,12 @@ $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeControl
 
 // Get health status of all bridges
 $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealthStatus']);
+
+// Manual deletion sync
+$app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 'syncDeletions']);
+
+// Process deletion check queue
+$app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController::class, 'processDeletionQueue']);
 
 // Resource Mapping API Routes
 

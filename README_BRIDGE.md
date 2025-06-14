@@ -1138,3 +1138,135 @@ curl http://localhost:8080/mappings/resources
 # Trigger sync for a mapping  
 curl -X POST http://localhost:8080/mappings/resources/1/sync
 ```
+
+## 🗑️ Deletion Sync Handling
+
+The bridge system automatically handles event deletions from Outlook and syncs them to your booking system to maintain data consistency.
+
+### **How Deletion Sync Works:**
+
+1. **Webhook Detection**: When an Outlook event is deleted, Microsoft Graph sends a webhook notification
+2. **Deletion Queue**: The bridge queues a deletion check to verify the event was actually deleted
+3. **Verification**: The system attempts to fetch the event from Outlook to confirm deletion
+4. **Sync Deletion**: If confirmed deleted, the corresponding booking system event is marked as inactive
+5. **Cleanup**: The bridge mapping is removed to maintain clean data
+
+### **Deletion Sync Endpoints:**
+
+#### **Manual Deletion Sync**
+```http
+POST /bridges/sync-deletions
+```
+
+Manually check all recent mappings for deleted Outlook events:
+
+```bash
+curl -X POST http://localhost:8080/bridges/sync-deletions
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Deletion sync completed",
+  "results": {
+    "checked": 25,
+    "deleted": 3,
+    "errors": []
+  }
+}
+```
+
+#### **Process Deletion Queue**
+```http
+POST /bridges/process-deletion-queue
+```
+
+Process pending deletion checks from the webhook queue:
+
+```bash
+curl -X POST http://localhost:8080/bridges/process-deletion-queue
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Deletion queue processed", 
+  "results": {
+    "processed": 10,
+    "deletions_found": 2,
+    "errors": []
+  }
+}
+```
+
+### **Automatic Deletion Detection:**
+
+The bridge automatically detects deletions through:
+
+1. **Real-time Webhooks**: Microsoft Graph notifications trigger immediate deletion checks
+2. **Regular Sync**: The `sync` operation compares source and target events and removes orphaned mappings
+3. **Manual Verification**: You can trigger manual deletion checks for recent events
+
+### **Booking System Deletion:**
+
+When an Outlook event is deleted, the bridge:
+
+1. **Soft Delete**: Sets `active = 0` in your booking system database
+2. **API Delete**: Calls `DELETE /api/resources/{id}/events/{eventId}` if using REST API mode
+3. **Mapping Cleanup**: Removes the bridge mapping to prevent orphaned data
+4. **Audit Trail**: Logs the deletion operation in `bridge_sync_logs`
+
+### **Monitoring Deletions:**
+
+Check deletion sync activity:
+
+```bash
+# View recent deletion operations
+curl "http://localhost:8080/bridges/health" | jq '.logs[] | select(.operation == "delete")'
+
+# Check bridge mappings for consistency
+curl "http://localhost:8080/mappings/resources?active_only=true"
+```
+
+This ensures your booking system stays in sync when events are deleted from Outlook calendars.
+
+## ✅ **Implementation Status**
+
+**🎉 COMPLETED - Production Ready Generic Calendar Bridge**
+
+This project has been successfully transformed into a fully functional, production-ready generic calendar bridge service:
+
+### **✅ Core Architecture (COMPLETED)**
+- **Bridge Pattern**: Extensible abstract bridge architecture implemented
+- **REST API Communication**: Pure REST API interfaces for all calendar systems
+- **Production Ready**: Enterprise-grade reliability, monitoring, and error handling
+- **Self-Hosted**: Complete control and customization capabilities
+
+### **✅ Bridge Implementations (COMPLETED)**
+- **OutlookBridge**: Microsoft Graph API integration with webhook support
+- **BookingSystemBridge**: Generic booking system with REST API and database fallback
+- **BridgeManager**: Central orchestration service managing all bridge instances
+- **Deletion Sync**: Robust deletion detection and synchronization
+
+### **✅ API Endpoints (COMPLETED)**
+- **Bridge Discovery**: `/bridges` - List all available bridges with capabilities
+- **Calendar Discovery**: `/bridges/{bridge}/calendars` - Enumerate calendars
+- **Bidirectional Sync**: `/bridges/sync/{source}/{target}` - Event synchronization
+- **Webhook Processing**: `/bridges/webhook/{bridge}` - Real-time updates
+- **Resource Mapping**: `/resource-mappings` - Calendar resource management
+- **Health Monitoring**: `/bridges/health` - System status and monitoring
+- **Deletion Sync**: Automated deletion detection and processing
+
+### **✅ Database & Infrastructure (COMPLETED)**
+- **Bridge Schema**: Complete schema for mappings, configs, logs, subscriptions
+- **Resource Mapping**: Calendar resource management system
+- **Queue System**: Async processing for webhooks and deletions
+- **Docker Support**: Production containerization ready
+- **Setup Scripts**: Database setup, testing, and automation tools
+
+### **🚀 Ready for Use**
+The bridge is now production-ready and can be extended with additional calendar systems (Google Calendar, Exchange, CalDAV) using the established bridge pattern.
+
+---

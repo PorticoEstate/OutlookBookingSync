@@ -185,6 +185,11 @@ class BridgeController
                 'data' => $body
             ]);
             
+            // Process Microsoft Graph notifications for deletions
+            if ($bridgeName === 'outlook' && isset($body['value'])) {
+                $this->processMicrosoftGraphNotifications($body['value']);
+            }
+            
             // Determine the target bridge for sync
             $targetBridge = $this->determineTargetBridge($bridgeName);
             
@@ -213,6 +218,66 @@ class BridgeController
             ]));
             
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Process Microsoft Graph webhook notifications for deletions
+     */
+    private function processMicrosoftGraphNotifications($notifications)
+    {
+        foreach ($notifications as $notification) {
+            // Microsoft Graph sends notifications for calendar changes
+            // We need to check if the event still exists to detect deletions
+            if (isset($notification['resource']) && isset($notification['resourceData']['id'])) {
+                $resourceUrl = $notification['resource'];
+                $eventId = $notification['resourceData']['id'];
+                
+                // Extract calendar ID from resource URL
+                // Format: /users/{userId}/calendar/events/{eventId}
+                if (preg_match('/\/users\/([^\/]+)\/calendar\/events/', $resourceUrl, $matches)) {
+                    $calendarId = $matches[1];
+                    
+                    // Queue a deletion check operation
+                    $this->queueDeletionCheck($calendarId, $eventId);
+                }
+            }
+        }
+    }
+
+    /**
+     * Queue a deletion check operation
+     */
+    private function queueDeletionCheck($calendarId, $eventId)
+    {
+        $queueData = [
+            'type' => 'deletion_check',
+            'calendar_id' => $calendarId,
+            'event_id' => $eventId,
+            'timestamp' => date('c')
+        ];
+
+        try {
+            if (extension_loaded('redis')) {
+                $redis = new \Redis();
+                $redis->connect('127.0.0.1', 6379);
+                $redis->lpush('bridge_deletion_checks', json_encode($queueData));
+                $redis->close();
+            } else {
+                // Fallback to database queue
+                $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, payload, priority) 
+                        VALUES ('deletion_check', 'outlook', :payload, 1)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([':payload' => json_encode($queueData)]);
+            }
+            
+            $this->logger->info('Deletion check queued', $queueData);
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to queue deletion check', [
+                'error' => $e->getMessage(),
+                'data' => $queueData
+            ]);
         }
     }
     
@@ -417,5 +482,75 @@ class BridgeController
     {
         $baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
         return "{$baseUrl}/webhook/bridge/{$bridgeName}";
+    }
+    
+    /**
+     * Trigger manual deletion sync check
+     * POST /bridges/sync-deletions
+     */
+    public function syncDeletions(Request $request, Response $response, $args)
+    {
+        try {
+            $deletionService = new \App\Services\DeletionSyncService(
+                $this->db, 
+                $this->logger, 
+                $this->bridgeManager
+            );
+            
+            $results = $deletionService->syncDeletedEvents();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Deletion sync completed',
+                'results' => $results
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Deletion sync failed', ['error' => $e->getMessage()]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Process deletion check queue
+     * POST /bridges/process-deletion-queue
+     */
+    public function processDeletionQueue(Request $request, Response $response, $args)
+    {
+        try {
+            $deletionService = new \App\Services\DeletionSyncService(
+                $this->db, 
+                $this->logger, 
+                $this->bridgeManager
+            );
+            
+            $results = $deletionService->processDeletionChecks();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Deletion queue processed',
+                'results' => $results
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Deletion queue processing failed', ['error' => $e->getMessage()]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
     }
 }
