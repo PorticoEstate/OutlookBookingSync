@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OutlookBookingSync - Monitoring Dashboard</title>
+    <title>Calendar Bridge Service - Monitoring Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -195,6 +195,35 @@
             color: #666;
         }
 
+        .action-button {
+            padding: 8px 16px;
+            background-color: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin: 5px;
+            transition: background-color 0.2s;
+        }
+
+        .action-button:hover {
+            background-color: #5a6fd8;
+        }
+
+        .action-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .action-button.danger {
+            background-color: #e53e3e;
+        }
+
+        .action-button.danger:hover {
+            background-color: #c53030;
+        }
+
         .refresh-info {
             text-align: center;
             margin: 20px 0;
@@ -242,7 +271,7 @@
 </head>
 <body>
     <header class="header">
-        <h1>OutlookBookingSync</h1>
+        <h1>Calendar Bridge Service</h1>
         <p>Real-time Monitoring Dashboard</p>
     </header>
 
@@ -374,6 +403,31 @@
                 `;
             }
 
+            // Bridge Health
+            if (checks.bridges) {
+                html += `
+                    <div class="card">
+                        <h3>🌉 Bridge Status ${getStatusBadge(checks.bridges.status)}</h3>
+                        <div class="metric">
+                            <span class="metric-label">Active Bridges</span>
+                            <span class="metric-value">${checks.bridges.active_count || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Outlook Connected</span>
+                            <span class="metric-value">${checks.bridges.outlook_connected ? '✅ Yes' : '❌ No'}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Booking System Connected</span>
+                            <span class="metric-value">${checks.bridges.booking_system_connected ? '✅ Yes' : '❌ No'}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Resource Mappings</span>
+                            <span class="metric-value">${checks.bridges.resource_mappings || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
             // System Resources
             if (checks.memory_usage && checks.disk_space) {
                 html += `
@@ -483,6 +537,45 @@
                 `;
             }
 
+            // Deletion/Cancellation Sync Status
+            if (dashboard.deletion_sync_stats) {
+                const stats = dashboard.deletion_sync_stats;
+                html += `
+                    <div class="card">
+                        <h3>🗑️ Deletion & Cancellation Sync</h3>
+                        <div class="metric">
+                            <span class="metric-label">Queue Size</span>
+                            <span class="metric-value">${stats.queue_size || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Processed Today</span>
+                            <span class="metric-value">${stats.processed_today || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Cancellations Detected</span>
+                            <span class="metric-value">${stats.cancellations_detected || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Last Deletion Sync</span>
+                            <span class="metric-value">${stats.last_deletion_sync ? formatTimestamp(stats.last_deletion_sync) : 'Never'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Quick Actions
+            html += `
+                <div class="card">
+                    <h3>🎛️ Quick Actions</h3>
+                    <button class="action-button" onclick="triggerSync('outlook', 'booking_system')">🔄 Sync: Outlook → Booking</button>
+                    <button class="action-button" onclick="triggerSync('booking_system', 'outlook')">🔄 Sync: Booking → Outlook</button>
+                    <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
+                    <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
+                    <button class="action-button" onclick="refreshDashboard()">📊 Refresh Dashboard</button>
+                    <div id="actionStatus" style="margin-top: 10px; font-size: 0.9rem;"></div>
+                </div>
+            `;
+
             return html;
         }
 
@@ -517,6 +610,72 @@
                     </div>
                 `;
                 document.getElementById('lastUpdate').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Action functions
+        async function triggerSync(sourceBridge, targetBridge) {
+            setActionStatus(`Triggering sync: ${sourceBridge} → ${targetBridge}...`, 'info');
+            try {
+                const response = await fetch(`/bridges/sync/${sourceBridge}/${targetBridge}`, { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    setActionStatus(`✅ Sync ${sourceBridge} → ${targetBridge} completed successfully`, 'success');
+                } else {
+                    setActionStatus('❌ Sync failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('❌ Sync failed: ' + error.message, 'error');
+            }
+        }
+
+        async function triggerDeletionSync() {
+            setActionStatus('Processing deletions...', 'info');
+            try {
+                const response = await fetch('/bridges/sync-deletions', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    setActionStatus('✅ Deletion sync completed', 'success');
+                } else {
+                    setActionStatus('❌ Deletion sync failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('❌ Deletion sync failed: ' + error.message, 'error');
+            }
+        }
+
+        async function detectCancellations() {
+            setActionStatus('Detecting cancellations...', 'info');
+            try {
+                const response = await fetch('/cancel/detect', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    setActionStatus(`✅ Found ${result.detected_count || 0} cancellations`, 'success');
+                } else {
+                    setActionStatus('❌ Cancellation detection failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('❌ Cancellation detection failed: ' + error.message, 'error');
+            }
+        }
+
+        function refreshDashboard() {
+            setActionStatus('Refreshing dashboard...', 'info');
+            loadDashboard();
+        }
+
+        function setActionStatus(message, type) {
+            const statusDiv = document.getElementById('actionStatus');
+            if (statusDiv) {
+                statusDiv.textContent = message;
+                statusDiv.style.color = type === 'success' ? '#28a745' : 
+                                       type === 'error' ? '#dc3545' : '#666';
+                
+                if (type !== 'info') {
+                    setTimeout(() => {
+                        statusDiv.textContent = '';
+                    }, 5000);
+                }
             }
         }
 

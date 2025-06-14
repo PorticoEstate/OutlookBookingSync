@@ -378,6 +378,48 @@ WHERE created_at > NOW() - INTERVAL '1 day'
 GROUP BY source_bridge, target_bridge;
 ```
 
+### Web Dashboard
+
+The bridge service includes a real-time monitoring dashboard at `/public/dashboard.html`:
+
+**Features:**
+- Real-time system health monitoring
+- Bridge connection status
+- Resource mapping overview  
+- Recent sync activity
+- Error tracking and analysis
+- Performance metrics
+- Quick action buttons for manual operations
+
+**Access the Dashboard:**
+```bash
+# Via web browser
+http://localhost:8080/dashboard.html
+
+# Or if using Docker
+http://localhost:8080/dashboard.html
+```
+
+**Dashboard Sections:**
+- **System Overview**: Active mappings, sync counts, and error summary
+- **Bridge Status**: Connection health for Outlook and booking system bridges
+- **Health Checks**: Database, cron jobs, and system resource monitoring
+- **Recent Activity**: Latest sync operations and their status
+- **Error Summary**: Recent errors with frequency and details
+- **Performance Metrics**: Memory usage, throughput, and response times
+- **Deletion Sync**: Queue status and cancellation detection metrics
+- **Quick Actions**: Manual sync, deletion processing, and cancellation detection
+
+**Dashboard API Endpoints:**
+- `/health/system` - System health monitoring
+- `/health/dashboard` - Dashboard metrics  
+- `/bridges/sync/{source}/{target}` - Manual bidirectional sync
+- `/bridges/sync-deletions` - Process deletion queue
+- `/cancel/detect` - Detect cancellations
+
+**Auto-refresh:**
+The dashboard automatically refreshes every 30 seconds to provide real-time monitoring.
+
 ## 🧪 Testing
 
 ### Run Test Suite
