@@ -1323,16 +1323,59 @@ curl -X POST http://localhost:8080/cancel/bulk \
   }'
 ```
 
-### **⚙️ Automated Cancellation Processing**
+### **⚙️ Automated Bridge Processing**
 
-Set up automatic cancellation detection with cron jobs:
+Set up comprehensive automation for the bridge system with cron jobs:
 
 ```bash
-# Check for cancelled events every 5 minutes
+# === CORE BRIDGE SYNCHRONIZATION ===
+# Sync from booking system to Outlook every 5 minutes
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+  -H "Content-Type: application/json" \
+  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+
+# Sync from Outlook to booking system every 10 minutes  
+*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
+  -H "Content-Type: application/json" \
+  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+
+# === DELETION & CANCELLATION PROCESSING ===
+# Process deletion queue from webhooks every 5 minutes
+*/5 * * * * curl -X POST http://localhost:8080/bridges/process-deletion-queue
+
+# Detect and process cancellations (inactive events) every 5 minutes
 */5 * * * * curl -X POST http://localhost:8080/cancel/detect
+
+# Manual deletion sync check every 30 minutes
+*/30 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
 # Alternative: Use the deletion processor script
 */5 * * * * /path/to/process_deletions.sh
+
+# === SYSTEM MONITORING ===
+# Check bridge health every 10 minutes
+*/10 * * * * curl -X GET http://localhost:8080/bridges/health
+
+# Run comprehensive system health checks every 15 minutes
+*/15 * * * * curl -X GET http://localhost:8080/health/system
+```
+
+**Production Cron Setup** (add to `/etc/cron.d/bridge-sync`):
+```bash
+# Generic Calendar Bridge - Production Automation
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Core sync operations
+*/5 * * * * www-data curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook" -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}' >/dev/null 2>&1
+*/10 * * * * www-data curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system" -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}' >/dev/null 2>&1
+
+# Deletion and cancellation processing  
+*/5 * * * * www-data curl -s -X POST "http://localhost/bridges/process-deletion-queue" >/dev/null 2>&1
+*/5 * * * * www-data curl -s -X POST "http://localhost/cancel/detect" >/dev/null 2>&1
+
+# System monitoring
+*/10 * * * * www-data curl -s -X GET "http://localhost/bridges/health" >/dev/null 2>&1
 ```
 
 ### **📊 Monitoring Cancellations**

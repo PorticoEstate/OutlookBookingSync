@@ -195,11 +195,24 @@ curl -X POST http://localhost:8080/bridges/register \
 The system supports automated processing through cron jobs:
 
 ```bash
-# Process deletion sync every 10 minutes
-*/10 * * * * /path/to/process_deletions.sh
+# Bridge synchronization - sync from booking system to Outlook every 5 minutes
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+  -H "Content-Type: application/json" \
+  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
-# Manual sync check every hour
-0 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+# Bridge synchronization - sync from Outlook to booking system every 10 minutes  
+*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
+  -H "Content-Type: application/json" \
+  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+
+# Process deletion sync every 5 minutes
+*/5 * * * * /path/to/process_deletions.sh
+
+# Detect and process cancellations (inactive events) every 5 minutes
+*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+
+# Health monitoring every 10 minutes
+*/10 * * * * curl -X GET http://localhost:8080/bridges/health
 ```
 
 ## 📚 Documentation

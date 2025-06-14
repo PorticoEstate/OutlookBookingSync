@@ -89,20 +89,26 @@ Create a generic, extensible calendar bridge service that can synchronize events
 ### **Booking System Change Detection**
 - Modify the booking system to emit events (e.g., via a message queue like RabbitMQ, Kafka, or even Redis) whenever a booking is created, updated, or deleted.
 - The sync-service subscribes to these events and processes them in real time.
-- **Fallback reconciliation implemented** - Cron jobs running automated sync operations
+- **Fallback reconciliation implemented** - Cron jobs running automated bridge sync operations
 
-### **Automated Cron Jobs** ✅ IMPLEMENTED
-The following cron jobs are active in the Docker container:
-- **Every 15 minutes**: `curl -s -X POST "http://localhost/polling/poll-changes"` - Poll Outlook for changes
-- **Every hour**: `curl -s -X POST "http://localhost/polling/detect-missing-events"` - Detect missing/deleted events  
-- **Every 10 minutes**: `curl -s -X POST "http://localhost/cancel/detect-and-process"` - Process cancellation detection
-- **Daily at 8 AM**: `curl -s -X GET "http://localhost/polling/stats"` - Generate statistics logs
+### **Automated Bridge Cron Jobs** ✅ IMPLEMENTED
+The following cron jobs are active in the Docker container for the generic bridge system:
+- **Every 5 minutes**: `curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook"` - Sync events from booking system to Outlook
+- **Every 10 minutes**: `curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system"` - Sync events from Outlook to booking system  
+- **Every 5 minutes**: `curl -s -X POST "http://localhost/bridges/process-deletion-queue"` - Process webhook deletion queue
+- **Every 5 minutes**: `curl -s -X POST "http://localhost/cancel/detect"` - Detect and process cancellations (inactive events)
+- **Every 30 minutes**: `curl -s -X POST "http://localhost/bridges/sync-deletions"` - Manual deletion sync check
+- **Every 10 minutes**: `curl -s -X GET "http://localhost/bridges/health"` - Monitor bridge health
+- **Daily at 8 AM**: `curl -s -X GET "http://localhost/bridges/health"` - Generate bridge statistics logs
 
-### **Available Polling Endpoints** ✅ IMPLEMENTED
-- `POST /polling/initialize` - Initialize polling state for all room calendars
-- `POST /polling/poll-changes` - Detect calendar changes and process deletions
-- `POST /polling/detect-missing-events` - Find deleted events for cancellation processing
-- `GET /polling/stats` - Monitor polling health and statistics
+### **Available Bridge Endpoints** ✅ IMPLEMENTED
+- `GET /bridges` - List all available bridges with capabilities
+- `GET /bridges/{bridge}/calendars` - Get calendars for a specific bridge
+- `POST /bridges/sync/{source}/{target}` - Sync events between any two bridges
+- `POST /bridges/webhook/{bridge}` - Handle webhooks from bridge systems
+- `POST /bridges/process-deletion-queue` - Process deletion checks from webhook queue
+- `POST /bridges/sync-deletions` - Manual deletion sync verification
+- `GET /bridges/health` - Monitor bridge system health and statistics
 
 ---
 
