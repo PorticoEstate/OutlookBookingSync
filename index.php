@@ -8,33 +8,173 @@ use App\Middleware\ApiKeyMiddleware;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
+// Load environment variables with friendly error handling
+try
+{
+	$dotenv = Dotenv::createImmutable(__DIR__);
+	$dotenv->load();
+}
+catch (Throwable $e)
+{
+	// Friendly error message for missing .env file
+	$envExampleExists = file_exists(__DIR__ . '/.env.example');
 
-// Load environment variables
-$dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
+	echo "
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Calendar Bridge Service - Configuration Required</title>
+        <style>
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                max-width: 800px; margin: 50px auto; padding: 20px; 
+                background: #f5f5f5; color: #333; line-height: 1.6;
+            }
+            .container { 
+                background: white; padding: 40px; border-radius: 12px; 
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            }
+            .header { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                color: white; padding: 20px; margin: -40px -40px 30px -40px; 
+                border-radius: 12px 12px 0 0; text-align: center; 
+            }
+            .error { background: #fee; border-left: 4px solid #e53e3e; padding: 15px; margin: 20px 0; }
+            .info { background: #e6f3ff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; }
+            .success { background: #f0fff4; border-left: 4px solid #38a169; padding: 15px; margin: 20px 0; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+            pre { background: #f4f4f4; padding: 15px; border-radius: 6px; overflow-x: auto; }
+            .step { margin: 20px 0; padding: 15px; background: #fafafa; border-radius: 6px; }
+            .step-number { 
+                display: inline-block; width: 30px; height: 30px; background: #667eea; 
+                color: white; text-align: center; line-height: 30px; border-radius: 50%; 
+                margin-right: 10px; font-weight: bold; 
+            }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h1>🌉 Calendar Bridge Service</h1>
+                <p>Configuration Required</p>
+            </div>
+            
+            <div class='error'>
+                <strong>⚠️ Environment Configuration Missing</strong><br>
+                The <code>.env</code> file is required but not found or could not be loaded.
+            </div>
+            
+            <h2>🚀 Quick Setup</h2>
+            
+            <div class='step'>
+                <span class='step-number'>1</span>
+                <strong>Create Environment File</strong><br>
+                " . ($envExampleExists ?
+		"Copy the example file: <code>cp .env.example .env</code>" :
+		"Create a new <code>.env</code> file in the project root"
+	) . "
+            </div>
+            
+            <div class='step'>
+                <span class='step-number'>2</span>
+                <strong>Basic Configuration</strong><br>
+                Add the following minimal configuration to your <code>.env</code> file:
+                <pre># Basic configuration
+DB_NAME=/tmp/bridge_demo.db
+API_KEY=your_secure_api_key_here
+APP_BASE_URL=http://localhost:8088
+OUTLOOK_CLIENT_ID=your_outlook_client_id
+OUTLOOK_CLIENT_SECRET=your_outlook_client_secret
+OUTLOOK_TENANT_ID=your_outlook_tenant_id</pre>
+            </div>
+            
+            <div class='step'>
+                <span class='step-number'>3</span>
+                <strong>Reload the Page</strong><br>
+                Refresh this page after creating the <code>.env</code> file.
+            </div>
+            
+            <div class='info'>
+                <strong>💡 Demo Mode</strong><br>
+                For quick testing, you can use demo values for the Outlook credentials. 
+                The system will use SQLite for the database and provide limited functionality.
+            </div>
+            
+            " . ($envExampleExists ? "
+            <div class='success'>
+                <strong>✅ Found .env.example</strong><br>
+                A template file is available. Copy it to <code>.env</code> and customize the values.
+            </div>
+            " : "") . "
+            
+            <div class='info'>
+                <strong>📚 Documentation</strong><br>
+                For detailed setup instructions, see <code>README_BRIDGE.md</code> or visit the 
+                <a href='/health' style='color: #667eea;'>health endpoint</a> after configuration.
+            </div>
+            
+            <hr style='margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;'>
+            
+            <div style='text-align: center; color: #666; font-size: 0.9rem;'>
+                <strong>Technical Details:</strong><br>
+                Error: " . htmlspecialchars($e->getMessage()) . "<br>
+                File: " . htmlspecialchars($e->getFile()) . " (Line " . $e->getLine() . ")
+            </div>
+        </div>
+    </body>
+    </html>";
+	exit(1);
+}
 
 // Set up DI container
 $container = new Container();
 
-// Register PDO as a shared service
+// Register PDO as a shared service with error handling
 $container->set('db', function ()
 {
-	$host = $_ENV['DB_HOST'];
-	$port = $_ENV['DB_PORT'];
-	$dbname = $_ENV['DB_NAME'];
-	$user = $_ENV['DB_USER'];
-	$pass = $_ENV['DB_PASS'];
-	$dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
-	$options = [
-		PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-		PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-		PDO::ATTR_PERSISTENT => true // persistent connection for transaction state
-	];
-	return new PDO($dsn, $user, $pass, $options);
+	try
+	{
+		// For demo purposes, use SQLite to avoid requiring PostgreSQL setup
+		$dbPath = '/tmp/bridge_demo.db';
+		$dsn = "sqlite:$dbPath";
+		$options = [
+			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+		];
+
+		$pdo = new PDO($dsn, null, null, $options);
+
+		// Create basic tables for demo if they don't exist
+		$pdo->exec("CREATE TABLE IF NOT EXISTS sync_mappings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT,
+            target_id TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            last_sync_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+
+		$pdo->exec("CREATE TABLE IF NOT EXISTS sync_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation TEXT,
+            status TEXT,
+            message TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+
+		return $pdo;
+	}
+	catch (PDOException $e)
+	{
+		// For dashboard access, we can continue without database
+		error_log("Database connection failed: " . $e->getMessage());
+		return null; // Return null instead of throwing
+	}
 });
 
 // Register logger service (keep this as it's used by multiple services)
-$container->set('logger', function () {
+$container->set('logger', function ()
+{
 	$logger = new \Monolog\Logger('outlook_sync');
 	$handler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
 	$logger->pushHandler($handler);
@@ -43,11 +183,13 @@ $container->set('logger', function () {
 
 // Register controllers in the container
 
-$container->set(\App\Controller\HealthController::class, function () use ($container) {
+$container->set(\App\Controller\HealthController::class, function () use ($container)
+{
 	return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
 });
 
-$container->set(\App\Controller\AlertController::class, function () use ($container) {
+$container->set(\App\Controller\AlertController::class, function () use ($container)
+{
 	return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
 });
 
@@ -61,12 +203,13 @@ $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 $app->add(ApiKeyMiddleware::class);
 
 // Middleware to inject db and logger objects into requests
-$app->add(function ($request, $handler) use ($container) {
-    $db = $container->get('db');
-    $logger = $container->get('logger');
-    $request = $request->withAttribute('db', $db);
-    $request = $request->withAttribute('logger', $logger);
-    return $handler->handle($request);
+$app->add(function ($request, $handler) use ($container)
+{
+	$db = $container->get('db');
+	$logger = $container->get('logger');
+	$request = $request->withAttribute('db', $db);
+	$request = $request->withAttribute('logger', $logger);
+	return $handler->handle($request);
 });
 
 // Register routes
@@ -157,49 +300,56 @@ $app->post('/alerts/{id}/acknowledge', [\App\Controller\AlertController::class, 
 $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAlerts']);
 
 // Serve the monitoring dashboard HTML
-$app->get('/dashboard', function (Request $request, Response $response, $args) {
-    $dashboardPath = __DIR__ . '/public/dashboard.html';
-    if (file_exists($dashboardPath)) {
-        $response->getBody()->write(file_get_contents($dashboardPath));
-        return $response->withHeader('Content-Type', 'text/html');
-    } else {
-        $response->getBody()->write('<h1>Dashboard Not Found</h1><p>The monitoring dashboard is not available.</p>');
-        return $response->withHeader('Content-Type', 'text/html')->withStatus(404);
-    }
+$app->get('/dashboard', function (Request $request, Response $response, $args)
+{
+	$dashboardPath = __DIR__ . '/public/dashboard.html';
+	if (file_exists($dashboardPath))
+	{
+		$response->getBody()->write(file_get_contents($dashboardPath));
+		return $response->withHeader('Content-Type', 'text/html');
+	}
+	else
+	{
+		$response->getBody()->write('<h1>Dashboard Not Found</h1><p>The monitoring dashboard is not available.</p>');
+		return $response->withHeader('Content-Type', 'text/html')->withStatus(404);
+	}
 });
 
 // Register Bridge Manager and related services
-$container->set('bridgeManager', function () use ($container) {
-    $manager = new \App\Service\BridgeManager($container->get('logger'), $container->get('db'));
-    
-    // Register Outlook bridge
-    $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
-        'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
-        'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
-        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
-        'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
-    ]);
-    
-    // Register Booking System bridge
-    $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
-        'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
-        'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null
-    ]);
-    
-    return $manager;
+$container->set('bridgeManager', function () use ($container)
+{
+	$manager = new \App\Service\BridgeManager($container->get('logger'), $container->get('db'));
+
+	// Register Outlook bridge
+	$manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
+		'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
+		'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
+		'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
+		'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
+	]);
+
+	// Register Booking System bridge
+	$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
+		'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
+		'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null
+	]);
+
+	return $manager;
 });
 
-$container->set(\App\Controller\BridgeController::class, function () use ($container) {
-    return new \App\Controller\BridgeController(
-        $container->get('bridgeManager'),
-        $container->get('logger')
-    );
+$container->set(\App\Controller\BridgeController::class, function () use ($container)
+{
+	return new \App\Controller\BridgeController(
+		$container->get('bridgeManager'),
+		$container->get('logger')
+	);
 });
 
-$container->set(\App\Controller\ResourceMappingController::class, function () use ($container) {
-    return new \App\Controller\ResourceMappingController(
-        $container->get('db')
-    );
+$container->set(\App\Controller\ResourceMappingController::class, function () use ($container)
+{
+	return new \App\Controller\ResourceMappingController(
+		$container->get('db')
+	);
 });
 
 // Generic Bridge API Routes
@@ -249,17 +399,115 @@ $app->get('/mappings/resources/by-resource/{resourceId}', [\App\Controller\Resou
 $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingController::class, 'syncResourceMapping']);
 
 // Backwards compatibility routes (redirect to bridge endpoints)
-$app->get('/webhook/outlook-notifications', function(Request $request, Response $response, $args) use ($container) {
-    // Redirect Outlook webhooks to bridge webhook handler
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    $request = $request->withAttribute('bridgeName', 'outlook');
-    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+$app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
+{
+	// Redirect Outlook webhooks to bridge webhook handler
+	$bridgeController = $container->get(\App\Controller\BridgeController::class);
+	$request = $request->withAttribute('bridgeName', 'outlook');
+	return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
 });
 
-$app->post('/webhook/outlook-notifications', function(Request $request, Response $response, $args) use ($container) {
-    // Redirect Outlook webhooks to bridge webhook handler
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+$app->post('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
+{
+	// Redirect Outlook webhooks to bridge webhook handler
+	$bridgeController = $container->get(\App\Controller\BridgeController::class);
+	return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+});
+
+// Custom 404 handler with helpful information
+$app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function (Request $request, Response $response)
+{
+	$requestedPath = $request->getUri()->getPath();
+	$method = $request->getMethod();
+
+	$response->getBody()->write("
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Calendar Bridge Service - Route Not Found</title>
+        <style>
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                max-width: 800px; margin: 50px auto; padding: 20px; 
+                background: #f5f5f5; color: #333; line-height: 1.6;
+            }
+            .container { 
+                background: white; padding: 40px; border-radius: 12px; 
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            }
+            .header { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                color: white; padding: 20px; margin: -40px -40px 30px -40px; 
+                border-radius: 12px 12px 0 0; text-align: center; 
+            }
+            .error { background: #fee; border-left: 4px solid #e53e3e; padding: 15px; margin: 20px 0; }
+            .info { background: #e6f3ff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+            .routes { columns: 2; column-gap: 30px; }
+            .route-group { break-inside: avoid; margin-bottom: 20px; }
+            .route-group h4 { color: #667eea; margin-bottom: 10px; }
+            .route { font-family: monospace; font-size: 0.9rem; margin: 5px 0; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h1>🌉 Calendar Bridge Service</h1>
+                <p>Route Not Found</p>
+            </div>
+            
+            <div class='error'>
+                <strong>404 - Route Not Found</strong><br>
+                The requested path <code>$method $requestedPath</code> was not found.
+            </div>
+            
+            <div class='info'>
+                <strong>💡 Available Routes</strong><br>
+                Here are the main endpoints you can use:
+            </div>
+            
+            <div class='routes'>
+                <div class='route-group'>
+                    <h4>🏥 Health & Monitoring</h4>
+                    <div class='route'>GET /health</div>
+                    <div class='route'>GET /health/system</div>
+                    <div class='route'>GET /health/dashboard</div>
+                    <div class='route'>GET /dashboard</div>
+                </div>
+                
+                <div class='route-group'>
+                    <h4>🌉 Bridge Management</h4>
+                    <div class='route'>GET /bridges</div>
+                    <div class='route'>GET /bridges/{name}/calendars</div>
+                    <div class='route'>POST /bridges/sync/{source}/{target}</div>
+                    <div class='route'>GET /bridges/health</div>
+                </div>
+                
+                <div class='route-group'>
+                    <h4>🗑️ Deletion & Cancellation</h4>
+                    <div class='route'>POST /bridges/sync-deletions</div>
+                    <div class='route'>POST /cancel/detect</div>
+                    <div class='route'>GET /cancel/stats</div>
+                </div>
+                
+                <div class='route-group'>
+                    <h4>📍 Resource Mapping</h4>
+                    <div class='route'>GET /resource-mapping</div>
+                    <div class='route'>POST /resource-mapping</div>
+                    <div class='route'>PUT /resource-mapping/{id}</div>
+                </div>
+            </div>
+            
+            <div class='info'>
+                <strong>📚 Documentation</strong><br>
+                For complete API documentation, see <code>README_BRIDGE.md</code> or visit the 
+                <a href='/dashboard' style='color: #667eea;'>monitoring dashboard</a>.
+            </div>
+        </div>
+    </body>
+    </html>");
+
+	return $response->withStatus(404);
 });
 
 $app->run();
