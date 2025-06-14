@@ -1232,41 +1232,159 @@ curl "http://localhost:8080/mappings/resources?active_only=true"
 
 This ensures your booking system stays in sync when events are deleted from Outlook calendars.
 
-## ✅ **Implementation Status**
+## 🚫 **Cancellation & Inactive Event Handling**
 
-**🎉 COMPLETED - Production Ready Generic Calendar Bridge**
+The bridge automatically handles when events become inactive in your booking system and need to be removed from Outlook calendars.
 
-This project has been successfully transformed into a fully functional, production-ready generic calendar bridge service:
+### **Use Case: Booking System Event Becomes Inactive**
 
-### **✅ Core Architecture (COMPLETED)**
-- **Bridge Pattern**: Extensible abstract bridge architecture implemented
-- **REST API Communication**: Pure REST API interfaces for all calendar systems
-- **Production Ready**: Enterprise-grade reliability, monitoring, and error handling
-- **Self-Hosted**: Complete control and customization capabilities
+**Scenario**: You create an event in your booking system, it syncs to Outlook, then you set the event to inactive (`active = 0`) and want the Outlook event deleted automatically.
 
-### **✅ Bridge Implementations (COMPLETED)**
-- **OutlookBridge**: Microsoft Graph API integration with webhook support
-- **BookingSystemBridge**: Generic booking system with REST API and database fallback
-- **BridgeManager**: Central orchestration service managing all bridge instances
-- **Deletion Sync**: Robust deletion detection and synchronization
+**How it works:**
 
-### **✅ API Endpoints (COMPLETED)**
-- **Bridge Discovery**: `/bridges` - List all available bridges with capabilities
-- **Calendar Discovery**: `/bridges/{bridge}/calendars` - Enumerate calendars
-- **Bidirectional Sync**: `/bridges/sync/{source}/{target}` - Event synchronization
-- **Webhook Processing**: `/bridges/webhook/{bridge}` - Real-time updates
-- **Resource Mapping**: `/resource-mappings` - Calendar resource management
-- **Health Monitoring**: `/bridges/health` - System status and monitoring
-- **Deletion Sync**: Automated deletion detection and processing
+1. **Event Creation**: Event created in booking system → automatically synced to Outlook
+2. **Set Inactive**: You set `bb_event.active = 0` in your booking system database
+3. **Automatic Detection**: Bridge detects the inactive event during cancellation check
+4. **Outlook Deletion**: Corresponding Outlook event is automatically deleted
+5. **Mapping Cleanup**: Bridge mapping is updated to 'cancelled' status
 
-### **✅ Database & Infrastructure (COMPLETED)**
-- **Bridge Schema**: Complete schema for mappings, configs, logs, subscriptions
-- **Resource Mapping**: Calendar resource management system
-- **Queue System**: Async processing for webhooks and deletions
-- **Docker Support**: Production containerization ready
-- **Setup Scripts**: Database setup, testing, and automation tools
+### **🔧 Cancellation API Endpoints**
 
-### **🚀 Ready for Use**
-The bridge is now production-ready and can be extended with additional calendar systems (Google Calendar, Exchange, CalDAV) using the established bridge pattern.
+#### **Automatic Cancellation Detection**
+```http
+POST /cancel/detect
+```
+
+Scans for inactive events in booking system and deletes corresponding Outlook events:
+
+```bash
+curl -X POST http://localhost:8080/cancel/detect
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Cancellation detection completed",
+  "results": {
+    "detected": 3,
+    "processed": 3,
+    "cancelled_events": [
+      {
+        "id": "12345",
+        "name": "Conference Room Meeting",
+        "active": 0,
+        "outlook_event_id": "AAMkAGI...",
+        "mapping_id": "67890"
+      }
+    ],
+    "errors": []
+  }
+}
+```
+
+#### **Manual Cancellation**
+```http
+DELETE /cancel/reservation/{reservationType}/{reservationId}/{resourceId}
+```
+
+Immediately cancel a specific reservation and delete its Outlook event:
+
+```bash
+curl -X DELETE http://localhost:8080/cancel/reservation/event/12345/67
+```
+
+#### **Check Reservation Status**
+```http
+GET /cancel/check/{reservationType}/{reservationId}
+```
+
+Check if a reservation is cancelled:
+
+```bash
+curl http://localhost:8080/cancel/check/event/12345
+```
+
+#### **Bulk Cancellation Processing**
+```http
+POST /cancel/bulk
+```
+
+Process multiple cancellations at once:
+
+```bash
+curl -X POST http://localhost:8080/cancel/bulk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reservations": [
+      {"type": "event", "id": 12345, "resource_id": 67},
+      {"type": "event", "id": 12346, "resource_id": 67}
+    ]
+  }'
+```
+
+### **⚙️ Automated Cancellation Processing**
+
+Set up automatic cancellation detection with cron jobs:
+
+```bash
+# Check for cancelled events every 5 minutes
+*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+
+# Alternative: Use the deletion processor script
+*/5 * * * * /path/to/process_deletions.sh
+```
+
+### **📊 Monitoring Cancellations**
+
+#### **Cancellation Statistics**
+```bash
+# Get cancellation stats
+curl http://localhost:8080/cancel/stats
+```
+
+#### **View Cancelled Reservations**
+```bash
+# List recently cancelled reservations
+curl http://localhost:8080/cancel/cancelled-reservations
+```
+
+#### **Detection Statistics**
+```bash
+# Get detection performance stats
+curl http://localhost:8080/cancel/detection-stats
+```
+
+### **🔄 Re-enabling Events**
+
+The system also handles when cancelled events are reactivated:
+
+1. **Set Active**: Change `bb_event.active = 1` in booking system
+2. **Detection**: Bridge detects the reactivated event
+3. **Outlook Recreation**: Creates new Outlook event for the reactivated reservation
+4. **Mapping Reset**: Resets mapping status from 'cancelled' to 'active'
+
+```bash
+# Detect and process re-enabled events
+curl -X POST http://localhost:8080/cancel/detect-reenabled
+```
+
+### **🎯 Key Benefits**
+
+- ✅ **Automatic**: No manual intervention needed for cancellations
+- ✅ **Bidirectional**: Handles cancellations from both booking system and Outlook
+- ✅ **Reliable**: Comprehensive error handling and retry mechanisms
+- ✅ **Auditable**: Complete logging of all cancellation operations
+- ✅ **Efficient**: Bulk processing for multiple cancellations
+- ✅ **Reversible**: Supports re-enabling cancelled events
+
+### **💡 Implementation Notes**
+
+The cancellation system monitors these tables:
+- `bb_event` - Events/reservations
+- `bb_booking` - Bookings (if available)
+- `bb_allocation` - Resource allocations (if available)
+
+Events are considered cancelled when `active != 1` in these tables. The bridge maintains sync mappings in `outlook_calendar_mapping` and updates their status appropriately.
 
 ---

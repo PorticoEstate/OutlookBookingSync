@@ -99,6 +99,20 @@ curl http://localhost:8080/mappings/resources
 
 See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API requirements.
 
+### 7. Test Common Use Cases
+
+```bash
+# Example: Sync events from booking system to Outlook
+curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+  -H "Content-Type: application/json" \
+  -d '{"source_calendar_id": "123", "target_calendar_id": "room1@company.com"}'
+
+# Example: Handle inactive events (booking system → Outlook deletion)
+# First, set an event to inactive in your booking system database
+# Then run cancellation detection to delete corresponding Outlook event
+curl -X POST http://localhost:8080/cancel/detect
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -155,6 +169,14 @@ curl -X POST http://localhost:8080/bridges/register \
 
 - `POST /bridges/sync-deletions` - Manual deletion sync check
 - `POST /bridges/process-deletion-queue` - Process deletion queue
+
+### Cancellation & Inactive Events
+
+- `POST /cancel/detect` - Detect inactive booking system events and delete corresponding Outlook events
+- `DELETE /cancel/reservation/{type}/{id}/{resourceId}` - Cancel specific reservation
+- `POST /cancel/bulk` - Process multiple cancellations
+- `GET /cancel/stats` - Get cancellation statistics
+- `GET /cancel/cancelled-reservations` - View cancelled reservations
 
 ### Health & Monitoring
 
