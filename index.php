@@ -130,33 +130,37 @@ OUTLOOK_TENANT_ID=your_outlook_tenant_id</pre>
 $container = new Container();
 
 // Register PDO as a shared service with error handling
-$container->set('db', function () {
-    try {
-        // Use PostgreSQL from environment variables
-        $host = $_ENV['DB_HOST'] ?? 'localhost';
-        $port = $_ENV['DB_PORT'] ?? '5432';
-        $dbname = $_ENV['DB_NAME'] ?? 'calendar_bridge';
-        $username = $_ENV['DB_USER'] ?? 'bridge_user';
-        $password = $_ENV['DB_PASS'] ?? 'bridge_password';
-        
-        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
-        $options = [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ];
-        
-        $pdo = new PDO($dsn, $username, $password, $options);
-        
-        // Test connection
-        $pdo->query('SELECT 1');
-        
-        return $pdo;
-    } catch (PDOException $e) {
-        error_log("Database connection failed: " . $e->getMessage());
-        // For dashboard/health endpoints, we can return null and handle gracefully
-        return null;
-    }
+$container->set('db', function ()
+{
+	try
+	{
+		// Use PostgreSQL from environment variables
+		$host = $_ENV['DB_HOST'] ?? 'localhost';
+		$port = $_ENV['DB_PORT'] ?? '5432';
+		$dbname = $_ENV['DB_NAME'] ?? 'calendar_bridge';
+		$username = $_ENV['DB_USER'] ?? 'bridge_user';
+		$password = $_ENV['DB_PASS'] ?? 'bridge_password';
+
+		$dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
+		$options = [
+			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+			PDO::ATTR_EMULATE_PREPARES => false,
+		];
+
+		$pdo = new PDO($dsn, $username, $password, $options);
+
+		// Test connection
+		$pdo->query('SELECT 1');
+
+		return $pdo;
+	}
+	catch (PDOException $e)
+	{
+		error_log("Database connection failed: " . $e->getMessage());
+		// For dashboard/health endpoints, we can return null and handle gracefully
+		return null;
+	}
 });
 
 // Register logger service (keep this as it's used by multiple services)
