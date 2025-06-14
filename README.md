@@ -109,7 +109,7 @@ The system includes automated cron jobs that run inside the container:
 - **[Complete Usage Guide](doc/sync_usage_guide.md)** - Comprehensive API documentation **+ Webhook Setup**
 - **[Service Planning](doc/calendar_sync_service_plan.md)** - Architecture and design
 - **[Cancellation Detection](doc/outlook_cancellation_detection.md)** - Cancellation handling
-- **[Database Schema](doc/create_tables.sql)** - Required database tables
+- **[Database Schema](database/create_tables.sql)** - Required database tables
 
 ## 🌐 Service Access
 
