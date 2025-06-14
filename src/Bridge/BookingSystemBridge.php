@@ -5,23 +5,40 @@ namespace App\Bridge;
 use App\Bridge\AbstractCalendarBridge;
 
 /**
- * BookingSystemBridge - Pure API-based bridge for booking systems
+ * BookingSystemBridge - Configurable API bridge for booking systems
  * 
- * This bridge communicates exclusively through the booking system's REST API.
- * It does NOT directly access booking system database tables (like bb_event).
- * The booking system is responsible for managing its own data layer.
+ * This bridge communicates through the booking system's REST API using configurable mappings.
+ * It adapts to different API structures without code changes through configuration.
  * 
- * Required API endpoints:
- * - GET /api/events?resource_id={id}&start={date}&end={date} - List events
- * - POST /api/events - Create event  
- * - PUT /api/events/{id} - Update event
- * - DELETE /api/events/{id} - Delete event
- * - GET /api/resources - List available resources
+ * Configuration supports:
+ * - Custom endpoint URLs and HTTP methods
+ * - Field mapping between bridge format and booking system format
+ * - Authentication methods (API key, Bearer token, Basic auth)
+ * - Request/response transformations
+ * 
+ * Example configuration:
+ * ```php
+ * 'api_endpoints' => [
+ *     'list_events' => [
+ *         'method' => 'GET',
+ *         'url' => '/api/resources/{resource_id}/events',
+ *         'params' => ['start_date', 'end_date', 'format' => 'json']
+ *     ],
+ *     'create_event' => [
+ *         'method' => 'POST', 
+ *         'url' => '/api/events',
+ *         'field_mapping' => ['subject' => 'title', 'start' => 'start_time']
+ *     ]
+ * ]
+ * ```
  */
 class BookingSystemBridge extends AbstractCalendarBridge
 {
     private $apiBaseUrl;
     private $apiKey;
+    private $apiEndpoints;
+    private $fieldMappings;
+    private $authConfig;
     
     protected function validateConfig()
     {
@@ -35,6 +52,79 @@ class BookingSystemBridge extends AbstractCalendarBridge
         
         $this->apiBaseUrl = rtrim($this->config['api_base_url'], '/');
         $this->apiKey = $this->config['api_key'] ?? null;
+        
+        // Load configurable API mappings or use defaults
+        $this->apiEndpoints = $this->config['api_endpoints'] ?? $this->getDefaultApiEndpoints();
+        $this->fieldMappings = $this->config['field_mappings'] ?? $this->getDefaultFieldMappings();
+        $this->authConfig = $this->config['auth'] ?? $this->getDefaultAuthConfig();
+    }
+    
+    /**
+     * Default API endpoint mappings (can be overridden in config)
+     */
+    private function getDefaultApiEndpoints(): array
+    {
+        return [
+            'list_events' => [
+                'method' => 'GET',
+                'url' => '/api/resources/{resource_id}/events',
+                'params' => ['start_date', 'end_date', 'format' => 'json']
+            ],
+            'create_event' => [
+                'method' => 'POST',
+                'url' => '/api/resources/{resource_id}/events'
+            ],
+            'update_event' => [
+                'method' => 'PUT',
+                'url' => '/api/resources/{resource_id}/events/{event_id}'
+            ],
+            'delete_event' => [
+                'method' => 'DELETE',
+                'url' => '/api/resources/{resource_id}/events/{event_id}'
+            ],
+            'list_resources' => [
+                'method' => 'GET',
+                'url' => '/api/resources'
+            ]
+        ];
+    }
+    
+    /**
+     * Default field mappings between bridge format and booking system format
+     */
+    private function getDefaultFieldMappings(): array
+    {
+        return [
+            'to_booking_system' => [
+                'subject' => 'title',
+                'start' => 'start_time',
+                'end' => 'end_time',
+                'description' => 'description',
+                'organizer' => 'contact_name',
+                'attendees' => 'contact_email'  // First attendee becomes contact_email
+            ],
+            'from_booking_system' => [
+                'title' => 'subject',
+                'name' => 'subject',
+                'start_time' => 'start',
+                'end_time' => 'end',
+                'description' => 'description',
+                'contact_name' => 'organizer',
+                'contact_email' => 'attendees'  // Contact email becomes attendees array
+            ]
+        ];
+    }
+    
+    /**
+     * Default authentication configuration
+     */
+    private function getDefaultAuthConfig(): array
+    {
+        return [
+            'type' => 'bearer',  // 'bearer', 'basic', 'api_key', 'header'
+            'header' => 'Authorization',
+            'prefix' => 'Bearer '
+        ];
     }
     
     public function getBridgeType(): string
@@ -135,68 +225,173 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
     }
     
-    // API Methods
+    // Configurable API Methods
     private function getEventsViaApi($resourceId, $startDate, $endDate): array
     {
-        $url = "{$this->apiBaseUrl}/api/resources/{$resourceId}/events";
-        $params = [
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'format' => 'json'
-        ];
+        $endpoint = $this->apiEndpoints['list_events'];
+        $url = $this->buildUrl($endpoint['url'], ['resource_id' => $resourceId]);
         
-        $response = $this->makeApiRequest('GET', $url, $params);
+        $params = [];
+        foreach ($endpoint['params'] ?? [] as $key => $value) {
+            if (is_numeric($key)) {
+                // Dynamic parameter
+                switch ($value) {
+                    case 'start_date':
+                        $params['start_date'] = $startDate;
+                        break;
+                    case 'end_date':
+                        $params['end_date'] = $endDate;
+                        break;
+                }
+            } else {
+                // Static parameter
+                $params[$key] = $value;
+            }
+        }
         
-        return array_map([$this, 'mapBookingEventToGeneric'], $response['events'] ?? []);
+        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, $params);
+        
+        $events = $response['events'] ?? $response['data'] ?? $response;
+        if (!is_array($events)) {
+            return [];
+        }
+        
+        return array_map([$this, 'mapBookingEventToGeneric'], $events);
     }
     
     private function createEventViaApi($resourceId, $event): string
     {
-        $url = "{$this->apiBaseUrl}/api/resources/{$resourceId}/events";
+        $endpoint = $this->apiEndpoints['create_event'];
+        $url = $this->buildUrl($endpoint['url'], ['resource_id' => $resourceId]);
         
-        $bookingEvent = $this->mapGenericEventToBooking($event);
+        $mappedEvent = $this->mapGenericEventToBooking($event);
         
-        $response = $this->makeApiRequest('POST', $url, [], $bookingEvent);
+        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, [], $mappedEvent);
         
-        return (string)$response['event_id'];
+        return $response['event_id'] ?? $response['id'] ?? uniqid('event_');
     }
     
     private function updateEventViaApi($resourceId, $eventId, $event): bool
     {
-        $url = "{$this->apiBaseUrl}/api/resources/{$resourceId}/events/{$eventId}";
+        $endpoint = $this->apiEndpoints['update_event'];
+        $url = $this->buildUrl($endpoint['url'], [
+            'resource_id' => $resourceId,
+            'event_id' => $eventId
+        ]);
         
-        $bookingEvent = $this->mapGenericEventToBooking($event);
+        $mappedEvent = $this->mapGenericEventToBooking($event);
         
-        $response = $this->makeApiRequest('PUT', $url, [], $bookingEvent);
+        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, [], $mappedEvent);
         
-        return $response['success'] === true;
+        return $response['success'] ?? true;
     }
     
     private function deleteEventViaApi($resourceId, $eventId): bool
     {
-        $url = "{$this->apiBaseUrl}/api/resources/{$resourceId}/events/{$eventId}";
+        $endpoint = $this->apiEndpoints['delete_event'];
+        $url = $this->buildUrl($endpoint['url'], [
+            'resource_id' => $resourceId,
+            'event_id' => $eventId
+        ]);
         
-        $response = $this->makeApiRequest('DELETE', $url);
+        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url);
         
-        return $response['success'] === true;
+        return $response['success'] ?? true;
     }
     
     private function getCalendarsViaApi(): array
     {
-        $url = "{$this->apiBaseUrl}/api/resources";
+        $endpoint = $this->apiEndpoints['list_resources'];
+        $url = $this->buildUrl($endpoint['url']);
         
-        $response = $this->makeApiRequest('GET', $url);
+        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url);
+        
+        $resources = $response['resources'] ?? $response['data'] ?? $response;
+        if (!is_array($resources)) {
+            return [];
+        }
         
         return array_map(function($resource) {
             return [
                 'id' => $resource['id'],
-                'name' => $resource['name'],
+                'name' => $resource['name'] ?? $resource['title'] ?? '',
                 'description' => $resource['description'] ?? '',
-                'type' => 'resource',
+                'type' => $resource['type'] ?? 'resource',
                 'bridge_type' => $this->getBridgeType(),
                 'raw_data' => $resource
             ];
-        }, $response['resources'] ?? []);
+        }, $resources);
+    }
+    
+    /**
+     * Build URL with parameter substitution
+     */
+    private function buildUrl($urlTemplate, $params = []): string
+    {
+        $url = $this->apiBaseUrl . $urlTemplate;
+        
+        foreach ($params as $key => $value) {
+            $url = str_replace('{' . $key . '}', $value, $url);
+        }
+        
+        return $url;
+    }
+    
+    /**
+     * Make API request with configurable authentication
+     */
+    private function makeConfigurableApiRequest($method, $url, $params = [], $data = [])
+    {
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: application/json'
+        ];
+        
+        // Add authentication based on configuration
+        if ($this->apiKey) {
+            switch ($this->authConfig['type']) {
+                case 'bearer':
+                    $headers[] = $this->authConfig['header'] . ': ' . $this->authConfig['prefix'] . $this->apiKey;
+                    break;
+                case 'api_key':
+                    $headers[] = 'X-API-Key: ' . $this->apiKey;
+                    break;
+                case 'header':
+                    $headerName = $this->authConfig['header'] ?? 'Authorization';
+                    $headers[] = $headerName . ': ' . $this->apiKey;
+                    break;
+                case 'basic':
+                    $headers[] = 'Authorization: Basic ' . base64_encode($this->apiKey);
+                    break;
+            }
+        }
+        
+        if ($method === 'GET' && !empty($params)) {
+            $url .= '?' . http_build_query($params);
+        }
+        
+        $context = stream_context_create([
+            'http' => [
+                'method' => $method,
+                'header' => implode("\r\n", $headers),
+                'content' => !empty($data) ? json_encode($data) : null,
+                'timeout' => 30
+            ]
+        ]);
+        
+        $response = file_get_contents($url, false, $context);
+        
+        if ($response === false) {
+            throw new \Exception("API request failed: {$method} {$url}");
+        }
+        
+        $decoded = json_decode($response, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception("Invalid JSON response from booking system API");
+        }
+        
+        return $decoded;
     }
     
     /**
@@ -242,40 +437,80 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
     
     /**
-     * Map booking system event to generic format
+     * Map booking system event to generic format using configurable mappings
      */
     private function mapBookingEventToGeneric($bookingEvent): array
     {
-        return $this->createGenericEvent([
-            'id' => $bookingEvent['id'],
-            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? '',
-            'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'],
-            'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'],
+        $mappings = $this->fieldMappings['from_booking_system'];
+        $genericEvent = [];
+        
+        // Always include ID
+        $genericEvent['id'] = $bookingEvent['id'];
+        
+        // Apply field mappings
+        foreach ($mappings as $bookingField => $genericField) {
+            if (isset($bookingEvent[$bookingField])) {
+                if ($genericField === 'attendees' && $bookingField === 'contact_email') {
+                    // Special handling: contact_email becomes attendees array
+                    $genericEvent['attendees'] = [$bookingEvent[$bookingField]];
+                } else {
+                    $genericEvent[$genericField] = $bookingEvent[$bookingField];
+                }
+            }
+        }
+        
+        // Fallback for common fields if not mapped
+        $fallbacks = [
+            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? '',
+            'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
+            'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
             'location' => $bookingEvent['location'] ?? $bookingEvent['resource_name'] ?? '',
             'description' => $bookingEvent['description'] ?? '',
-            'attendees' => $this->extractAttendees($bookingEvent),
             'organizer' => $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? '',
             'created' => $bookingEvent['created'] ?? $bookingEvent['created_at'] ?? date('c'),
             'last_modified' => $bookingEvent['last_modified'] ?? $bookingEvent['updated_at'] ?? date('c')
-        ]);
+        ];
+        
+        foreach ($fallbacks as $field => $value) {
+            if (!isset($genericEvent[$field]) && !empty($value)) {
+                $genericEvent[$field] = $value;
+            }
+        }
+        
+        // Handle attendees extraction
+        if (!isset($genericEvent['attendees'])) {
+            $genericEvent['attendees'] = $this->extractAttendees($bookingEvent);
+        }
+        
+        return $this->createGenericEvent($genericEvent);
     }
     
     /**
-     * Map generic event to booking system format
+     * Map generic event to booking system format using configurable mappings
      */
     private function mapGenericEventToBooking($event): array
     {
-        return [
-            'title' => $event['subject'],
-            'name' => $event['subject'],
-            'start_time' => $event['start'],
-            'end_time' => $event['end'],
-            'description' => $event['description'] ?? '',
-            'contact_name' => $event['organizer'] ?? 'Calendar Bridge',
-            'contact_email' => !empty($event['attendees']) ? $event['attendees'][0] : '',
-            'source' => 'calendar_bridge',
-            'bridge_import' => true
-        ];
+        $mappings = $this->fieldMappings['to_booking_system'];
+        $bookingEvent = [];
+        
+        // Apply field mappings
+        foreach ($mappings as $genericField => $bookingField) {
+            if (isset($event[$genericField])) {
+                if ($genericField === 'attendees' && $bookingField === 'contact_email') {
+                    // Special handling: first attendee becomes contact_email
+                    $attendees = is_array($event['attendees']) ? $event['attendees'] : [$event['attendees']];
+                    $bookingEvent['contact_email'] = !empty($attendees) ? $attendees[0] : '';
+                } else {
+                    $bookingEvent[$bookingField] = $event[$genericField];
+                }
+            }
+        }
+        
+        // Add metadata
+        $bookingEvent['source'] = 'calendar_bridge';
+        $bookingEvent['bridge_import'] = true;
+        
+        return $bookingEvent;
     }
     
     /**

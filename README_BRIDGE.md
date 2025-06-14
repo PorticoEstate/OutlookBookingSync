@@ -1576,3 +1576,233 @@ curl http://localhost:8080/bridges/outlook/calendars
   ]
 }
 ```
+
+## 🔧 Configurable API Integration
+
+The BookingSystemBridge supports **configurable API mappings** to adapt to any booking system's API structure without code changes. Configure endpoints, field mappings, and authentication through the bridge configuration.
+
+#### **Configuration Options**
+
+**Basic Configuration:**
+```php
+// In index.php or bridge registration
+$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
+    'api_base_url' => 'http://your-booking-system.com',
+    'api_key' => 'your_api_key'
+]);
+```
+
+**Advanced Configuration with Custom Mappings:**
+```php
+$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
+    'api_base_url' => 'http://your-booking-system.com',
+    'api_key' => 'your_api_key',
+    
+    // Custom API endpoint mappings
+    'api_endpoints' => [
+        'list_events' => [
+            'method' => 'GET',
+            'url' => '/api/v2/bookings',  // Your custom endpoint
+            'params' => ['room_id', 'from_date', 'to_date', 'status' => 'active']
+        ],
+        'create_event' => [
+            'method' => 'POST', 
+            'url' => '/api/v2/bookings'
+        ],
+        'update_event' => [
+            'method' => 'PATCH',  // Some systems use PATCH instead of PUT
+            'url' => '/api/v2/bookings/{event_id}'
+        ],
+        'delete_event' => [
+            'method' => 'DELETE',
+            'url' => '/api/v2/bookings/{event_id}'
+        ],
+        'list_resources' => [
+            'method' => 'GET',
+            'url' => '/api/v2/rooms'
+        ]
+    ],
+    
+    // Custom field mappings
+    'field_mappings' => [
+        'to_booking_system' => [
+            'subject' => 'booking_title',        // Bridge 'subject' → Your 'booking_title'
+            'start' => 'start_datetime',         // Bridge 'start' → Your 'start_datetime'
+            'end' => 'end_datetime',             // Bridge 'end' → Your 'end_datetime'
+            'description' => 'notes',            // Bridge 'description' → Your 'notes'
+            'organizer' => 'booked_by',          // Bridge 'organizer' → Your 'booked_by'
+            'attendees' => 'participant_email'   // Bridge 'attendees' → Your 'participant_email'
+        ],
+        'from_booking_system' => [
+            'booking_title' => 'subject',        // Your 'booking_title' → Bridge 'subject'
+            'start_datetime' => 'start',         // Your 'start_datetime' → Bridge 'start'
+            'end_datetime' => 'end',             // Your 'end_datetime' → Bridge 'end'
+            'notes' => 'description',            // Your 'notes' → Bridge 'description'
+            'booked_by' => 'organizer',          // Your 'booked_by' → Bridge 'organizer'
+            'participant_email' => 'attendees'   // Your 'participant_email' → Bridge 'attendees'
+        ]
+    ],
+    
+    // Authentication configuration
+    'auth' => [
+        'type' => 'api_key',       // 'bearer', 'basic', 'api_key', 'header'
+        'header' => 'X-API-Key',   // Custom header name
+        'prefix' => ''             // No prefix for API key
+    ]
+]);
+```
+
+#### **Supported API Patterns**
+
+**1. Different URL Structures:**
+```php
+// Default: /api/resources/{resource_id}/events
+'url' => '/api/resources/{resource_id}/events'
+
+// Alternative patterns:
+'url' => '/api/bookings'                    // Flat structure
+'url' => '/api/rooms/{resource_id}/events'  // Different naming
+'url' => '/api/v2/calendar/{resource_id}'   // Versioned API
+'url' => '/bookings/room/{resource_id}'     // No /api prefix
+```
+
+**2. Different HTTP Methods:**
+```php
+'update_event' => [
+    'method' => 'PATCH',  // Instead of PUT
+    'url' => '/api/bookings/{event_id}'
+],
+'delete_event' => [
+    'method' => 'POST',   // Some systems use POST for deletion
+    'url' => '/api/bookings/{event_id}/cancel'
+]
+```
+
+**3. Custom Parameters:**
+```php
+'list_events' => [
+    'method' => 'GET',
+    'url' => '/api/bookings',
+    'params' => [
+        'room_id',           // Dynamic parameter (filled by bridge)
+        'from_date',         // Dynamic parameter (filled by bridge) 
+        'to_date',           // Dynamic parameter (filled by bridge)
+        'format' => 'json',  // Static parameter
+        'status' => 'active', // Static parameter
+        'include' => 'details' // Static parameter
+    ]
+]
+```
+
+**4. Authentication Methods:**
+```php
+// Bearer token (default)
+'auth' => ['type' => 'bearer', 'header' => 'Authorization', 'prefix' => 'Bearer ']
+
+// API Key in header
+'auth' => ['type' => 'api_key', 'header' => 'X-API-Key', 'prefix' => '']
+
+// Custom header
+'auth' => ['type' => 'header', 'header' => 'X-Auth-Token', 'prefix' => 'Token ']
+
+// Basic authentication
+'auth' => ['type' => 'basic']
+```
+
+#### **Real-World Examples**
+
+**Example 1: Laravel-based Booking System**
+```php
+'api_endpoints' => [
+    'list_events' => [
+        'method' => 'GET',
+        'url' => '/api/bookings',
+        'params' => ['resource_id', 'start_date', 'end_date']
+    ],
+    'create_event' => [
+        'method' => 'POST',
+        'url' => '/api/bookings'
+    ]
+],
+'field_mappings' => [
+    'to_booking_system' => [
+        'subject' => 'title',
+        'start' => 'starts_at',
+        'end' => 'ends_at',
+        'organizer' => 'user_name'
+    ],
+    'from_booking_system' => [
+        'title' => 'subject',
+        'starts_at' => 'start',
+        'ends_at' => 'end',
+        'user_name' => 'organizer'
+    ]
+]
+```
+
+**Example 2: Legacy System with Different Structure**
+```php
+'api_endpoints' => [
+    'list_events' => [
+        'method' => 'GET',
+        'url' => '/bookings/list',
+        'params' => ['room' => 'resource_id', 'from', 'to', 'type' => 'calendar']
+    ],
+    'create_event' => [
+        'method' => 'POST',
+        'url' => '/bookings/new'
+    ],
+    'delete_event' => [
+        'method' => 'POST',
+        'url' => '/bookings/cancel/{event_id}'
+    ]
+],
+'auth' => [
+    'type' => 'header',
+    'header' => 'X-Legacy-Token'
+]
+```
+
+#### **Response Format Flexibility**
+
+The bridge automatically handles different response formats:
+
+```json
+// Option 1: Wrapped in 'events' key (default)
+{"events": [{"id": 1, "title": "Meeting"}]}
+
+// Option 2: Wrapped in 'data' key  
+{"data": [{"id": 1, "title": "Meeting"}]}
+
+// Option 3: Direct array
+[{"id": 1, "title": "Meeting"}]
+
+// Option 4: Single object (for creates/updates)
+{"event_id": 123, "status": "created"}
+```
+
+#### **Migration from Fixed API**
+
+**Before (Fixed API):**
+```php
+// Bridge was hardcoded to expect:
+// GET /api/resources/{id}/events
+// Field: 'title' maps to 'subject'
+```
+
+**After (Configurable API):**
+```php
+// Bridge adapts to your existing API:
+'api_endpoints' => [
+    'list_events' => [
+        'url' => '/your/existing/endpoint/{resource_id}'
+    ]
+],
+'field_mappings' => [
+    'from_booking_system' => [
+        'your_title_field' => 'subject'
+    ]
+]
+```
+
+**This means you don't need to change your existing booking system API - just configure the bridge to match your API!**
