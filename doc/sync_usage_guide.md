@@ -239,83 +239,81 @@ curl -X GET "http://localhost:8082/sync/outlook-events?limit=25"
 #### Import Outlook Events to Mapping Table
 
 ```bash
-# Import existing Outlook events to mapping table
-curl -X POST "http://localhost:8082/sync/from-outlook"
+# Sync events from Outlook to your booking system
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
 
-# Import for specific date range
-curl -X POST "http://localhost:8082/sync/from-outlook?from_date=2025-06-01&to_date=2025-07-01"
+# Sync events from a specific date range (if supported by your booking system API)
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" \
+  -H "Content-Type: application/json" \
+  -d '{"from_date": "2025-06-01", "to_date": "2025-07-01"}'
 ```
 
-### 4. Booking System Integration Endpoints
+### 4. Bridge Integration Endpoints
 
-#### Process Imported Outlook Events
+#### Process Pending Bridge Operations
 
-Convert imported Outlook events into complete booking system entries with full database integration.
+Process any pending sync operations between connected systems.
 
 ```bash
-# Convert imported Outlook events to booking system entries
-curl -X POST "http://localhost:8082/booking/process-imports"
+# Process pending sync operations
+curl -X POST "http://localhost:8082/bridge/process-pending"
 ```
 
 **What this endpoint does:**
-- Creates complete event entries in `your_event_table` table
-- Adds event dates to `your_event_table_date` table
-- Links resources in `your_event_table_resource` table
-- Sets age groups in `your_event_table_agegroup` table
-- Defines target audiences in `your_event_table_targetaudience` table
-- Converts HTML descriptions to plain text
-- Wraps all operations in database transactions
-- Returns actual reservation IDs (verified: 78268+)
+- Processes queued sync operations between any connected bridges
+- Calls your booking system's REST API with standardized event data
+- Tracks sync status in `bridge_mappings` table
+- Handles retry logic for failed operations
+- Returns summary of processed operations
 
 **Expected Response:**
 ```json
 {
   "success": true,
-  "message": "Import processing completed",
+  "message": "Bridge sync operations completed",
   "results": {
     "processed": 11,
-    "successful": 11,
-    "errors": 0,
-    "success_rate": "100%",
-    "reservation_ids": [78268, 78269, 78270, 78271, 78272, 78273, 78274, 78275, 78276, 78277, 78278],
-    "details": [
+    "successful": 10,
+    "errors": 1,
+    "success_rate": "91%",
+    "operations": [
       {
-        "outlook_item_id": "AAMkAGUxZWM3YWY2...",
-        "reservation_id": 78268,
-        "title": "Important Team Meeting",
-        "start_time": "2025-01-13 14:00:00",
-        "end_time": "2025-01-13 15:00:00",
-        "resource_id": 431,
-        "status": "created"
+        "bridge_mapping_id": 1234,
+        "source_system": "outlook",
+        "target_system": "booking_system", 
+        "external_id": "AAMkAGUxZWM3YWY2...",
+        "internal_id": "78268",
+        "operation": "create",
+        "status": "completed"
       }
     ]
   }
 }
 ```
 
-#### Get Pending Imports
+#### Get Bridge Statistics
 
 ```bash
-# View Outlook events awaiting conversion to booking entries
-curl -X GET "http://localhost:8082/booking/pending-imports"
+# Get statistics about bridge operations
+curl -X GET "http://localhost:8082/bridge/stats"
 ```
 
-Shows imported Outlook events that haven't been converted to booking system entries yet.
+Shows overall statistics about bridge sync operations between all connected systems.
 
-#### Get Processed Imports
+#### Get Bridge Health Status
 
 ```bash
-# View successfully processed imports with reservation IDs
-curl -X GET "http://localhost:8082/booking/processed-imports"
+# Check health of all bridges
+curl -X GET "http://localhost:8082/bridges/health"
 ```
 
-Shows Outlook events that have been successfully converted to booking system entries, including their reservation IDs.
+Shows the health status of all connected bridge systems and any connection issues.
 
-#### Get Processing Statistics
+#### Get Bridge Processing Queue
 
 ```bash
-# Get statistics about import processing
-curl -X GET "http://localhost:8082/booking/processing-stats"
+# View pending operations in the bridge queue
+curl -X GET "http://localhost:8082/bridge/pending"
 ```
 
 **Response includes:**
