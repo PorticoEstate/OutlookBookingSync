@@ -647,10 +647,10 @@
         async function detectCancellations() {
             setActionStatus('Detecting cancellations...', 'info');
             try {
-                const response = await fetch('/cancel/detect', { method: 'POST' });
+                const response = await fetch('/bridges/sync-deletions', { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
-                    setActionStatus(`✅ Found ${result.detected_count || 0} cancellations`, 'success');
+                    setActionStatus(`✅ Found ${result.results.deleted || 0} cancellations`, 'success');
                 } else {
                     setActionStatus('❌ Cancellation detection failed: ' + (result.error || 'Unknown error'), 'error');
                 }

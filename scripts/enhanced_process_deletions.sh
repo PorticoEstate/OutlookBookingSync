@@ -91,7 +91,7 @@ process_single_tenant_deletions() {
     api_call "/bridges/process-deletion-queue" "Processing webhook deletion queue" 60 || ((errors++))
     
     # Step 2: Detect cancellations (inactive events) - Medium priority  
-    api_call "/cancel/detect" "Detecting event cancellations" 120 || ((errors++))
+    api_call "/bridges/sync-deletions" "Detecting event cancellations" 120 || ((errors++))
     
     # Step 3: Manual deletion sync check - Lower priority
     api_call "/bridges/sync-deletions" "Manual deletion sync check" 180 || ((errors++))
@@ -108,7 +108,7 @@ process_tenant_deletions() {
     
     # Tenant-specific deletion processing
     api_call "/tenants/$tenant_id/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 || ((errors++))
-    api_call "/tenants/$tenant_id/cancel/detect" "Detecting $tenant_id cancellations" 120 || ((errors++))  
+    api_call "/tenants/$tenant_id/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 || ((errors++))  
     api_call "/tenants/$tenant_id/bridges/sync-deletions" "Manual $tenant_id deletion sync" 180 || ((errors++))
     
     return $errors

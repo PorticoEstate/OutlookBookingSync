@@ -217,50 +217,26 @@ $app->get('/outlook/available-groups', [\App\Controller\OutlookController::class
 // Get calendar items for a specific user
 $app->get('/outlook/users/{userId}/calendar-items', [\App\Controller\OutlookController::class, 'getUserCalendarItems']);
 
-// Booking system integration routes
+// Bridge-compatible booking system integration routes (replaces legacy routes)
 
-// Convert imported Outlook events to complete booking system entries
-$app->post('/booking/process-imports', [\App\Controller\BookingSystemController::class, 'processImportedEvents']);
+// Process pending bridge sync operations (replaces /booking/process-imports)
+$app->post('/bridge/process-pending', [\App\Controller\BridgeBookingController::class, 'processPendingSyncs']);
 
-// Get statistics about import processing operations
-$app->get('/booking/processing-stats', [\App\Controller\BookingSystemController::class, 'getProcessingStats']);
+// Get bridge processing statistics (replaces /booking/processing-stats)  
+$app->get('/bridge/stats', [\App\Controller\BridgeBookingController::class, 'getBridgeStats']);
 
-// Get Outlook events awaiting conversion to booking entries
-$app->get('/booking/pending-imports', [\App\Controller\BookingSystemController::class, 'getPendingImports']);
+// Get pending bridge operations (replaces /booking/pending-imports)
+$app->get('/bridge/pending', [\App\Controller\BridgeBookingController::class, 'getPendingOperations']);
 
-// Get successfully processed imports with reservation IDs
-$app->get('/booking/processed-imports', [\App\Controller\BookingSystemController::class, 'getProcessedImports']);
+// Get completed bridge operations (replaces /booking/processed-imports)
+$app->get('/bridge/completed', [\App\Controller\BridgeBookingController::class, 'getCompletedOperations']);
 
-// Cancellation routes
-
-// Cancel a specific booking system reservation and its Outlook event
-$app->delete('/cancel/reservation/{reservationType}/{reservationId}/{resourceId}', [\App\Controller\CancellationController::class, 'cancelReservation']);
-
-// Cancel a specific Outlook event and update booking system
-$app->delete('/cancel/outlook-event/{outlookEventId}', [\App\Controller\CancellationController::class, 'cancelOutlookEvent']);
-
-// Process multiple cancellations in bulk
-$app->post('/cancel/bulk', [\App\Controller\CancellationController::class, 'processBulkCancellations']);
-
-// Get comprehensive cancellation statistics
-$app->get('/cancel/stats', [\App\Controller\CancellationController::class, 'getCancellationStats']);
-
-// Get list of all cancelled reservations
-$app->get('/cancel/cancelled-reservations', [\App\Controller\CancellationController::class, 'getCancelledReservations']);
-
-// Cancellation detection routes
-
-// Automatically detect and process cancelled reservations
-$app->post('/cancel/detect', [\App\Controller\CancellationController::class, 'detectCancellations']);
-
-// Automatically detect and process re-enabled reservations (reset to pending for sync)
-$app->post('/cancel/detect-reenabled', [\App\Controller\CancellationController::class, 'detectReenabled']);
-
-// Check if a specific reservation is cancelled
-$app->get('/cancel/check/{reservationType}/{reservationId}', [\App\Controller\CancellationController::class, 'checkReservationStatus']);
-
-// Get statistics about cancellation detection process
-$app->get('/cancel/detection-stats', [\App\Controller\CancellationController::class, 'getDetectionStats']);
+// Legacy cancellation routes moved to obsolete
+// Use bridge deletion endpoints instead:
+// - DELETE /bridges/mappings/{id} - Remove specific bridge mapping
+// - POST /bridges/sync-deletions - Process deletion queue  
+// - POST /bridges/process-deletion-queue - Process webhook deletions
+// - GET /bridges/health - Check bridge status including deletions
 
 // Health monitoring and dashboard routes
 
@@ -339,6 +315,15 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
 $container->set(\App\Controller\ResourceMappingController::class, function () use ($container)
 {
 	return new \App\Controller\ResourceMappingController(
+		$container->get('db')
+	);
+});
+
+$container->set(\App\Controller\BridgeBookingController::class, function () use ($container)
+{
+	return new \App\Controller\BridgeBookingController(
+		$container->get('bridgeManager'),
+		$container->get('logger'),
 		$container->get('db')
 	);
 });
@@ -477,8 +462,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function (R
                 <div class='route-group'>
                     <h4>🗑️ Deletion & Cancellation</h4>
                     <div class='route'>POST /bridges/sync-deletions</div>
-                    <div class='route'>POST /cancel/detect</div>
-                    <div class='route'>GET /cancel/stats</div>
+                    <div class='route'>POST /bridges/process-deletion-queue</div>
                 </div>
                 
                 <div class='route-group'>

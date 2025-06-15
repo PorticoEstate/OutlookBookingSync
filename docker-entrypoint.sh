@@ -22,7 +22,6 @@ cat > /tmp/crontab << 'EOF'
 
 # Alternative: If you prefer individual API calls, use these instead:
 # */5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" > /dev/null 2>&1
-# */5 * * * * curl -s -X POST "http://localhost/cancel/detect" > /dev/null 2>&1  
 # */30 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions" > /dev/null 2>&1
 
 # 3. SYSTEM HEALTH & MONITORING

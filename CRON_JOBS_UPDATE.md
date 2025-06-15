@@ -22,7 +22,7 @@ The cron jobs have been successfully updated from the legacy sync system to the 
 */5 * * * * curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook"
 */10 * * * * curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system"
 */5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue"
-*/5 * * * * curl -s -X POST "http://localhost/cancel/detect"
+*/5 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions"
 ```
 
 #### **2. Documentation Updates:**

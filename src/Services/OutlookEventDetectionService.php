@@ -10,25 +10,18 @@ use Microsoft\Graph\GraphServiceClient;
  * Service for detecting changes in Outlook events via polling (fallback when webhooks fail)
  */
 class OutlookEventDetectionService
-{
-    private PDO $db;
+{    private PDO $db;
     private LoggerInterface $logger;
     private GraphServiceClient $graphServiceClient;
-    private CalendarMappingService $mappingService;
-    private CancellationService $cancellationService;
 
     public function __construct(
-        PDO $db, 
-        LoggerInterface $logger, 
-        GraphServiceClient $graphServiceClient,
-        CalendarMappingService $mappingService,
-        CancellationService $cancellationService
+        PDO $db,
+        LoggerInterface $logger,
+        GraphServiceClient $graphServiceClient
     ) {
         $this->db = $db;
         $this->logger = $logger;
         $this->graphServiceClient = $graphServiceClient;
-        $this->mappingService = $mappingService;
-        $this->cancellationService = $cancellationService;
     }
 
     /**
@@ -105,7 +98,7 @@ class OutlookEventDetectionService
     }
 
     /**
-     * Check if an Outlook event still exists
+     * Check if an Outlook event still exists (bridge-compatible)
      * 
      * @param array $mapping
      * @return array|false
@@ -113,12 +106,27 @@ class OutlookEventDetectionService
     private function checkEventExists($mapping)
     {
         try {
+            // Determine which event ID and calendar ID to check based on bridge mapping
+            $outlookEventId = null;
+            $calendarId = null;
+            
+            if ($mapping['source_bridge'] === 'outlook') {
+                $outlookEventId = $mapping['source_event_id'];
+                $calendarId = $mapping['source_calendar_id'];
+            } elseif ($mapping['target_bridge'] === 'outlook') {
+                $outlookEventId = $mapping['target_event_id'];
+                $calendarId = $mapping['target_calendar_id'];
+            } else {
+                // Not an Outlook mapping, skip
+                return false;
+            }
+
             // Try to fetch the event from Outlook
             $event = $this->graphServiceClient
                 ->users()
-                ->byUserId($mapping['outlook_item_id'])
+                ->byUserId($calendarId)
                 ->events()
-                ->byEventId($mapping['outlook_event_id'])
+                ->byEventId($outlookEventId)
                 ->get()
                 ->wait();
 
@@ -126,8 +134,8 @@ class OutlookEventDetectionService
                 // Event not found - it was deleted
                 $this->logger->info('Outlook event no longer exists (deleted)', [
                     'mapping_id' => $mapping['id'],
-                    'event_id' => $mapping['outlook_event_id'],
-                    'calendar_id' => $mapping['outlook_item_id']
+                    'event_id' => $outlookEventId,
+                    'calendar_id' => $calendarId
                 ]);
 
                 return [
@@ -147,8 +155,8 @@ class OutlookEventDetectionService
                 
                 $this->logger->info('Outlook event not found (deleted)', [
                     'mapping_id' => $mapping['id'],
-                    'event_id' => $mapping['outlook_event_id'],
-                    'calendar_id' => $mapping['outlook_item_id']
+                    'event_id' => $outlookEventId,
+                    'calendar_id' => $calendarId
                 ]);
 
                 return [
@@ -163,7 +171,7 @@ class OutlookEventDetectionService
     }
 
     /**
-     * Process detected event deletion
+     * Process detected event deletion using bridge pattern
      * 
      * @param array $mapping
      * @return array
@@ -171,42 +179,53 @@ class OutlookEventDetectionService
     private function processEventDeletion($mapping)
     {
         try {
-            $this->logger->info('Processing detected Outlook event deletion', [
+            $outlookEventId = null;
+            $calendarId = null;
+            
+            if ($mapping['source_bridge'] === 'outlook') {
+                $outlookEventId = $mapping['source_event_id'];
+                $calendarId = $mapping['source_calendar_id'];
+            } elseif ($mapping['target_bridge'] === 'outlook') {
+                $outlookEventId = $mapping['target_event_id'];
+                $calendarId = $mapping['target_calendar_id'];
+            }
+
+            $this->logger->info('Processing detected Outlook event deletion via bridge', [
                 'mapping_id' => $mapping['id'],
-                'event_id' => $mapping['outlook_event_id'],
-                'reservation_type' => $mapping['reservation_type'],
-                'reservation_id' => $mapping['reservation_id']
+                'event_id' => $outlookEventId,
+                'source_bridge' => $mapping['source_bridge'],
+                'target_bridge' => $mapping['target_bridge']
             ]);
 
-            // Use our existing cancellation service to handle the deletion
-            $result = $this->cancellationService->handleOutlookCancellation($mapping['outlook_event_id']);
+            // Add deletion operation to bridge queue for processing
+            $this->queueDeletionOperation($mapping);
 
             // Log the change for audit purposes
             $this->logEventChange(
-                $mapping['outlook_item_id'],
-                $mapping['outlook_event_id'],
+                $calendarId,
+                $outlookEventId,
                 'deleted',
-                'processed',
+                'queued',
                 null,
-                $result
+                ['mapping_id' => $mapping['id']]
             );
 
             return [
-                'success' => $result['success'],
-                'error' => $result['success'] ? null : implode(', ', $result['errors'])
+                'success' => true,
+                'error' => null,
+                'queued' => true
             ];
 
         } catch (\Exception $e) {
             $this->logger->error('Failed to process event deletion', [
                 'mapping_id' => $mapping['id'],
-                'event_id' => $mapping['outlook_event_id'],
                 'error' => $e->getMessage()
             ]);
 
             // Log the failed processing
             $this->logEventChange(
-                $mapping['outlook_item_id'],
-                $mapping['outlook_event_id'],
+                $calendarId ?? 'unknown',
+                $outlookEventId ?? 'unknown',
                 'deleted',
                 'error',
                 $e->getMessage()
@@ -220,7 +239,34 @@ class OutlookEventDetectionService
     }
 
     /**
-     * Get all synced mappings that should have Outlook events
+     * Queue deletion operation for bridge processing
+     */
+    private function queueDeletionOperation($mapping)
+    {
+        $sql = "
+            INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, priority, payload, status)
+            VALUES ('deletion', :source_bridge, :target_bridge, 1, :payload, 'pending')
+        ";
+
+        $payload = json_encode([
+            'mapping_id' => $mapping['id'],
+            'source_event_id' => $mapping['source_event_id'],
+            'target_event_id' => $mapping['target_event_id'],
+            'source_calendar_id' => $mapping['source_calendar_id'],
+            'target_calendar_id' => $mapping['target_calendar_id'],
+            'reason' => 'outlook_event_deleted'
+        ]);
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'source_bridge' => $mapping['source_bridge'],
+            'target_bridge' => $mapping['target_bridge'],
+            'payload' => $payload
+        ]);
+    }
+
+    /**
+     * Get all synced mappings that should have Outlook events (bridge-compatible)
      * 
      * @return array
      */
@@ -229,19 +275,19 @@ class OutlookEventDetectionService
         $sql = "
             SELECT 
                 id,
-                reservation_type,
-                reservation_id,
-                resource_id,
-                outlook_item_id,
-                outlook_event_id,
-                sync_status,
+                source_bridge,
+                target_bridge,
+                source_calendar_id,
+                target_calendar_id,
+                source_event_id,
+                target_event_id,
                 sync_direction,
-                last_sync_at
-            FROM outlook_calendar_mapping 
-            WHERE outlook_event_id IS NOT NULL 
-                AND sync_status IN ('synced', 'error')
-                AND sync_direction IN ('booking_to_outlook', 'bidirectional')
-            ORDER BY last_sync_at DESC
+                last_synced_at,
+                created_at
+            FROM bridge_mappings 
+            WHERE (source_bridge = 'outlook' OR target_bridge = 'outlook')
+                AND (source_event_id IS NOT NULL AND target_event_id IS NOT NULL)
+            ORDER BY last_synced_at DESC
         ";
 
         $stmt = $this->db->prepare($sql);
@@ -349,14 +395,14 @@ class OutlookEventDetectionService
             $stmt->execute();
             $stats['statistics']['last_24_hours'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get overall statistics
+            // Get overall statistics from bridge tables
             $sql = "
                 SELECT 
-                    COUNT(*) as total_tracked_mappings,
-                    COUNT(*) FILTER (WHERE outlook_event_id IS NOT NULL) as mappings_with_outlook_events,
-                    COUNT(*) FILTER (WHERE sync_status = 'synced') as synced_mappings,
-                    COUNT(*) FILTER (WHERE sync_status = 'error') as error_mappings
-                FROM outlook_calendar_mapping
+                    COUNT(*) as total_bridge_mappings,
+                    COUNT(*) FILTER (WHERE source_bridge = 'outlook' OR target_bridge = 'outlook') as outlook_mappings,
+                    COUNT(*) FILTER (WHERE last_synced_at > NOW() - INTERVAL '1 day') as recently_synced,
+                    COUNT(*) FILTER (WHERE last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '7 days') as stale_mappings
+                FROM bridge_mappings
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -415,26 +461,32 @@ class OutlookEventDetectionService
             $fromDate = $fromDate ?: date('Y-m-d\TH:i:s\Z');
             $toDate = $toDate ?: date('Y-m-d\TH:i:s\Z', strtotime('+1 week'));
 
-            // Get all room calendars
-            $sql = "SELECT DISTINCT outlook_item_id FROM bb_resource_outlook_item WHERE active = 1";
+            // Get all mapped calendar IDs from bridge resource mappings
+            $sql = "
+                SELECT DISTINCT calendar_id 
+                FROM bridge_resource_mappings 
+                WHERE bridge_to = 'outlook' 
+                    AND is_active = true 
+                    AND sync_enabled = true
+            ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute();
             $calendars = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($calendars as $calendar) {
                 try {
-                    $events = $this->fetchCalendarEvents($calendar['outlook_item_id'], $fromDate, $toDate);
+                    $events = $this->fetchCalendarEvents($calendar['calendar_id'], $fromDate, $toDate);
                     
                     foreach ($events as $event) {
-                        // Check if we already have this event mapped
-                        $existingMapping = $this->mappingService->findMappingByOutlookEvent($event->getId());
+                        // Check if we already have this event mapped in bridge_mappings
+                        $existingMapping = $this->findBridgeMappingByOutlookEvent($event->getId());
                         
                         if (!$existingMapping) {
                             // Check if this is one of our own events (to prevent loops)
                             if (!$this->isOurEvent($event)) {
                                 $results['new_events_found']++;
                                 $results['events'][] = [
-                                    'calendar_id' => $calendar['outlook_item_id'],
+                                    'calendar_id' => $calendar['calendar_id'],
                                     'event_id' => $event->getId(),
                                     'subject' => $event->getSubject(),
                                     'start' => $event->getStart()->getDateTime(),
@@ -515,5 +567,24 @@ class OutlookEventDetectionService
         }
         
         return false;
+    }
+
+    /**
+     * Find bridge mapping by Outlook event ID (replaces legacy mapping lookup)
+     */
+    private function findBridgeMappingByOutlookEvent($outlookEventId): ?array
+    {
+        $sql = "
+            SELECT * FROM bridge_mappings 
+            WHERE (source_bridge = 'outlook' AND source_event_id = :event_id)
+               OR (target_bridge = 'outlook' AND target_event_id = :event_id)
+            LIMIT 1
+        ";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(['event_id' => $outlookEventId]);
+        
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ?: null;
     }
 }
