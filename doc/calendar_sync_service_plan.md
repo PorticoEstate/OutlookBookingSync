@@ -218,7 +218,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 - **Microsoft Graph Authentication**: ✅ IMPLEMENTED
   - Client credentials flow for application permissions
   - Support for proxy configuration
-  - Secure credential storage via environment variables
+  - Secure credential storage via database encryption (multi-tenant mode) or environment variables (single-tenant mode)
 
 - **Required Graph Permissions** (TO BE DOCUMENTED):
   - `Calendars.ReadWrite.All` - For reading and writing calendar events
@@ -227,7 +227,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 
 - **API Security**: ✅ IMPLEMENTED
   - API key middleware for endpoint protection
-  - Environment-based configuration
+  - Database-driven configuration for multi-tenant deployments
 
 - **Database Security** (TO BE IMPLEMENTED):
   - Connection encryption
@@ -267,7 +267,8 @@ The following cron jobs are active in the Docker container for the generic bridg
 
 - **Deployment**: ✅ IMPLEMENTED
   - Docker container with Apache
-  - Environment-based configuration
+  - Database-driven configuration for multi-tenant mode
+  - Environment-based configuration for single-tenant mode
   - Proxy support for corporate networks
 
 ---
@@ -309,7 +310,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 
 #### **Phase 1: Bridge Configuration**
 
-1. **Configure Bridge Systems**: Set up environment variables and configuration for each bridge type
+1. **Configure Bridge Systems**: Set up tenant configurations in database (multi-tenant) or environment variables (single-tenant)
 2. **Establish Resource Mappings**: Create mappings between calendar resources across bridge systems
 3. **Initial Bridge Discovery**: Run bridge discovery to identify available calendars and resources:
    ```bash
@@ -429,7 +430,7 @@ The project has been successfully transformed from a single-purpose Outlook sync
 #### **🚀 Production Features (COMPLETED)**
 - [x] **Deletion Sync Service** - Complete deletion detection and synchronization
 - [x] **Webhook Integration** - Real-time updates from calendar systems
-- [x] **Health Monitoring** - Bridge health checks and system monitoring
+- [x] **Health Monitoring** - Bridge health checks and monitoring
 - [x] **Error Handling** - Comprehensive error handling and recovery
 - [x] **Security** - API key authentication and secure endpoints
 - [x] **Docker Support** - Containerized deployment ready
@@ -748,36 +749,53 @@ Extension of the current single-tenant bridge to support multiple organizations/
 
 ### 🏗️ **Phase 4.1: Multi-Tenant Infrastructure** (Week 1-2)
 
-#### **Step 1: Tenant Configuration System**
+#### **Step 1: Database-Driven Tenant Configuration System**
 
-**Environment Configuration Structure:**
+**Migration from Environment to Database Configuration:**
+
+> **Note**: The database-driven approach completely replaces environment-based tenant configuration for scalability and security. Environment variables are only used for system-level settings (database connections, global security keys, etc.).
+
+**System-Level Environment Configuration (Minimal):**
 ```bash
-# .env multi-tenant configuration
-TENANT_MODE=multi
-DEFAULT_TENANT=municipal_a
+# .env - System-wide configuration only
+DATABASE_URL=postgresql://user:pass@localhost:5432/calendar_bridge
+REDIS_URL=redis://localhost:6379
+ENCRYPTION_MASTER_KEY=base64:your-master-encryption-key
+API_BASE_URL=https://your-bridge-service.com
+LOG_LEVEL=info
 
-# Municipal A Configuration
-MUNICIPAL_A_OUTLOOK_CLIENT_ID=client_id_a
-MUNICIPAL_A_OUTLOOK_CLIENT_SECRET=secret_a
-MUNICIPAL_A_OUTLOOK_TENANT_ID=tenant_id_a
-MUNICIPAL_A_OUTLOOK_GROUP_ID=group_id_a
-MUNICIPAL_A_BOOKING_API_URL=http://municipal-a.com/api
-MUNICIPAL_A_BOOKING_API_KEY=key_a
+# Optional: HSM configuration for enterprise deployments
+HSM_ENABLED=false
+HSM_ENDPOINT=https://your-hsm-provider.com
+HSM_KEY_ID=master-key-id
+```
 
-# Municipal B Configuration  
-MUNICIPAL_B_OUTLOOK_CLIENT_ID=client_id_b
-MUNICIPAL_B_OUTLOOK_CLIENT_SECRET=secret_b
-MUNICIPAL_B_OUTLOOK_TENANT_ID=tenant_id_b
-MUNICIPAL_B_OUTLOOK_GROUP_ID=group_id_b
-MUNICIPAL_B_BOOKING_API_URL=http://municipal-b.com/api
-MUNICIPAL_B_BOOKING_API_KEY=key_b
+**Database-Driven Tenant Configuration:**
+
+Instead of environment variables, all tenant configurations are stored encrypted in the database:
+
+```sql
+-- Example tenant configuration in database
+INSERT INTO tenants (tenant_key, name, display_name, status) VALUES 
+('municipal_a', 'Municipal A', 'City of Springfield', 'active'),
+('municipal_b', 'Municipal B', 'City of Riverside', 'active');
+
+-- Bridge configurations stored encrypted in database
+INSERT INTO tenant_bridge_configs (tenant_id, bridge_type, bridge_name, config_data, credentials_data) VALUES 
+(1, 'outlook', 'primary_outlook', 
+ '{"timeout_seconds": 30, "max_connections": 5}',
+ '{"client_id": "encrypted_client_id_a", "client_secret": "encrypted_secret_a", "tenant_id": "encrypted_tenant_id_a"}'),
+(2, 'outlook', 'primary_outlook',
+ '{"timeout_seconds": 30, "max_connections": 5}', 
+ '{"client_id": "encrypted_client_id_b", "client_secret": "encrypted_secret_b", "tenant_id": "encrypted_tenant_id_b"}');
 ```
 
 **Implementation Tasks:**
-- [ ] Create `TenantConfigManager` class for tenant configuration management
-- [ ] Implement tenant discovery from environment variables
-- [ ] Create tenant validation and configuration loading system
-- [ ] Add tenant configuration caching and hot-reload capabilities
+- [ ] Create database schema for tenant management (completed above)
+- [ ] Implement `TenantConfigService` with database backend
+- [ ] Create tenant onboarding API endpoints
+- [ ] Build encryption service for secure credential storage
+- [ ] Add tenant configuration validation and testing tools
 
 #### **Step 2: Enhanced Bridge Architecture**
 
@@ -2265,3 +2283,44 @@ class MaintenanceScheduler
 6. **Support**: 24/7 monitoring and support procedures
 
 This comprehensive architecture provides enterprise-grade scalability, security, and operational excellence for a multi-tenant calendar bridge service capable of serving thousands of organizations efficiently and reliably.
+
+---
+
+## Configuration Strategy: Environment vs Database-Driven
+
+The calendar bridge service supports two distinct configuration approaches, depending on deployment scale and requirements:
+
+#### **Single-Tenant Mode (Current Implementation)**
+- **Configuration**: Environment variables (`.env` file)
+- **Use Case**: Single organization, simple deployment
+- **Scalability**: Limited to one tenant per service instance
+- **Management**: File-based configuration management
+
+```bash
+# Single-tenant .env configuration
+OUTLOOK_CLIENT_ID=your_client_id
+OUTLOOK_CLIENT_SECRET=your_client_secret
+BOOKING_API_URL=https://your-booking-system.com/api
+```
+
+#### **Multi-Tenant Mode (Enhanced Architecture)**
+- **Configuration**: Database-driven with encryption
+- **Use Case**: Multiple organizations, SaaS deployment
+- **Scalability**: Thousands of tenants per service instance
+- **Management**: API-driven tenant management with admin UI
+
+```sql
+-- Multi-tenant database configuration
+SELECT tenant_key, bridge_type, config_data FROM tenant_bridge_configs;
+```
+
+#### **Migration Path**
+
+1. **Phase 1**: Current single-tenant environment-based approach ✅ **COMPLETE**
+2. **Phase 2**: Database schema and service layer ⚠️ **PLANNED**
+3. **Phase 3**: Migration tools and dual-mode support ⚠️ **PLANNED**
+4. **Phase 4**: Full multi-tenant production deployment ⚠️ **PLANNED**
+
+> **Important**: The database-driven approach is designed to completely replace environment-based tenant configuration for production multi-tenant deployments. Single-tenant deployments can continue using environment variables for simplicity.
+
+---
