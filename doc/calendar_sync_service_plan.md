@@ -698,8 +698,7 @@ Generic Calendar Bridge Service (IMPLEMENTED)
 │   ├── BridgeBookingController.php     ✅ DONE
 │   ├── ResourceMappingController.php   ✅ DONE
 │   ├── AlertController.php             ✅ DONE
-│   ├── HealthController.php            ✅ DONE
-│   └── OutlookController.php           ✅ DONE
+│   └── HealthController.php           ✅ DONE
 ├── src/Middleware/
 │   └── ApiKeyMiddleware.php            ✅ DONE
 ├── database/

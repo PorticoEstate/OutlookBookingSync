@@ -556,4 +556,126 @@ class BridgeController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
+    
+    /**
+     * Get available resources for a specific bridge
+     */
+    public function getAvailableResources(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'];
+            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            
+            // Get available resources through the bridge
+            $resources = $bridge->getAvailableResources();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge' => $bridgeName,
+                'resources' => $resources,
+                'count' => count($resources)
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available resources', [
+                'bridge' => $args['bridgeName'] ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'bridge' => $args['bridgeName'] ?? 'unknown'
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Get available groups/collections for a specific bridge
+     */
+    public function getAvailableGroups(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'];
+            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            
+            // Get available groups through the bridge
+            $groups = $bridge->getAvailableGroups();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge' => $bridgeName,
+                'groups' => $groups,
+                'count' => count($groups)
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available groups', [
+                'bridge' => $args['bridgeName'] ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'bridge' => $args['bridgeName'] ?? 'unknown'
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Get calendar items for a specific user/resource on a bridge
+     */
+    public function getUserCalendarItems(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'];
+            $userId = $args['userId'];
+            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            
+            // Get query parameters
+            $queryParams = $request->getQueryParams();
+            $startDate = $queryParams['startDate'] ?? null;
+            $endDate = $queryParams['endDate'] ?? null;
+            
+            // Get calendar items through the bridge
+            $calendarItems = $bridge->getUserCalendarItems($userId, $startDate, $endDate);
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge' => $bridgeName,
+                'user_id' => $userId,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'calendar_items' => $calendarItems,
+                'count' => count($calendarItems)
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get user calendar items', [
+                'bridge' => $args['bridgeName'] ?? 'unknown',
+                'user_id' => $args['userId'] ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'bridge' => $args['bridgeName'] ?? 'unknown',
+                'user_id' => $args['userId'] ?? 'unknown'
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }

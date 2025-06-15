@@ -31,6 +31,11 @@ abstract class AbstractCalendarBridge
     abstract public function unsubscribeFromChanges($subscriptionId): bool;
     abstract public function getBridgeType(): string;
     
+    // Resource discovery methods (added for generic bridge pattern)
+    abstract public function getAvailableResources(): array;
+    abstract public function getAvailableGroups(): array;
+    abstract public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array;
+    
     // Optional methods with default implementations
     public function validateEvent($event): bool
     {

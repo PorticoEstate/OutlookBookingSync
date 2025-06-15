@@ -127,6 +127,32 @@ class BookingSystemBridge extends AbstractCalendarBridge
         ];
     }
     
+    /**
+     * Get endpoint configuration with defaults and custom overrides
+     * 
+     * @param string $endpointName The name of the endpoint
+     * @param array $defaultConfig Default configuration for the endpoint
+     * @return array Merged endpoint configuration
+     */
+    private function getEndpointConfig(string $endpointName, array $defaultConfig = []): array
+    {
+        // Start with the provided default configuration
+        $config = $defaultConfig;
+        
+        // Merge with default endpoint configurations if available
+        $defaultEndpoints = $this->getDefaultApiEndpoints();
+        if (isset($defaultEndpoints[$endpointName])) {
+            $config = array_merge($config, $defaultEndpoints[$endpointName]);
+        }
+        
+        // Merge with custom endpoint configurations from bridge config
+        if (isset($this->apiEndpoints[$endpointName])) {
+            $config = array_merge($config, $this->apiEndpoints[$endpointName]);
+        }
+        
+        return $config;
+    }
+
     public function getBridgeType(): string
     {
         return 'booking_system';
@@ -533,5 +559,185 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
         
         return array_unique(array_filter($attendees));
+    }
+    
+    /**
+     * Get available resources from the booking system
+     */
+    public function getAvailableResources(): array
+    {
+        try {
+            $endpoint = $this->getEndpointConfig('list_resources', [
+                'method' => 'GET',
+                'url' => '/api/resources',
+                'response_mapping' => [
+                    'id' => 'id',
+                    'name' => 'name',
+                    'type' => 'type',
+                    'capacity' => 'capacity'
+                ]
+            ]);
+            
+            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url']);
+            
+            $resources = [];
+            $dataKey = $endpoint['response_data_key'] ?? 'data';
+            $responseData = isset($response[$dataKey]) ? $response[$dataKey] : $response;
+            
+            if (is_array($responseData)) {
+                foreach ($responseData as $resource) {
+                    $resources[] = [
+                        'id' => $resource['id'] ?? $resource['resource_id'] ?? null,
+                        'name' => $resource['name'] ?? $resource['title'] ?? 'N/A',
+                        'type' => $resource['type'] ?? 'resource',
+                        'capacity' => $resource['capacity'] ?? null,
+                        'description' => $resource['description'] ?? null,
+                        'bridge_type' => 'booking_system'
+                    ];
+                }
+            }
+            
+            return $resources;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available resources from booking system', [
+                'error' => $e->getMessage(),
+                'bridge' => 'booking_system'
+            ]);
+            
+            // Return empty array if resources endpoint is not available
+            return [];
+        }
+    }
+    
+    /**
+     * Get available groups/collections from the booking system
+     */
+    public function getAvailableGroups(): array
+    {
+        try {
+            $endpoint = $this->getEndpointConfig('list_groups', [
+                'method' => 'GET',
+                'url' => '/api/groups',
+                'response_mapping' => [
+                    'id' => 'id',
+                    'name' => 'name',
+                    'description' => 'description'
+                ]
+            ]);
+            
+            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url']);
+            
+            $groups = [];
+            $dataKey = $endpoint['response_data_key'] ?? 'data';
+            $responseData = isset($response[$dataKey]) ? $response[$dataKey] : $response;
+            
+            if (is_array($responseData)) {
+                foreach ($responseData as $group) {
+                    $groups[] = [
+                        'id' => $group['id'] ?? $group['group_id'] ?? null,
+                        'name' => $group['name'] ?? $group['title'] ?? 'N/A',
+                        'description' => $group['description'] ?? null,
+                        'bridge_type' => 'booking_system'
+                    ];
+                }
+            }
+            
+            return $groups;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available groups from booking system', [
+                'error' => $e->getMessage(),
+                'bridge' => 'booking_system'
+            ]);
+            
+            // Return empty array if groups endpoint is not available
+            return [];
+        }
+    }
+    
+    /**
+     * Get calendar items for a specific user/resource
+     */
+    public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array
+    {
+        try {
+            $endpoint = $this->getEndpointConfig('list_user_events', [
+                'method' => 'GET',
+                'url' => '/api/users/{user_id}/events',
+                'params' => ['start_date', 'end_date']
+            ]);
+            
+            // Replace user ID in URL
+            $url = str_replace('{user_id}', urlencode($userId), $endpoint['url']);
+            
+            // Add date parameters if provided
+            $params = [];
+            if ($startDate) $params['start_date'] = $startDate;
+            if ($endDate) $params['end_date'] = $endDate;
+            
+            if (!empty($params)) {
+                $url .= '?' . http_build_query($params);
+            }
+            
+            $response = $this->makeApiRequest($endpoint['method'], $url);
+            
+            $events = [];
+            $dataKey = $endpoint['response_data_key'] ?? 'data';
+            $responseData = isset($response[$dataKey]) ? $response[$dataKey] : $response;
+            
+            if (is_array($responseData)) {
+                foreach ($responseData as $event) {
+                    $events[] = $this->normalizeBookingEvent($event);
+                }
+            }
+            
+            return $events;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get user calendar items from booking system', [
+                'error' => $e->getMessage(),
+                'bridge' => 'booking_system',
+                'user_id' => $userId
+            ]);
+            
+            // Return empty array if user events endpoint is not available
+            return [];
+        }
+    }
+    
+    /**
+     * Normalize booking system event data to bridge format
+     */
+    private function normalizeBookingEvent($event): array
+    {
+        // Apply field mappings if configured
+        $mappedEvent = [];
+        if (isset($this->fieldMappings['events'])) {
+            foreach ($this->fieldMappings['events'] as $bridgeField => $bookingField) {
+                $mappedEvent[$bridgeField] = $event[$bookingField] ?? null;
+            }
+        } else {
+            $mappedEvent = $event;
+        }
+        
+        // Return standardized event format
+        return [
+            'id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
+            'subject' => $mappedEvent['subject'] ?? $event['title'] ?? $event['name'] ?? $event['subject'] ?? 'N/A',
+            'start' => $mappedEvent['start'] ?? $event['start_time'] ?? $event['start'] ?? null,
+            'end' => $mappedEvent['end'] ?? $event['end_time'] ?? $event['end'] ?? null,
+            'location' => $mappedEvent['location'] ?? $event['location'] ?? $event['room'] ?? null,
+            'description' => $mappedEvent['description'] ?? $event['description'] ?? $event['notes'] ?? '',
+            'organizer' => $mappedEvent['organizer'] ?? $event['organizer'] ?? $event['created_by'] ?? null,
+            'attendees' => $this->extractAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
+            'all_day' => $mappedEvent['all_day'] ?? $event['all_day'] ?? false,
+            'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? 'UTC',
+            'bridge_type' => 'booking_system',
+            'external_id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
+            'last_modified' => $mappedEvent['last_modified'] ?? $event['modified_at'] ?? $event['updated_at'] ?? date('c'),
+            'created' => $mappedEvent['created'] ?? $event['created_at'] ?? date('c'),
+            'raw_data' => $event
+        ];
     }
 }

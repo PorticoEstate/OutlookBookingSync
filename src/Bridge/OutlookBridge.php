@@ -3,11 +3,20 @@
 namespace App\Bridge;
 
 use App\Bridge\AbstractCalendarBridge;
+use Microsoft\Kiota\Authentication\Oauth\ClientCredentialContext;
+use Microsoft\Graph\Core\Authentication\GraphPhpLeagueAuthenticationProvider;
+use Microsoft\Graph\GraphRequestAdapter;
+use Microsoft\Graph\GraphServiceClient;
+use Microsoft\Graph\Core\GraphClientFactory;
+use Microsoft\Graph\Generated\Models\ODataErrors\ODataError;
+use Microsoft\Kiota\Abstractions\RequestInformation;
+use Microsoft\Kiota\Abstractions\HttpMethod;
 
 class OutlookBridge extends AbstractCalendarBridge
 {
     private $accessToken;
     private $graphBaseUrl = 'https://graph.microsoft.com/v1.0';
+    private $graphServiceClient;
     
     protected function validateConfig()
     {
@@ -26,6 +35,41 @@ class OutlookBridge extends AbstractCalendarBridge
     protected function initialize()
     {
         $this->accessToken = $this->getAccessToken();
+        $this->initializeGraphClient();
+    }
+    
+    /**
+     * Initialize Microsoft Graph Service Client (same as OutlookController)
+     */
+    private function initializeGraphClient()
+    {
+        $tenantId = $this->config['tenant_id'];
+        $clientId = $this->config['client_id'];
+        $clientSecret = $this->config['client_secret'];
+        
+        // Create authentication context
+        $tokenRequestContext = new ClientCredentialContext(
+            $tenantId,
+            $clientId,
+            $clientSecret
+        );
+        
+        // Create authentication provider
+        $authProvider = new GraphPhpLeagueAuthenticationProvider($tokenRequestContext);
+        
+        // Create HTTP client (with proxy support if configured)
+        $guzzleConfig = [];
+        if (!empty($_ENV['httpproxy_server'] ?? '')) {
+            $guzzleConfig = [
+                "proxy" => "{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}"
+            ];
+        }
+        
+        $httpClient = GraphClientFactory::createWithConfig($guzzleConfig);
+        $requestAdapter = new GraphRequestAdapter($authProvider, $httpClient);
+        
+        // Create Graph service client
+        $this->graphServiceClient = GraphServiceClient::createWithRequestAdapter($requestAdapter);
     }
     
     public function getBridgeType(): string
@@ -455,5 +499,215 @@ class OutlookBridge extends AbstractCalendarBridge
         $sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':subscription_id' => $subscriptionId]);
+    }
+    
+    /**
+     * Get available resources (rooms/equipment) from Outlook
+     * Uses the same method as OutlookController::getAvailableRooms()
+     */
+    public function getAvailableResources(): array
+    {
+        try {
+            // Get group ID from configuration or use default
+            $groupId = $this->config['group_id'] ?? '90ba4505-3855-4739-81fa-6b0008ae9216';
+
+            // Get the request adapter from the Graph service client  
+            $requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+            // Make a direct API call to get group members (same as OutlookController)
+            $groupMembersRequest = new RequestInformation();
+            $groupMembersRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups/{$groupId}/members";
+            $groupMembersRequest->httpMethod = HttpMethod::GET;
+            $groupMembersRequest->addHeader("Accept", "application/json");
+
+            $groupMembersResponse = $requestAdapter->sendAsync(
+                $groupMembersRequest,
+                [\Microsoft\Graph\Generated\Models\DirectoryObjectCollectionResponse::class, 'createFromDiscriminatorValue'],
+                [ODataError::class, 'createFromDiscriminatorValue']
+            )->wait();
+
+            $resources = [];
+
+            if ($groupMembersResponse) {
+                $members = $groupMembersResponse->getValue();
+                if ($members && !empty($members)) {
+                    foreach ($members as $member) {
+                        $memberData = [
+                            'id' => $member->getId(),
+                            'name' => $member->getDisplayName() ?? 'N/A',
+                            '@odata.type' => $member->getOdataType(),
+                            'bridge_type' => 'outlook'
+                        ];
+
+                        // Add additional properties if it's a User object
+                        if ($member instanceof \Microsoft\Graph\Generated\Models\User) {
+                            $memberData['userPrincipalName'] = $member->getUserPrincipalName();
+                            $memberData['email'] = $member->getMail();
+                            $memberData['jobTitle'] = $member->getJobTitle();
+                        }
+
+                        $resources[] = $memberData;
+                    }
+                }
+            }
+
+            $this->logger->info('Retrieved available resources from Outlook', [
+                'bridge' => 'outlook',
+                'group_id' => $groupId,
+                'resource_count' => count($resources)
+            ]);
+
+            return $resources;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available resources from Outlook', [
+                'error' => $e->getMessage(),
+                'bridge' => 'outlook'
+            ]);
+            throw $e;
+        }
+    }
+    
+    /**
+     * Get available groups/collections from Outlook
+     * Uses the same method as OutlookController::getAvailableGroups()
+     */
+    public function getAvailableGroups(): array
+    {
+        try {
+            // Get the request adapter from the Graph service client
+            $requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+            // Make a direct API call to get groups (same as OutlookController)
+            $groupsRequest = new RequestInformation();
+            $groupsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups?\$top=999";
+            $groupsRequest->httpMethod = HttpMethod::GET;
+            $groupsRequest->addHeader("Accept", "application/json");
+
+            $allGroups = [];
+            $nextLink = null;
+
+            do {
+                // Update URL for pagination if we have a next link
+                if ($nextLink) {
+                    $groupsRequest->urlTemplate = $nextLink;
+                }
+
+                $groupsResponse = $requestAdapter->sendAsync(
+                    $groupsRequest,
+                    [\Microsoft\Graph\Generated\Models\GroupCollectionResponse::class, 'createFromDiscriminatorValue'],
+                    [ODataError::class, 'createFromDiscriminatorValue']
+                )->wait();
+
+                if (method_exists($groupsResponse, 'getValue') && !empty($groupsResponse->getValue())) {
+                    $groups = $groupsResponse->getValue();
+
+                    foreach ($groups as $group) {
+                        $groupData = [
+                            'id' => $group->getId(),
+                            'name' => $group->getDisplayName() ?? 'N/A',
+                            'description' => $group->getDescription() ?? 'N/A',
+                            'email' => $group->getMail() ?? 'N/A',
+                            'group_types' => $group->getGroupTypes() ?? [],
+                            'bridge_type' => 'outlook'
+                        ];
+
+                        $allGroups[] = $groupData;
+                    }
+                }
+
+                // Check for next page
+                $nextLink = $groupsResponse ? $groupsResponse->getOdataNextLink() : null;
+
+            } while ($nextLink);
+
+            $this->logger->info('Retrieved available groups from Outlook', [
+                'bridge' => 'outlook',
+                'group_count' => count($allGroups)
+            ]);
+
+            return $allGroups;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available groups from Outlook', [
+                'error' => $e->getMessage(),
+                'bridge' => 'outlook'
+            ]);
+            throw $e;
+        }
+    }
+    
+    /**
+     * Get calendar items for a specific user
+     * Uses the same method as OutlookController::getUserCalendarItems()
+     */
+    public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array
+    {
+        try {
+            if (!$userId) {
+                throw new \InvalidArgumentException('User ID is required');
+            }
+
+            // Get the request adapter from the Graph service client
+            $requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+            // Make a direct API call to get calendar items for the user (same as OutlookController)
+            $calendarItemsRequest = new RequestInformation();
+            $calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$userId}/events";
+            $calendarItemsRequest->httpMethod = HttpMethod::GET;
+            $calendarItemsRequest->addHeader("Accept", "application/json");
+
+            $calendarItemsResponse = $requestAdapter->sendAsync(
+                $calendarItemsRequest,
+                [\Microsoft\Graph\Generated\Models\EventCollectionResponse::class, 'createFromDiscriminatorValue'],
+                [ODataError::class, 'createFromDiscriminatorValue']
+            )->wait();
+
+            $events = [];
+
+            if ($calendarItemsResponse && method_exists($calendarItemsResponse, 'getValue')) {
+                $items = $calendarItemsResponse->getValue();
+                if ($items && !empty($items)) {
+                    foreach ($items as $item) {
+                        // Filter by date range if provided
+                        if ($startDate && $endDate) {
+                            $itemStart = $item->getStart()->getDateTime();
+                            $itemEnd = $item->getEnd()->getDateTime();
+                            
+                            if ($itemStart < $startDate || $itemEnd > $endDate) {
+                                continue; // Skip events outside date range
+                            }
+                        }
+
+                        $events[] = [
+                            'id' => $item->getId(),
+                            'subject' => $item->getSubject(),
+                            'start' => $item->getStart()->getDateTime(),
+                            'end' => $item->getEnd()->getDateTime(),
+                            'organizer' => $item->getOrganizer() ? $item->getOrganizer()->getEmailAddress()->getAddress() : null,
+                            'bridge_type' => 'outlook'
+                        ];
+                    }
+                }
+            }
+
+            $this->logger->info('Retrieved user calendar items from Outlook', [
+                'bridge' => 'outlook',
+                'user_id' => $userId,
+                'event_count' => count($events),
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ]);
+
+            return $events;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get user calendar items from Outlook', [
+                'error' => $e->getMessage(),
+                'bridge' => 'outlook',
+                'user_id' => $userId
+            ]);
+            throw $e;
+        }
     }
 }

@@ -175,14 +175,35 @@ $app->add(function ($request, $handler) use ($container)
 // Get resource to Outlook calendar mapping information (legacy)
 $app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
 
-// Get available Outlook room calendars
-$app->get('/outlook/available-rooms', [\App\Controller\OutlookController::class, 'getAvailableRooms']);
+// Generic bridge-based resource discovery routes (replaces Outlook-specific endpoints)
 
-// Get available Outlook distribution groups
-$app->get('/outlook/available-groups', [\App\Controller\OutlookController::class, 'getAvailableGroups']);
+// Get available resources for a specific bridge
+$app->get('/bridges/{bridgeName}/available-resources', [\App\Controller\BridgeController::class, 'getAvailableResources']);
 
-// Get calendar items for a specific user
-$app->get('/outlook/users/{userId}/calendar-items', [\App\Controller\OutlookController::class, 'getUserCalendarItems']);
+// Get available groups/collections for a specific bridge  
+$app->get('/bridges/{bridgeName}/available-groups', [\App\Controller\BridgeController::class, 'getAvailableGroups']);
+
+// Get calendar items for a specific user/resource on a bridge
+$app->get('/bridges/{bridgeName}/users/{userId}/calendar-items', [\App\Controller\BridgeController::class, 'getUserCalendarItems']);
+
+// Backward compatibility routes (redirect to bridge endpoints)
+$app->get('/outlook/available-rooms', function (Request $request, Response $response, $args) use ($container) {
+    // Redirect to generic bridge endpoint
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    return $bridgeController->getAvailableResources($request, $response, ['bridgeName' => 'outlook']);
+});
+
+$app->get('/outlook/available-groups', function (Request $request, Response $response, $args) use ($container) {
+    // Redirect to generic bridge endpoint
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    return $bridgeController->getAvailableGroups($request, $response, ['bridgeName' => 'outlook']);
+});
+
+$app->get('/outlook/users/{userId}/calendar-items', function (Request $request, Response $response, $args) use ($container) {
+    // Redirect to generic bridge endpoint
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    return $bridgeController->getUserCalendarItems($request, $response, $args + ['bridgeName' => 'outlook']);
+});
 
 // Bridge-compatible booking system integration routes (replaces legacy routes)
 
@@ -378,6 +399,9 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             'bridge_operations' => [
                 'GET /bridges' => 'List all available bridges',
                 'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge',
+                'GET /bridges/{bridge}/available-resources' => 'Get available resources (rooms/equipment) for bridge',
+                'GET /bridges/{bridge}/available-groups' => 'Get available groups/collections for bridge',
+                'GET /bridges/{bridge}/users/{userId}/calendar-items' => 'Get calendar items for specific user on bridge',
                 'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges',
                 'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue',
@@ -390,13 +414,18 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /dashboard' => 'Monitoring dashboard (HTML)'
             ],
             'resource_management' => [
-                'GET /resource-mapping' => 'List resource mappings',
-                'POST /resource-mapping' => 'Create resource mapping',
-                'PUT /resource-mapping/{id}' => 'Update resource mapping'
+                'GET /mappings/resources' => 'List resource mappings',
+                'POST /mappings/resources' => 'Create resource mapping',
+                'PUT /mappings/resources/{id}' => 'Update resource mapping'
             ],
             'alerts' => [
                 'POST /alerts/check' => 'Check system alerts',
                 'GET /alerts' => 'Get active alerts'
+            ],
+            'backward_compatibility' => [
+                'GET /outlook/available-rooms' => 'Get Outlook rooms (redirects to /bridges/outlook/available-resources)',
+                'GET /outlook/available-groups' => 'Get Outlook groups (redirects to /bridges/outlook/available-groups)',
+                'GET /outlook/users/{userId}/calendar-items' => 'Get user calendar (redirects to bridge endpoint)'
             ]
         ],
         'documentation' => 'See README_BRIDGE.md for complete API documentation'
