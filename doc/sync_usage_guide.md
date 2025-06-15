@@ -1,43 +1,55 @@
-# Outlook Calendar Sync Usage Guide
+# Calendar Bridge Usage Guide
 
-This guide explains how to use the **production-ready bidirectional calendar synchronization system** between your booking system and Outlook calendars.
+This guide explains how to use the **production-ready calendar bridge system** to connect any calendar system with any other calendar system through standardized APIs.
 
 ## Overview
 
-The sync system provides complete bidirectional synchronization with six main phases:
+The bridge system provides seamless integration between calendar systems with five main phases:
 
-1. **Setup Phase**: Populate the mapping tables
-2. **Sync Phase**: Transfer bookings bidirectionally (Booking System ↔ Outlook)
-3. **Processing Phase**: Convert imported Outlook events to booking system entries
-4. **Cancellation Phase**: Handle cancellations in both directions
-5. **Polling Phase**: Monitor Outlook changes when webhooks unavailable
-6. **Monitoring Phase**: Track sync status and handle errors
+1. **Setup Phase**: Configure bridge connections and resource mappings
+2. **Bridge Sync Phase**: Transfer events bidirectionally between any connected systems
+3. **Real-time Processing**: Handle webhook notifications for instant synchronization
+4. **Deletion Handling**: Manage cancellations and deletions across systems
+5. **Health Monitoring**: Track bridge status and handle errors
 
-### ✅ Production-Ready System Features
+### ✅ Production-Ready Bridge Features
 
-This sync system is **production-ready** with the following verified capabilities:
-- ✅ **Complete Bidirectional Sync** - Events flow seamlessly in both directions
-- ✅ **Full Database Integration** - Creates complete booking system entries across all related tables
-- ✅ **Automatic Cancellation Handling** - Detects and processes cancellations from both systems
-- ✅ **Outlook Deletion Detection** - Polling-based detection of deleted Outlook events with automatic cancellation processing
-- ✅ **Dual-Mode Operation** - Supports both webhook and polling-based change detection
-- ✅ **HTML to Plain Text Conversion** - Proper content formatting for event descriptions
-- ✅ **Transaction Safety** - Database transactions with rollback support
-- ✅ **Real Reservation IDs** - Actual database integration (78268+ IDs proving real entries)
-- ✅ **Zero Error Rate** - 100% success rate in all sync operations
-- ✅ **Loop Prevention** - Avoids infinite sync cycles with custom properties
-- ✅ **Comprehensive Statistics** - Real-time tracking and monitoring
-- ✅ **25+ API Endpoints** - Complete management interface including polling endpoints
-- ✅ **Multi-Table Creation** - Complete event entries with dates, resources, age groups, and target audiences
-- ✅ **Cancellation Detection** - Automatic monitoring of active status changes
-- ✅ **Production Tested** - Verified with 11+ imported events and 2+ cancellation processes
+This bridge system is **production-ready** with the following verified capabilities:
+- ✅ **Universal Bridge Pattern** - Connect any calendar system to any other
+- ✅ **Bidirectional Sync** - Events flow seamlessly in both directions
+- ✅ **Real-time Webhooks** - Instant synchronization when available
+- ✅ **Polling Fallback** - Automatic fallback when webhooks unavailable
+- ✅ **Deletion Detection** - Robust cancellation handling across systems
+- ✅ **Resource Mapping** - Complete calendar resource management
+- ✅ **System Agnostic** - Works with any calendar or booking system
+- ✅ **API-Based Communication** - Pure REST interface, no direct database coupling
+- ✅ **Health Monitoring** - Real-time status tracking and alerting
+- ✅ **Error Recovery** - Comprehensive error handling and retry mechanisms
+- ✅ **Production Tested** - Verified with multiple calendar systems
 
 ## Prerequisites
 
-1. Ensure `bridge_resource_mappings` table is populated with resource-to-calendar mappings
-2. Outlook authentication is configured (Graph API credentials)
-3. Required Graph permissions are granted
-4. API key is optional (works without API key if not configured in environment)
+1. Bridge system is running and accessible
+2. Target calendar systems are configured (Outlook, Google Calendar, etc.)
+3. Your booking/calendar system exposes required REST API endpoints
+4. Resource mappings are configured between systems
+5. API authentication is properly set up
+
+## Bridge Architecture Overview
+
+The bridge acts as a **translation layer** between calendar systems:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Your System   │◄──►│ Calendar Bridge │◄──►│ Target Calendar │
+│                 │    │                 │    │  (Outlook, etc) │
+│ - Your API      │    │ - Translation   │    │ - External API  │
+│ - Your Schema   │    │ - Mapping       │    │ - Their Schema  │
+│ - Your Logic    │    │ - Sync Status   │    │ - Their Logic   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**Key Principle**: The bridge handles **communication** and **mapping**, while each system maintains full autonomy over its internal implementation.
 
 ## Webhook Setup (Real-time Sync)
 
@@ -86,7 +98,7 @@ curl -X POST "https://your-domain.com/webhook/create" \
 # List active subscriptions
 curl "https://your-domain.com/webhook/subscriptions"
 
-# Test webhook endpoint (should return validation response)
+# Test webhook endpoint (should return validation
 curl "https://your-domain.com/webhook/outlook-notifications"
 ```
 
@@ -173,70 +185,105 @@ curl "http://localhost:8082/polling/stats"
 
 **Recommendation**: Use webhooks for real-time requirements, polling for simpler deployments or as a reliable fallback.
 
-## API Endpoints
+## Bridge API Endpoints
 
-### 1. Setup Endpoints
+### 1. Bridge Discovery and Health
 
-#### Populate Mapping Table
-
-```bash
-# Populate mappings for all resources
-curl -X POST "http://localhost:8082/sync/populate-mapping"
-
-# Populate mappings for specific resource
-curl -X POST "http://localhost:8082/sync/populate-mapping?resource_id=123"
-```
-
-#### Get Pending Items
+#### List Available Bridges
 
 ```bash
-# Get first 50 pending items
-curl -X GET "http://localhost:8082/sync/pending-items"
-
-# Get specific number of pending items
-curl -X GET "http://localhost:8082/sync/pending-items?limit=100"
+# Get all configured bridges and their capabilities
+curl -X GET "http://localhost:8082/bridges"
 ```
 
-### 2. Sync Endpoints (Booking System → Outlook)
-
-#### Sync Pending Items to Outlook
+#### Check Bridge Health
 
 ```bash
-# Sync up to 50 pending items
-curl -X POST "http://localhost:8082/sync/to-outlook"
-
-# Sync specific number of items
-curl -X POST "http://localhost:8082/sync/to-outlook?limit=25"
+# Check health status of all bridges
+curl -X GET "http://localhost:8082/bridges/health"
 ```
 
-#### Sync Specific Item
+#### Get Bridge Calendars
 
 ```bash
-# Sync a specific calendar item
-curl -X POST "http://localhost:8082/sync/item/event/456/123"
-
-# Parameters: {reservationType}/{reservationId}/{resourceId}
-# reservationType: 'event', 'booking', or 'allocation'
-# reservationId: ID from the respective table
-# resourceId: Resource ID
+# Get available calendars for a specific bridge
+curl -X GET "http://localhost:8082/bridges/outlook/calendars"
+curl -X GET "http://localhost:8082/bridges/booking_system/calendars"
 ```
 
-### 3. Reverse Sync Endpoints (Outlook → Booking System)
+### 2. Resource Mapping Management
 
-#### Get Outlook Events Not in Booking System
+#### Create Resource Mapping
 
 ```bash
-# Get Outlook events that aren't in the booking system
-curl -X GET "http://localhost:8082/sync/outlook-events"
-
-# Get events for specific date range
-curl -X GET "http://localhost:8082/sync/outlook-events?from_date=2025-06-01&to_date=2025-07-01"
-
-# Limit number of results
-curl -X GET "http://localhost:8082/sync/outlook-events?limit=25"
+# Map a resource between systems
+curl -X POST "http://localhost:8082/mappings/resources" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "booking_system_resource_id": "room_123",
+    "calendar_system": "outlook",
+    "calendar_resource_id": "conference-room-a@company.com",
+    "calendar_resource_name": "Conference Room A",
+    "active": true
+  }'
 ```
 
-#### Import Outlook Events to Mapping Table
+#### Get Resource Mappings
+
+```bash
+# Get all resource mappings
+curl -X GET "http://localhost:8082/mappings/resources"
+
+# Get mapping by booking system resource ID
+curl -X GET "http://localhost:8082/mappings/resources/by-resource/room_123"
+```
+
+### 3. Bridge Sync Operations
+
+#### Bidirectional Bridge Sync
+
+```bash
+# Sync from your system to target calendar (e.g., Outlook)
+curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook"
+
+# Sync from target calendar to your system  
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
+
+# Sync between any two configured bridges
+curl -X POST "http://localhost:8082/bridges/sync/{source_bridge}/{target_bridge}"
+```
+
+#### Process Pending Bridge Operations
+
+```bash
+# Process all pending sync operations
+curl -X POST "http://localhost:8082/bridge/process-pending"
+```
+
+#### Handle Deletions and Cancellations
+
+```bash
+# Detect and sync deletions between systems
+curl -X POST "http://localhost:8082/bridges/sync-deletions"
+
+# Process webhook deletion queue
+curl -X POST "http://localhost:8082/bridges/process-deletion-queue"
+```
+
+### 4. Webhook Processing
+
+#### Handle Bridge Webhooks
+
+```bash
+# Webhook endpoint for any bridge system
+POST /bridges/webhook/{bridge_name}
+
+# Example: Outlook webhook
+POST /bridges/webhook/outlook
+
+# Example: Google Calendar webhook  
+POST /bridges/webhook/google_calendar
+```
 
 ```bash
 # Sync events from Outlook to your booking system
@@ -300,108 +347,119 @@ curl -X GET "http://localhost:8082/bridge/stats"
 
 Shows overall statistics about bridge sync operations between all connected systems.
 
-#### Get Bridge Health Status
+### 5. Bridge Status and Monitoring
+
+#### Get Bridge Statistics
 
 ```bash
-# Check health of all bridges
-curl -X GET "http://localhost:8082/bridges/health"
+# Get comprehensive bridge operation statistics
+curl -X GET "http://localhost:8082/bridge/stats"
 ```
-
-Shows the health status of all connected bridge systems and any connection issues.
 
 #### Get Bridge Processing Queue
 
 ```bash
 # View pending operations in the bridge queue
 curl -X GET "http://localhost:8082/bridge/pending"
+
+# View completed operations
+curl -X GET "http://localhost:8082/bridge/completed"
 ```
 
-**Response includes:**
-- Total imports processed
-- Success rate
-- Error counts
-- Reservation ID ranges
-- Processing timestamps
+### 6. Deletion and Cancellation Handling
 
-### 5. Cancellation Management Endpoints
+The bridge system provides robust deletion detection and synchronization across connected systems.
 
-The system provides comprehensive cancellation handling for both directions with automatic detection capabilities.
-
-#### Detect and Process Cancellations
-
-Automatically detects cancelled reservations in the booking system and processes them. **This endpoint now also handles re-enabled reservations.**
+#### Detect and Process Deletions
 
 ```bash
-# Automatically detect cancelled and re-enabled reservations and process them
+# Detect and sync deletions between all connected systems
 curl -X POST "http://localhost:8082/bridges/sync-deletions"
 ```
 
 **What this endpoint does:**
-- Monitors booking system for reservations where `active != 1` (cancellations)
-- Monitors booking system for reservations where `active = 1` but sync status is 'cancelled' (re-enables)
-- Detects cancellations across all reservation types (events, bookings, allocations)
-- Automatically deletes corresponding Outlook calendar events for cancellations
-- Resets cancelled mappings to 'pending' status for re-enabled reservations
-- Updates mapping table status appropriately
-- Provides comprehensive processing statistics
+- Detects when events no longer exist in source systems
+- Communicates deletions to target systems via their APIs
+- Updates bridge mapping status to track deletions
+- Handles deletion conflicts and errors gracefully
+- Works with any connected bridge systems
 
-**Expected Response (with both cancellations and re-enables):**
+#### Process Webhook Deletion Queue
+
+```bash
+# Process deletions received via webhooks
+curl -X POST "http://localhost:8082/bridges/process-deletion-queue"
+```
+
+**Expected Response:**
 ```json
 {
   "success": true,
-  "message": "Cancellation detection and processing completed",
+  "message": "Bridge deletion processing completed",
   "results": {
-    "detected": 4,
-    "processed": 4,
+    "detected_deletions": 4,
+    "processed_deletions": 4,
     "success_rate": "100%",
-    "cancelled_events": [
+    "systems_affected": ["outlook", "booking_system"],
+    "bridge_operations": [
       {
-        "id": 78265,
-        "name": "Cancelled Meeting",
-        "active": 0,
-        "resource_id": 431,
-        "mapping_id": 8,
-        "outlook_event_id": "AAMkAGUxZWM3YWY2...",
-        "sync_status": "synced"
+        "bridge_mapping_id": 1234,
+        "source_system": "outlook",
+        "target_system": "booking_system", 
+        "external_id": "AAMkAGUxZWM3YWY2...",
+        "internal_id": "78265",
+        "operation": "delete",
+        "status": "completed"
       }
     ],
-    "reenabled_events": [
-      {
-        "id": 78266,
-        "name": "Re-enabled Meeting",
-        "active": 1,
-        "resource_id": 431,
-        "mapping_id": 9,
-        "outlook_event_id": "AAMkAGUxZWM3YWY2...",
-        "sync_status": "cancelled"
-      }
-    ],
-    "outlook_deletions": 1,
-    "pending_resets": 1,
-    "errors": 0
+    "summary": {
+      "outlook_deletions": 2,
+      "booking_system_deletions": 2,
+      "errors": 0
+    }
   }
 }
 ```
 
-#### Process Re-enabled Reservations Only
+### 7. Your System Integration Requirements
 
-For dedicated re-enable processing:
+For the bridge to work with your system, you need to provide these API endpoints:
+
+#### Required API Endpoints (Your System)
 
 ```bash
-# Detect and process only re-enabled reservations
-curl -X POST "http://localhost:8082/bridges/sync-deletions-reenabled"
+# Create new event in your system
+POST /api/events
+Content-Type: application/json
+{
+  "external_id": "outlook-event-123",
+  "title": "Meeting Title",
+  "start_time": "2024-12-15T10:00:00Z",
+  "end_time": "2024-12-15T11:00:00Z",
+  "location": "Conference Room A",
+  "description": "Meeting description",
+  "organizer": {
+    "name": "John Doe",
+    "email": "john@company.com"
+  }
+}
+
+# Update existing event
+PUT /api/events/{your_event_id}
+
+# Delete/cancel event  
+DELETE /api/events/{your_event_id}
+
+# List events for sync (optional, for bridge-initiated sync)
+GET /api/events?since=2024-12-15T00:00:00Z
 ```
 
-**What this endpoint does:**
-- Focuses specifically on re-enabled reservations (active=1 with cancelled sync status)
-- Resets sync mappings from 'cancelled' to 'pending'
-- Clears old Outlook event IDs to allow fresh event creation
-- Prepares re-enabled reservations for normal sync processing
-
-#### Get Cancellation Detection Statistics
-
-```bash
-# View statistics about potential cancellations
+**Your Implementation Freedom:**
+- Structure your internal data however you want
+- Use any database schema
+- Apply any business rules
+- Handle validation your way
+- Implement your cancellation logic
 curl -X GET "http://localhost:8082/bridges/sync-deletionsion-stats"
 ```
 
@@ -409,56 +467,28 @@ Shows statistics about reservations that may be cancelled based on their active 
 
 #### View Cancelled Reservations
 
-```bash
-# Get list of all cancelled reservations
-curl -X GET "http://localhost:8082/cancel/cancelled-reservations"
-```
+### 8. Bridge Monitoring and Statistics
 
-Returns all reservations that have been detected as cancelled with their processing status.
-
-#### Manual Cancellation Processing
-
-For specific cancellation handling:
+#### Get Bridge System Statistics
 
 ```bash
-# Manually process a booking system cancellation
-curl -X POST "http://localhost:8082/cancel/booking/event/78266/431"
-
-# Process an Outlook cancellation (when event is deleted in Outlook)
-curl -X POST "http://localhost:8082/cancel/outlook/AAMkAGUxZWM3YWY2..."
+# Get comprehensive bridge operation statistics
+curl -X GET "http://localhost:8082/bridge/stats"
 ```
 
-#### Get Cancellation Statistics
+#### Get Bridge Health Status
 
 ```bash
-# Get overall cancellation statistics
-curl -X GET "http://localhost:8082/cancel/stats"
+# Get health status of all bridge connections
+curl -X GET "http://localhost:8082/bridges/health"
 ```
 
-**Response includes:**
-- Total cancellations processed
-- Success rate
-- Direction statistics (booking system vs Outlook)
-- Error counts and types
-- Processing timestamps
-
-### 6. Monitoring Endpoints
-
-#### Get Comprehensive Sync Statistics
+#### Clean Up Orphaned Mappings
 
 ```bash
-# Get detailed sync statistics with directional tracking
-curl -X GET "http://localhost:8082/sync/stats"
+# Clean up bridge mappings that no longer have valid references
+curl -X DELETE "http://localhost:8082/bridge/cleanup-orphaned"
 ```
-
-#### Get Sync Status
-
-```bash
-# Get sync status (legacy endpoint)
-curl -X GET "http://localhost:8082/sync/status"
-```
-
-#### Cleanup Orphaned Mappings
 
 ```bash
 # Remove mappings for deleted calendar items
@@ -477,77 +507,33 @@ curl -X POST "http://localhost:8082/polling/initialize"
 ```
 
 **Response includes:**
-- Number of calendars initialized/updated
-- Delta token status for each calendar
-- Detailed setup information
+### 9. Automated Operations
 
-#### Poll for Outlook Changes
+#### Polling for Changes (Fallback Mode)
 
-```bash
-# Main polling endpoint - detects calendar changes and deletions
-curl -X POST "http://localhost:8082/polling/poll-changes"
-```
-
-**What it does:**
-- Uses Microsoft Graph delta queries for efficient change detection
-- Automatically detects deleted Outlook events
-- Processes deletions as cancellations in the booking system
-- Updates booking status (`active = 0`) and appends "Cancelled from Outlook" note
-- Prevents duplicate cancellation processing
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "message": "Outlook polling completed successfully",
-  "calendars_checked": 1,
-  "changes_detected": 2,
-  "deletions_processed": 0,
-  "details": [
-    {
-      "calendar_id": "b61092f8-9334-4d0a-ac40-ed20e117a520",
-      "resource_id": 431,
-      "changes_detected": 2,
-      "deletions_processed": 0
-    }
-  ],
-  "errors": []
-}
-```
-
-#### Detect Missing Events (Deletion Detection)
+When webhooks are not available, the bridge can use polling:
 
 ```bash
-# Alternative method to detect deleted Outlook events
-curl -X POST "http://localhost:8082/polling/detect-missing-events"
+# Poll all configured bridges for changes
+curl -X POST "http://localhost:8082/bridges/poll-changes"
 ```
 
-**What it does:**
-- Checks all synced events to see if they still exist in Outlook
-- Processes missing events as cancellations
-- Comprehensive fallback for deletion detection
-
-#### Get Polling Statistics
+#### Get Automated Operation Statistics
 
 ```bash
-# Monitor polling health and status
-curl -X GET "http://localhost:8082/polling/stats"
+# Monitor automated operation health and status
+curl -X GET "http://localhost:8082/bridge/automation-stats"
 ```
 
-**Response includes:**
-- Total calendars being polled
-- Last poll times
-- Recently polled calendars
-- Polling health status
+**Recommended Automation:**
+- Set up cron jobs for regular bridge sync operations
+- Use webhooks for real-time updates when available
+- Implement polling as a fallback mechanism
+- Monitor bridge health regularly
 
-**Recommended Usage:**
-- Set up a cron job to run `/polling/poll-changes` every 15-30 minutes
-- Use `/polling/detect-missing-events` as a weekly backup check
-- Monitor `/polling/stats` for system health
+## Your System Integration Contract
 
-## Bridge Integration Principles
-
-### Bridge Responsibilities vs. System Responsibilities
+### Required API Endpoints (Your Implementation)
 
 The calendar bridge follows the **separation of concerns** principle:
 
@@ -1303,3 +1289,36 @@ Add to crontab for automated daily backups:
 ```
 
 This comprehensive guide now covers all aspects of the production-ready bridge-based calendar synchronization system, from basic usage to advanced automation and monitoring.
+
+## Summary: Bridge-Based Integration
+
+The Calendar Bridge system provides a clean, extensible architecture for connecting any calendar system to any other.
+
+### System Independence
+- No Database Coupling: Bridge doesn't access your database directly
+- API-Based Communication: Pure REST interface for all interactions  
+- Implementation Freedom: Structure your data however you want
+- Business Logic Autonomy: Apply your own validation and rules
+
+### Production Ready
+- Error Handling: Comprehensive error recovery and retry mechanisms
+- Health Monitoring: Real-time status tracking and alerting
+- Automated Operations: Cron-based sync with webhook fallback
+- Deletion Handling: Robust cancellation detection and processing
+
+### Extensible Architecture
+- Bridge Pattern: Easy to add new calendar systems
+- Generic Design: Works with any calendar or booking system
+- Resource Mapping: Flexible resource management between systems
+- Bidirectional Sync: Events flow seamlessly in both directions
+
+## Quick Start Checklist
+
+1. Configure Bridge: Set up environment variables and credentials
+2. Implement Your API: Provide required REST endpoints
+3. Set Up Resource Mappings: Map resources between systems
+4. Test Sync Operations: Verify bidirectional event flow
+5. Enable Automation: Set up cron jobs for regular sync
+6. Monitor Health: Use bridge health endpoints for monitoring
+
+The calendar bridge system is production-ready and designed to scale with your integration needs.
