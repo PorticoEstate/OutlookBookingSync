@@ -2,20 +2,23 @@
 
 namespace App\Controller;
 
-use App\Service\BridgeManager;
+use App\Services\BridgeManager;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
+use PDO;
 
 class BridgeController
 {
     private $bridgeManager;
     private $logger;
+    private $db;
     
-    public function __construct(BridgeManager $bridgeManager, LoggerInterface $logger)
+    public function __construct(BridgeManager $bridgeManager, LoggerInterface $logger, PDO $db)
     {
         $this->bridgeManager = $bridgeManager;
         $this->logger = $logger;
+        $this->db = $db;
     }
     
     /**

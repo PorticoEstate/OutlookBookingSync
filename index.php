@@ -285,7 +285,7 @@ $app->get('/dashboard', function (Request $request, Response $response, $args)
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
-	$manager = new \App\Service\BridgeManager($container->get('logger'), $container->get('db'));
+	$manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'));
 
 	// Register Outlook bridge
 	$manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
@@ -308,7 +308,8 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
 {
 	return new \App\Controller\BridgeController(
 		$container->get('bridgeManager'),
-		$container->get('logger')
+		$container->get('logger'),
+		$container->get('db')
 	);
 });
 

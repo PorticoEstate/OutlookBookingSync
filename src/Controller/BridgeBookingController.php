@@ -2,7 +2,7 @@
 
 namespace App\Controller;
 
-use App\Service\BridgeManager;
+use App\Services\BridgeManager;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Log\LoggerInterface;
@@ -273,7 +273,7 @@ class BridgeBookingController
     private function processWebhookOperation($operation, $payload): array
     {
         // Use bridge manager to process webhook
-        $bridgeController = new \App\Controller\BridgeController($this->bridgeManager, $this->logger);
+        $bridgeController = new \App\Controller\BridgeController($this->bridgeManager, $this->logger, $this->db);
         
         // Convert operation to webhook format and process
         $webhookData = [
