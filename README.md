@@ -44,7 +44,7 @@ A **production-ready, extensible calendar synchronization platform** that acts a
 
 ## 📋 System Requirements
 
-- PHP 8.0+
+- PHP 8.4+
 - PostgreSQL Database
 - Docker & Docker Compose (recommended)
 - Microsoft Graph API Credentials (for Outlook integration)
