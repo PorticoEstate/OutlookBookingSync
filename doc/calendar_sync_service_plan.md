@@ -688,21 +688,27 @@ Generic Calendar Bridge Service (IMPLEMENTED)
 │   ├── AbstractCalendarBridge.php      ✅ DONE
 │   ├── OutlookBridge.php               ✅ DONE
 │   └── BookingSystemBridge.php         ✅ DONE
-├── src/Service/
-│   └── BridgeManager.php               ✅ DONE
+├── src/Services/
+│   ├── BridgeManager.php               ✅ DONE
+│   ├── DeletionSyncService.php         ✅ DONE
+│   ├── AlertService.php                ✅ DONE
+│   └── OutlookEventDetectionService.php ✅ DONE
 ├── src/Controller/
 │   ├── BridgeController.php            ✅ DONE
+│   ├── BridgeBookingController.php     ✅ DONE
 │   ├── ResourceMappingController.php   ✅ DONE
-│   └── obsolete/                       ✅ MOVED
-├── src/Services/
-│   ├── DeletionSyncService.php         ✅ DONE
-│   └── obsolete/                       ✅ MOVED
+│   ├── AlertController.php             ✅ DONE
+│   ├── HealthController.php            ✅ DONE
+│   └── OutlookController.php           ✅ DONE
+├── src/Middleware/
+│   └── ApiKeyMiddleware.php            ✅ DONE
+├── src/Obsolete/
+│   ├── CancellationDetectionService.php ✅ MOVED
+│   └── CancellationService.php         ✅ MOVED
 ├── database/
 │   └── bridge_schema.sql               ✅ DONE
 └── scripts/
-    ├── setup_bridge_database.sh        ✅ DONE
-    ├── test_bridge.sh                  ✅ DONE
-    └── process_deletions.sh            ✅ DONE
+    └── enhanced_process_deletions.sh   ✅ DONE
 ```
 
 ### 🎯 **Ready for Extension**
