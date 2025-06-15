@@ -11,33 +11,86 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 // Load environment variables with friendly error handling
 try
 {
-	$dotenv = Dotenv::createImmutable(__DIR__);
-	$dotenv->load();
+    $dotenv = Dotenv::createImmutable(__DIR__);
+    $dotenv->load();
 }
 catch (Throwable $e)
 {
-	// Load the template for environment configuration error
-	require_once __DIR__ . '/src/Services/TemplateLoader.php';
-	
-	$templateLoader = new TemplateLoader();
-	$envExampleExists = file_exists(__DIR__ . '/.env.example');
+    // Check if this looks like an API request
+    $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+    $acceptHeader = $_SERVER['HTTP_ACCEPT'] ?? '';
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
 
-	$templateVariables = [
-		'env_example_message' => $envExampleExists ? 
-			"Copy the example file: <code>cp .env.example .env</code>" : 
-			"Create a new <code>.env</code> file in the project root",
-		'env_example_status' => $envExampleExists ? "
+    $isApiRequest = (
+        strpos($requestUri, '/api/') === 0 ||
+        strpos($requestUri, '/bridges') === 0 ||
+        strpos($requestUri, '/health') === 0 ||
+        strpos($requestUri, '/resource-mapping') === 0 ||
+        strpos($requestUri, '/alerts') === 0 ||
+        strpos($requestUri, '/sync') === 0 ||
+        strpos($requestUri, '/cancel') === 0 ||
+        strpos($requestUri, '/booking') === 0 ||
+        strpos($requestUri, '/outlook') === 0 ||
+        strpos($acceptHeader, 'application/json') !== false ||
+        strpos($contentType, 'application/json') !== false
+    );
+
+    if ($isApiRequest)
+    {
+        // Return JSON error for API requests
+        header('Content-Type: application/json');
+        http_response_code(500);
+
+        $errorResponse = [
+            'error' => 'Configuration Error',
+            'message' => 'Environment configuration missing or invalid',
+            'details' => $e->getMessage(),
+            'status_code' => 500,
+            'timestamp' => date('c'),
+            'solution' => [
+                'step1' => 'Create .env file from .env.example if available',
+                'step2' => 'Configure required environment variables (DB, API keys, etc.)',
+                'step3' => 'Restart the service after configuration'
+            ],
+            'required_env_vars' => [
+                'DB_HOST',
+                'DB_NAME',
+                'DB_USER',
+                'DB_PASS',
+                'API_KEY',
+                'APP_BASE_URL',
+                'OUTLOOK_CLIENT_ID',
+                'OUTLOOK_CLIENT_SECRET',
+                'OUTLOOK_TENANT_ID'
+            ]
+        ];
+
+        echo json_encode($errorResponse, JSON_PRETTY_PRINT);
+        exit(1);
+    }
+
+    // For non-API requests, load the HTML template
+    require_once __DIR__ . '/src/Services/TemplateLoader.php';
+
+    $templateLoader = new TemplateLoader();
+    $envExampleExists = file_exists(__DIR__ . '/.env.example');
+
+    $templateVariables = [
+        'env_example_message' => $envExampleExists ?
+            "Copy the example file: <code>cp .env.example .env</code>" :
+            "Create a new <code>.env</code> file in the project root",
+        'env_example_status' => $envExampleExists ? "
 			<div class='success'>
 				<strong>✅ Found .env.example</strong><br>
 				A template file is available. Copy it to <code>.env</code> and customize the values.
 			</div>" : "",
-		'error_message' => htmlspecialchars($e->getMessage()),
-		'error_file' => htmlspecialchars($e->getFile()),
-		'error_line' => $e->getLine()
-	];
+        'error_message' => htmlspecialchars($e->getMessage()),
+        'error_file' => htmlspecialchars($e->getFile()),
+        'error_line' => $e->getLine()
+    ];
 
-	echo $templateLoader->render('setup', $templateVariables);
-	exit(1);
+    echo $templateLoader->render('setup', $templateVariables);
+    exit(1);
 }
 
 // Set up DI container
@@ -46,56 +99,56 @@ $container = new Container();
 // Register PDO as a shared service with error handling
 $container->set('db', function ()
 {
-	try
-	{
-		// Use PostgreSQL from environment variables
-		$host = $_ENV['DB_HOST'] ?? 'localhost';
-		$port = $_ENV['DB_PORT'] ?? '5432';
-		$dbname = $_ENV['DB_NAME'] ?? 'calendar_bridge';
-		$username = $_ENV['DB_USER'] ?? 'bridge_user';
-		$password = $_ENV['DB_PASS'] ?? 'bridge_password';
+    try
+    {
+        // Use PostgreSQL from environment variables
+        $host = $_ENV['DB_HOST'] ?? 'localhost';
+        $port = $_ENV['DB_PORT'] ?? '5432';
+        $dbname = $_ENV['DB_NAME'] ?? 'calendar_bridge';
+        $username = $_ENV['DB_USER'] ?? 'bridge_user';
+        $password = $_ENV['DB_PASS'] ?? 'bridge_password';
 
-		$dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
-		$options = [
-			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-			PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-			PDO::ATTR_EMULATE_PREPARES => false,
-		];
+        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
 
-		$pdo = new PDO($dsn, $username, $password, $options);
+        $pdo = new PDO($dsn, $username, $password, $options);
 
-		// Test connection
-		$pdo->query('SELECT 1');
+        // Test connection
+        $pdo->query('SELECT 1');
 
-		return $pdo;
-	}
-	catch (PDOException $e)
-	{
-		error_log("Database connection failed: " . $e->getMessage());
-		// For dashboard/health endpoints, we can return null and handle gracefully
-		return null;
-	}
+        return $pdo;
+    }
+    catch (PDOException $e)
+    {
+        error_log("Database connection failed: " . $e->getMessage());
+        // For dashboard/health endpoints, we can return null and handle gracefully
+        return null;
+    }
 });
 
 // Register logger service (keep this as it's used by multiple services)
 $container->set('logger', function ()
 {
-	$logger = new \Monolog\Logger('outlook_sync');
-	$handler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
-	$logger->pushHandler($handler);
-	return $logger;
+    $logger = new \Monolog\Logger('outlook_sync');
+    $handler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
+    $logger->pushHandler($handler);
+    return $logger;
 });
 
 // Register controllers in the container
 
 $container->set(\App\Controller\HealthController::class, function () use ($container)
 {
-	return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
+    return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
 });
 
 $container->set(\App\Controller\AlertController::class, function () use ($container)
 {
-	return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
+    return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
 });
 
 AppFactory::setContainer($container);
@@ -110,11 +163,11 @@ $app->add(ApiKeyMiddleware::class);
 // Middleware to inject db and logger objects into requests
 $app->add(function ($request, $handler) use ($container)
 {
-	$db = $container->get('db');
-	$logger = $container->get('logger');
-	$request = $request->withAttribute('db', $db);
-	$request = $request->withAttribute('logger', $logger);
-	return $handler->handle($request);
+    $db = $container->get('db');
+    $logger = $container->get('logger');
+    $request = $request->withAttribute('db', $db);
+    $request = $request->withAttribute('logger', $logger);
+    return $handler->handle($request);
 });
 
 // Register routes
@@ -183,64 +236,64 @@ $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAl
 // Serve the monitoring dashboard HTML
 $app->get('/dashboard', function (Request $request, Response $response, $args)
 {
-	$dashboardPath = __DIR__ . '/public/dashboard.html';
-	if (file_exists($dashboardPath))
-	{
-		$response->getBody()->write(file_get_contents($dashboardPath));
-		return $response->withHeader('Content-Type', 'text/html');
-	}
-	else
-	{
-		$response->getBody()->write('<h1>Dashboard Not Found</h1><p>The monitoring dashboard is not available.</p>');
-		return $response->withHeader('Content-Type', 'text/html')->withStatus(404);
-	}
+    $dashboardPath = __DIR__ . '/public/dashboard.html';
+    if (file_exists($dashboardPath))
+    {
+        $response->getBody()->write(file_get_contents($dashboardPath));
+        return $response->withHeader('Content-Type', 'text/html');
+    }
+    else
+    {
+        $response->getBody()->write('<h1>Dashboard Not Found</h1><p>The monitoring dashboard is not available.</p>');
+        return $response->withHeader('Content-Type', 'text/html')->withStatus(404);
+    }
 });
 
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
-	$manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'));
+    $manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'));
 
-	// Register Outlook bridge
-	$manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
-		'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
-		'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
-		'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
-		'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
-	]);
+    // Register Outlook bridge
+    $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
+        'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
+        'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
+        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
+        'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
+    ]);
 
-	// Register Booking System bridge
-	$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
-		'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
-		'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null
-	]);
+    // Register Booking System bridge
+    $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
+        'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
+        'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null
+    ]);
 
-	return $manager;
+    return $manager;
 });
 
 $container->set(\App\Controller\BridgeController::class, function () use ($container)
 {
-	return new \App\Controller\BridgeController(
-		$container->get('bridgeManager'),
-		$container->get('logger'),
-		$container->get('db')
-	);
+    return new \App\Controller\BridgeController(
+        $container->get('bridgeManager'),
+        $container->get('logger'),
+        $container->get('db')
+    );
 });
 
 $container->set(\App\Controller\ResourceMappingController::class, function () use ($container)
 {
-	return new \App\Controller\ResourceMappingController(
-		$container->get('db')
-	);
+    return new \App\Controller\ResourceMappingController(
+        $container->get('db')
+    );
 });
 
 $container->set(\App\Controller\BridgeBookingController::class, function () use ($container)
 {
-	return new \App\Controller\BridgeBookingController(
-		$container->get('bridgeManager'),
-		$container->get('logger'),
-		$container->get('db')
-	);
+    return new \App\Controller\BridgeBookingController(
+        $container->get('bridgeManager'),
+        $container->get('logger'),
+        $container->get('db')
+    );
 });
 
 // Generic Bridge API Routes
@@ -292,112 +345,65 @@ $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingCont
 // Backwards compatibility routes (redirect to bridge endpoints)
 $app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
 {
-	// Redirect Outlook webhooks to bridge webhook handler
-	$bridgeController = $container->get(\App\Controller\BridgeController::class);
-	$request = $request->withAttribute('bridgeName', 'outlook');
-	return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+    // Redirect Outlook webhooks to bridge webhook handler
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    $request = $request->withAttribute('bridgeName', 'outlook');
+    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
 });
 
 $app->post('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
 {
-	// Redirect Outlook webhooks to bridge webhook handler
-	$bridgeController = $container->get(\App\Controller\BridgeController::class);
-	return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+    // Redirect Outlook webhooks to bridge webhook handler
+    $bridgeController = $container->get(\App\Controller\BridgeController::class);
+    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
 });
 
-// Custom 404 handler with helpful information
-$app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function (Request $request, Response $response)
+// Custom 404 handler with helpful JSON responses for API endpoints
+$errorHandler = $errorMiddleware->getDefaultErrorHandler();
+$errorHandler->forceContentType('application/json');
+
+// Add custom 404 handler
+$app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($request, $response)
 {
-	$requestedPath = $request->getUri()->getPath();
-	$method = $request->getMethod();
+    $uri = $request->getUri()->getPath();
+    $method = $request->getMethod();
 
-	$response->getBody()->write("
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Calendar Bridge Service - Route Not Found</title>
-        <style>
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-                max-width: 800px; margin: 50px auto; padding: 20px; 
-                background: #f5f5f5; color: #333; line-height: 1.6;
-            }
-            .container { 
-                background: white; padding: 40px; border-radius: 12px; 
-                box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
-            }
-            .header { 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                color: white; padding: 20px; margin: -40px -40px 30px -40px; 
-                border-radius: 12px 12px 0 0; text-align: center; 
-            }
-            .error { background: #fee; border-left: 4px solid #e53e3e; padding: 15px; margin: 20px 0; }
-            .info { background: #e6f3ff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; }
-            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-            .routes { columns: 2; column-gap: 30px; }
-            .route-group { break-inside: avoid; margin-bottom: 20px; }
-            .route-group h4 { color: #667eea; margin-bottom: 10px; }
-            .route { font-family: monospace; font-size: 0.9rem; margin: 5px 0; }
-        </style>
-    </head>
-    <body>
-        <div class='container'>
-            <div class='header'>
-                <h1>🌉 Calendar Bridge Service</h1>
-                <p>Route Not Found</p>
-            </div>
-            
-            <div class='error'>
-                <strong>404 - Route Not Found</strong><br>
-                The requested path <code>$method $requestedPath</code> was not found.
-            </div>
-            
-            <div class='info'>
-                <strong>💡 Available Routes</strong><br>
-                Here are the main endpoints you can use:
-            </div>
-            
-            <div class='routes'>
-                <div class='route-group'>
-                    <h4>🏥 Health & Monitoring</h4>
-                    <div class='route'>GET /health</div>
-                    <div class='route'>GET /health/system</div>
-                    <div class='route'>GET /health/dashboard</div>
-                    <div class='route'>GET /dashboard</div>
-                </div>
-                
-                <div class='route-group'>
-                    <h4>🌉 Bridge Management</h4>
-                    <div class='route'>GET /bridges</div>
-                    <div class='route'>GET /bridges/{name}/calendars</div>
-                    <div class='route'>POST /bridges/sync/{source}/{target}</div>
-                    <div class='route'>GET /bridges/health</div>
-                </div>
-                
-                <div class='route-group'>
-                    <h4>🗑️ Deletion & Cancellation</h4>
-                    <div class='route'>POST /bridges/sync-deletions</div>
-                    <div class='route'>POST /bridges/process-deletion-queue</div>
-                </div>
-                
-                <div class='route-group'>
-                    <h4>📍 Resource Mapping</h4>
-                    <div class='route'>GET /resource-mapping</div>
-                    <div class='route'>POST /resource-mapping</div>
-                    <div class='route'>PUT /resource-mapping/{id}</div>
-                </div>
-            </div>
-            
-            <div class='info'>
-                <strong>📚 Documentation</strong><br>
-                For complete API documentation, see <code>README_BRIDGE.md</code> or visit the 
-                <a href='/dashboard' style='color: #667eea;'>monitoring dashboard</a>.
-            </div>
-        </div>
-    </body>
-    </html>");
+    // Return helpful JSON response for API endpoints
+    $errorResponse = [
+        'error' => 'Not Found',
+        'message' => "The endpoint '{$method} {$uri}' was not found",
+        'status_code' => 404,
+        'timestamp' => date('c'),
+        'available_endpoints' => [
+            'bridge_operations' => [
+                'GET /bridges' => 'List all available bridges',
+                'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge',
+                'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges',
+                'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
+                'POST /bridges/process-deletion-queue' => 'Process deletion queue',
+                'POST /bridges/sync-deletions' => 'Sync deletions across bridges'
+            ],
+            'health_monitoring' => [
+                'GET /health' => 'System health check',
+                'GET /health/system' => 'Detailed system status',
+                'GET /health/dashboard' => 'Dashboard data (JSON)',
+                'GET /dashboard' => 'Monitoring dashboard (HTML)'
+            ],
+            'resource_management' => [
+                'GET /resource-mapping' => 'List resource mappings',
+                'POST /resource-mapping' => 'Create resource mapping',
+                'PUT /resource-mapping/{id}' => 'Update resource mapping'
+            ],
+            'alerts' => [
+                'POST /alerts/check' => 'Check system alerts',
+                'GET /alerts' => 'Get active alerts'
+            ]
+        ],
+        'documentation' => 'See README_BRIDGE.md for complete API documentation'
+    ];
 
-	return $response->withStatus(404);
+    $response->getBody()->write(json_encode($errorResponse, JSON_PRETTY_PRINT));
+    return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
 });
 
 $app->run();
