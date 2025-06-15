@@ -1185,25 +1185,26 @@ For high-volume environments, implement batch processing:
 
 ```bash
 # Process large batches during off-hours
-# /etc/cron.d/outlook-sync-batch
-0 1 * * * www-data curl -X POST "http://localhost:8082/sync/to-outlook?limit=1000" > /dev/null 2>&1
-0 2 * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
+# /etc/cron.d/bridge-sync-batch
+0 1 * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" > /dev/null 2>&1
+0 2 * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" > /dev/null 2>&1
 ```
 
 #### Load Balancing
 
-For multiple servers, distribute the load:
+For multiple servers, distribute the bridge load:
 
 ```bash
 # Server 1: Handle booking system to Outlook sync
-*/15 * * * * www-data curl -X POST "http://localhost:8082/sync/to-outlook?limit=100" > /dev/null 2>&1
+*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" > /dev/null 2>&1
 
-# Server 2: Handle Outlook to booking system sync
-*/15 * * * * www-data curl -X POST "http://localhost:8082/sync/from-outlook" > /dev/null 2>&1
-*/30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
+# Server 2: Handle Outlook to booking system sync  
+*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" > /dev/null 2>&1
+*/30 * * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" > /dev/null 2>&1
 
-# Server 3: Handle cancellation processing
+# Server 3: Handle deletion processing
 */10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/process-deletion-queue" > /dev/null 2>&1
 ```
 
 ### Backup and Recovery
@@ -1214,51 +1215,70 @@ For multiple servers, distribute the load:
 #!/bin/bash
 # /opt/OutlookBookingSync/scripts/backup.sh
 
-BACKUP_DIR="/var/backups/outlook-sync"
+BACKUP_DIR="/var/backups/calendar-bridge"
 DATE=$(date +"%Y%m%d_%H%M%S")
+DB_NAME="${DB_NAME:-calendar_bridge}"
+DB_USER="${DB_USER:-bridge_user}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
 
-# Backup mapping table
-mysqldump -u backup_user -p your_database bridge_mappings > "$BACKUP_DIR/mapping_$DATE.sql"
+# Full database backup (recommended for PostgreSQL)
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    --no-password --clean --if-exists --create \
+    > "$BACKUP_DIR/calendar_bridge_full_$DATE.sql"
 
-# Backup related booking system tables
-mysqldump -u backup_user -p your_database your_event_table your_event_table_date your_event_table_resource your_event_table_agegroup your_event_table_targetaudience > "$BACKUP_DIR/booking_system_$DATE.sql"
+# Optional: Schema-only backup for quick recovery
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    --no-password --schema-only \
+    > "$BACKUP_DIR/calendar_bridge_schema_$DATE.sql"
 
 # Compress and clean old backups
-gzip "$BACKUP_DIR/mapping_$DATE.sql"
-gzip "$BACKUP_DIR/booking_system_$DATE.sql"
+gzip "$BACKUP_DIR/calendar_bridge_full_$DATE.sql"
+gzip "$BACKUP_DIR/calendar_bridge_schema_$DATE.sql"
 find "$BACKUP_DIR" -name "*.gz" -mtime +30 -delete
+
+# Log backup completion
+echo "$(date): Database backup completed - calendar_bridge_full_$DATE.sql.gz" >> "$BACKUP_DIR/backup.log"
 ```
 
-### Monitoring Dashboard
+#### Database Recovery
 
-Create a simple monitoring dashboard:
+```bash
+#!/bin/bash
+# /opt/OutlookBookingSync/scripts/restore.sh
 
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Outlook Sync Monitoring</title>
-    <script>
-        async function loadStats() {
-            const response = await fetch('/sync/stats');
-            const stats = await response.json();
-            document.getElementById('stats').innerHTML = JSON.stringify(stats, null, 2);
-        }
-        
-        setInterval(loadStats, 30000); // Refresh every 30 seconds
-        loadStats(); // Initial load
-    </script>
-</head>
-<body>
-    <h1>Outlook Calendar Sync Status</h1>
-    <pre id="stats">Loading...</pre>
-    
-    <h2>Quick Actions</h2>
-    <button onclick="fetch('/sync/to-outlook', {method: 'POST'})">Sync to Outlook</button>
-    <button onclick="fetch('/booking/process-imports', {method: 'POST'})">Process Imports</button>
-    <button onclick="fetch('/bridges/sync-deletions', {method: 'POST'})">Detect Cancellations</button>
-</body>
-</html>
+BACKUP_DIR="/var/backups/calendar-bridge"
+DB_NAME="${DB_NAME:-calendar_bridge}"
+DB_USER="${DB_USER:-bridge_user}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+
+# Find the latest backup
+LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/calendar_bridge_full_*.sql.gz | head -1)
+
+if [ -z "$LATEST_BACKUP" ]; then
+    echo "No backup files found in $BACKUP_DIR"
+    exit 1
+fi
+
+echo "Restoring from: $LATEST_BACKUP"
+
+# Decompress and restore
+gunzip -c "$LATEST_BACKUP" | psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres
+
+echo "Database restored successfully from $LATEST_BACKUP"
 ```
 
-This comprehensive guide now covers all aspects of the production-ready bidirectional calendar synchronization system, from basic usage to advanced automation and monitoring.
+#### Automated Backup Schedule
+
+Add to crontab for automated daily backups:
+
+```bash
+# Daily full backup at 2 AM
+0 2 * * * /opt/OutlookBookingSync/scripts/backup.sh > /dev/null 2>&1
+
+# Weekly verification that backups are working
+0 3 * * 0 ls -la /var/backups/calendar-bridge/*.gz | tail -7
+```
+
+This comprehensive guide now covers all aspects of the production-ready bridge-based calendar synchronization system, from basic usage to advanced automation and monitoring.
