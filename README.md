@@ -198,7 +198,7 @@ The system supports automated processing through cron jobs:
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # Process deletion sync every 5 minutes
-*/5 * * * * /path/to/process_deletions.sh
+*/5 * * * * /scripts/enhanced_process_deletions.sh
 
 # Detect and process cancellations (inactive events) every 5 minutes
 */5 * * * * curl -X POST http://localhost:8080/cancel/detect
@@ -220,7 +220,7 @@ The system supports automated processing through cron jobs:
 - **[Database Schema](database/bridge_schema.sql)** - Bridge database tables and views
 - **[Setup Script](setup_bridge_database.sh)** - Database initialization
 - **[Test Script](test_bridge.sh)** - API endpoint testing
-- **[Deletion Processor](process_deletions.sh)** - Automated deletion sync
+- **[Deletion Processor](scripts/enhanced_process_deletions.sh)** - Automated deletion sync
 
 ### **Legacy Documentation:**
 

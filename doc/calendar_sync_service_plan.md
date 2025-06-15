@@ -703,3 +703,622 @@ The bridge architecture is now fully implemented and ready for:
 - [x] **Custom Adapters** - Plugin architecture for specialized calendar systems
 - [x] **Advanced Features** - Recurring events, conflict resolution, web UI
 - [x] **Production Deployment** - Docker, monitoring, scaling capabilities
+
+---
+
+## 17. **Phase 4: Multi-Tenant Architecture (Optional Extension)**
+
+### **Overview**
+Extension of the current single-tenant bridge to support multiple organizations/municipalities, each with their own Outlook and booking system configurations. This addresses scenarios where multiple independent entities need calendar bridging services.
+
+### **Use Case: Municipal System**
+- Multiple municipalities, each with:
+  - Their own Microsoft 365/Outlook tenant
+  - Their own booking system instance  
+  - Independent resource mappings and configurations
+  - Isolated data and operations
+
+### **Architecture Decision: Single Bridge with Multi-Tenant Support**
+
+**Benefits:**
+- ✅ **Centralized Management** - Single deployment, monitoring, updates
+- ✅ **Resource Efficiency** - Shared infrastructure, lower operational overhead
+- ✅ **Easier Maintenance** - One codebase, unified monitoring
+- ✅ **Cost Effective** - Single server infrastructure for multiple tenants
+- ✅ **Cross-Tenant Insights** - Aggregated statistics and monitoring
+
+**Alternative Considered:** Separate bridge instances per tenant
+- ❌ Higher infrastructure costs and maintenance overhead
+- ❌ Resource inefficiency with duplicated infrastructure
+- ❌ Complex monitoring across multiple deployments
+
+---
+
+### 🏗️ **Phase 4.1: Multi-Tenant Infrastructure** (Week 1-2)
+
+#### **Step 1: Tenant Configuration System**
+
+**Environment Configuration Structure:**
+```bash
+# .env multi-tenant configuration
+TENANT_MODE=multi
+DEFAULT_TENANT=municipal_a
+
+# Municipal A Configuration
+MUNICIPAL_A_OUTLOOK_CLIENT_ID=client_id_a
+MUNICIPAL_A_OUTLOOK_CLIENT_SECRET=secret_a
+MUNICIPAL_A_OUTLOOK_TENANT_ID=tenant_id_a
+MUNICIPAL_A_OUTLOOK_GROUP_ID=group_id_a
+MUNICIPAL_A_BOOKING_API_URL=http://municipal-a.com/api
+MUNICIPAL_A_BOOKING_API_KEY=key_a
+
+# Municipal B Configuration  
+MUNICIPAL_B_OUTLOOK_CLIENT_ID=client_id_b
+MUNICIPAL_B_OUTLOOK_CLIENT_SECRET=secret_b
+MUNICIPAL_B_OUTLOOK_TENANT_ID=tenant_id_b
+MUNICIPAL_B_OUTLOOK_GROUP_ID=group_id_b
+MUNICIPAL_B_BOOKING_API_URL=http://municipal-b.com/api
+MUNICIPAL_B_BOOKING_API_KEY=key_b
+```
+
+**Implementation Tasks:**
+- [ ] Create `TenantConfigManager` class for tenant configuration management
+- [ ] Implement tenant discovery from environment variables
+- [ ] Create tenant validation and configuration loading system
+- [ ] Add tenant configuration caching and hot-reload capabilities
+
+#### **Step 2: Enhanced Bridge Architecture**
+
+**Tenant-Aware Bridge System:**
+```php
+// Current: Single bridge instances
+$bridgeManager->registerBridge('outlook', OutlookBridge::class, $config);
+
+// Enhanced: Tenant-specific bridge instances  
+$bridgeManager->registerTenantBridge('municipal_a', 'outlook', OutlookBridge::class, $configA);
+$bridgeManager->registerTenantBridge('municipal_b', 'outlook', OutlookBridge::class, $configB);
+```
+
+**Implementation Tasks:**
+- [ ] Extend `BridgeManager` with tenant-aware bridge registration
+- [ ] Create `TenantBridgeRegistry` for managing tenant-specific bridge instances
+- [ ] Implement tenant context passing throughout the bridge system
+- [ ] Add tenant isolation validation and security checks
+
+#### **Step 3: Database Multi-Tenancy**
+
+**Database Schema Enhancement:**
+```sql
+-- Add tenant_id to all relevant tables
+ALTER TABLE bridge_mappings ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
+ALTER TABLE bridge_resource_mappings ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
+ALTER TABLE bridge_sync_logs ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
+ALTER TABLE bridge_webhook_subscriptions ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
+
+-- Create tenant management table
+CREATE TABLE bridge_tenants (
+    tenant_id VARCHAR(50) PRIMARY KEY,
+    tenant_name VARCHAR(255) NOT NULL,
+    configuration JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- Add indexes for tenant-based queries
+CREATE INDEX idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);
+CREATE INDEX idx_bridge_resource_mappings_tenant ON bridge_resource_mappings(tenant_id);
+CREATE INDEX idx_bridge_sync_logs_tenant ON bridge_sync_logs(tenant_id);
+```
+
+**Implementation Tasks:**
+- [ ] Create database migration scripts for multi-tenant schema
+- [ ] Implement tenant-aware data access layer with automatic tenant filtering
+- [ ] Create `TenantRepository` for tenant CRUD operations
+- [ ] Add data isolation validation and testing
+
+---
+
+### 🛣️ **Phase 4.2: Tenant-Prefixed API Routes** (Week 3)
+
+#### **New Route Structure**
+
+**Tenant-Specific Routes:**
+```php
+// Tenant-specific bridge operations
+GET    /tenants/{tenant}/bridges                              - List tenant bridges
+GET    /tenants/{tenant}/bridges/{bridge}/calendars           - Get tenant calendars
+POST   /tenants/{tenant}/bridges/sync/{source}/{target}       - Tenant-specific sync
+POST   /tenants/{tenant}/bridges/webhook/{bridge}             - Tenant webhooks
+GET    /tenants/{tenant}/bridges/health                       - Tenant health
+
+// Tenant resource management
+GET    /tenants/{tenant}/mappings/resources                   - Tenant resource mappings
+POST   /tenants/{tenant}/mappings/resources                   - Create tenant mapping
+PUT    /tenants/{tenant}/mappings/resources/{id}              - Update tenant mapping
+
+// Tenant-specific operations
+POST   /tenants/{tenant}/cancel/detect                        - Tenant cancellation detection
+GET    /tenants/{tenant}/cancel/stats                         - Tenant cancellation stats
+```
+
+**Global Tenant Management:**
+```php
+// Tenant administration
+GET    /tenants                           - List all tenants
+POST   /tenants                           - Create new tenant
+GET    /tenants/{tenant}                  - Get tenant details
+PUT    /tenants/{tenant}                  - Update tenant configuration
+DELETE /tenants/{tenant}                  - Remove tenant (with safeguards)
+
+// Multi-tenant operations
+POST   /bridges/sync-all                  - Sync all tenants
+GET    /bridges/health-all                - Health check all tenants
+POST   /tenants/{tenant}/sync-all         - Sync all bridges for specific tenant
+```
+
+**Implementation Tasks:**
+- [ ] Implement tenant-prefixed route groups in `index.php`
+- [ ] Create `TenantController` for tenant management operations
+- [ ] Enhance existing controllers with tenant context support
+- [ ] Add tenant validation middleware for route protection
+
+#### **Backward Compatibility**
+
+**Legacy Route Support:**
+```php
+// Maintain existing routes for backward compatibility (default tenant)
+GET    /bridges/outlook/calendars         → /tenants/default/bridges/outlook/calendars
+POST   /bridges/sync/outlook/booking      → /tenants/default/bridges/sync/outlook/booking
+```
+
+**Implementation Tasks:**
+- [ ] Create route redirects for backward compatibility
+- [ ] Implement default tenant fallback mechanism
+- [ ] Add deprecation warnings for legacy routes
+- [ ] Create migration guide for existing API consumers
+
+---
+
+### 🎛️ **Phase 4.3: Enhanced Dashboard & Monitoring** (Week 4)
+
+#### **Multi-Tenant Dashboard**
+
+**Dashboard Features:**
+- **Tenant Selector** - Dropdown to switch between tenants or view all
+- **Tenant Overview** - Summary cards showing status per tenant
+- **Cross-Tenant Statistics** - Aggregated metrics across all tenants
+- **Tenant-Specific Health** - Individual health monitoring per tenant
+
+**Dashboard Routes:**
+```php
+GET    /dashboard                         - Multi-tenant dashboard overview
+GET    /dashboard/{tenant}                - Tenant-specific dashboard
+GET    /api/dashboard/tenants             - Tenant list for dashboard
+GET    /api/dashboard/{tenant}/health     - Tenant health data
+GET    /api/dashboard/global/stats        - Cross-tenant statistics
+```
+
+**Implementation Tasks:**
+- [ ] Enhance dashboard UI with tenant selection capabilities
+- [ ] Implement tenant-aware dashboard API endpoints
+- [ ] Create tenant comparison and aggregation views
+- [ ] Add tenant-specific action buttons and operations
+
+#### **Tenant Management Interface**
+
+**Admin Interface Features:**
+- **Tenant Configuration** - GUI for tenant setup and management
+- **Tenant Health Monitoring** - Real-time status per tenant
+- **Bulk Operations** - Cross-tenant sync and maintenance operations
+- **Tenant Analytics** - Usage statistics and performance metrics
+
+**Implementation Tasks:**
+- [ ] Create tenant administration interface
+- [ ] Implement tenant configuration forms
+- [ ] Add tenant health monitoring widgets
+- [ ] Create tenant analytics and reporting
+
+---
+
+### 🔧 **Phase 4.4: Advanced Multi-Tenant Features** (Month 2)
+
+#### **Tenant Isolation & Security**
+
+**Security Enhancements:**
+- **API Key per Tenant** - Separate authentication per tenant
+- **Rate Limiting per Tenant** - Independent rate limits
+- **Audit Logging** - Tenant-specific activity tracking
+- **Data Encryption** - Tenant-specific encryption keys
+
+**Implementation Tasks:**
+- [ ] Implement tenant-specific API authentication
+- [ ] Add tenant-aware rate limiting middleware
+- [ ] Create comprehensive audit logging system
+- [ ] Implement tenant data encryption at rest
+
+#### **Performance & Scaling**
+
+**Performance Optimizations:**
+- **Tenant-Specific Caching** - Isolated cache namespaces
+- **Connection Pooling** - Per-tenant database connection management
+- **Background Job Queues** - Tenant-aware job processing
+- **Resource Allocation** - Configurable resource limits per tenant
+
+**Implementation Tasks:**
+- [ ] Implement tenant-specific caching strategies
+- [ ] Optimize database queries with tenant partitioning
+- [ ] Create tenant-aware background job system
+- [ ] Add tenant resource monitoring and limiting
+
+#### **Advanced Configuration**
+
+**Per-Tenant Customization:**
+- **Custom Field Mappings** - Tenant-specific field mapping overrides
+- **Sync Schedules** - Independent sync frequencies per tenant
+- **Feature Flags** - Enable/disable features per tenant
+- **Custom Webhooks** - Tenant-specific webhook configurations
+
+**Implementation Tasks:**
+- [ ] Create tenant configuration override system
+- [ ] Implement tenant-specific scheduling
+- [ ] Add feature flag management per tenant
+- [ ] Create advanced webhook configuration options
+
+---
+
+### 📊 **Implementation Timeline & Effort**
+
+#### **Effort Estimation:**
+- **Phase 4.1** (Infrastructure): 1-2 weeks, 2 developers
+- **Phase 4.2** (API Routes): 1 week, 1 developer  
+- **Phase 4.3** (Dashboard): 1 week, 1 developer
+- **Phase 4.4** (Advanced Features): 2-3 weeks, 2 developers
+
+**Total Effort:** 5-7 weeks, 80-120 developer hours
+
+#### **Dependencies:**
+- ✅ Current bridge architecture (completed)
+- ✅ Database infrastructure (PostgreSQL recommended)
+- ✅ Monitoring and logging system
+- → Multi-tenant testing environment
+- → Tenant onboarding procedures
+
+#### **Success Criteria:**
+- [ ] Support for minimum 5 concurrent tenants
+- [ ] Complete data isolation between tenants
+- [ ] <100ms overhead for tenant context switching
+- [ ] Unified monitoring and alerting across tenants
+- [ ] Zero-downtime tenant addition/removal
+
+---
+
+### 🚀 **Deployment Strategy**
+
+#### **Migration Approach:**
+1. **Parallel Development** - Implement multi-tenant features alongside current system
+2. **Feature Flags** - Enable multi-tenant mode through configuration
+3. **Gradual Migration** - Move existing configuration to "default" tenant
+4. **New Tenant Addition** - Add new tenants without affecting existing operations
+
+#### **Rollback Plan:**
+- Multi-tenant mode can be disabled via configuration
+- Database schema changes are backward compatible
+- Legacy routes remain functional during transition
+
+#### **Monitoring & Success Metrics:**
+- **Tenant Isolation** - Zero cross-tenant data leakage
+- **Performance** - No degradation in single-tenant performance
+- **Reliability** - 99.9% uptime per tenant
+- **Scalability** - Linear scaling with tenant addition
+
+This multi-tenant extension transforms the calendar bridge from a single-organization solution into a scalable platform capable of serving multiple independent entities while maintaining the same reliability and performance characteristics.
+
+---
+
+### 🕒 **Multi-Tenant Cron Job Strategy**
+
+#### **Current Single-Tenant Cron Jobs**
+
+The existing cron jobs (from `docker-entrypoint.sh`) need significant restructuring:
+
+```bash
+# Current single-tenant cron jobs
+*/5 * * * * curl -X POST "localhost/bridges/sync/booking_system/outlook"
+*/10 * * * * curl -X POST "localhost/bridges/sync/outlook/booking_system"  
+*/5 * * * * curl -X POST "localhost/cancel/detect"
+*/30 * * * * curl -X POST "localhost/bridges/sync-deletions"
+```
+
+**Challenges with Multi-Tenant:**
+- ❌ **No Tenant Context** - Current jobs don't specify which tenant to process
+- ❌ **Sequential Processing** - All tenants processed one after another (slow)
+- ❌ **No Isolation** - Failure in one tenant affects others
+- ❌ **Resource Contention** - All tenants compete for same resources
+
+#### **Multi-Tenant Cron Job Solutions**
+
+### **Option 1: Tenant-Specific Cron Jobs (Recommended)**
+
+**Separate cron jobs per tenant with parallel execution:**
+
+```bash
+# Municipal A - Sync jobs
+*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/booking_system/outlook"
+*/10 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/outlook/booking_system"
+*/5 * * * * curl -X POST "localhost/tenants/municipal_a/cancel/detect"
+
+# Municipal B - Sync jobs (offset by 2 minutes to avoid resource conflicts)
+2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/booking_system/outlook"
+2,12,22,32,42,52 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/outlook/booking_system"
+2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/cancel/detect"
+
+# Municipal C - Sync jobs (offset by 4 minutes)
+4,9,14,19,24,29,34,39,44,49,54,59 * * * * curl -X POST "localhost/tenants/municipal_c/bridges/sync/booking_system/outlook"
+```
+
+**✅ Benefits:**
+- Complete tenant isolation
+- Parallel processing capability
+- Independent failure handling
+- Configurable sync frequencies per tenant
+
+**⚠️ Considerations:**
+- Cron file grows with tenant count
+- Manual cron management per tenant
+- Resource scheduling complexity
+
+### **Option 2: Bulk Tenant Processing Jobs**
+
+**Single cron jobs that process all tenants:**
+
+```bash
+# Bulk sync jobs - processes all tenants sequentially
+*/5 * * * * curl -X POST "localhost/bridges/sync-all/booking_system/outlook"
+*/10 * * * * curl -X POST "localhost/bridges/sync-all/outlook/booking_system"
+*/5 * * * * curl -X POST "localhost/cancel/detect-all"
+
+# Tenant-specific maintenance (less frequent)
+0 2 * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync-deletions"
+0 2 * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync-deletions"
+```
+
+**✅ Benefits:**
+- Simpler cron management
+- Fewer cron entries
+- Centralized tenant processing
+
+**❌ Disadvantages:**
+- Sequential processing (slower)
+- One tenant failure can affect others
+- Less flexible scheduling per tenant
+
+### **Option 3: Hybrid Approach (Recommended)**
+
+**Combine bulk operations with tenant-specific critical jobs:**
+
+```bash
+# CRITICAL: High-frequency tenant-specific sync (parallel)
+# Municipal A
+*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/booking_system/outlook"
+# Municipal B (offset)
+1,6,11,16,21,26,31,36,41,46,51,56 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/booking_system/outlook"
+
+# BULK: Less critical operations for all tenants
+*/30 * * * * curl -X POST "localhost/bridges/sync-deletions-all"
+*/15 * * * * curl -X POST "localhost/cancel/detect-all"  
+*/10 * * * * curl -X GET "localhost/bridges/health-all"
+
+# MAINTENANCE: Tenant-specific maintenance (staggered)
+0 2 * * * curl -X POST "localhost/tenants/municipal_a/maintenance/full"
+15 2 * * * curl -X POST "localhost/tenants/municipal_b/maintenance/full"
+30 2 * * * curl -X POST "localhost/tenants/municipal_c/maintenance/full"
+```
+
+---
+
+#### **Enhanced Cron Job Implementation**
+
+### **Multi-Tenant Cron Generator**
+
+**Dynamic cron generation based on tenant configuration:**
+
+```php
+<?php
+// scripts/generate_tenant_crontab.php
+
+class MultiTenantCronGenerator 
+{
+    private $tenants;
+    private $baseFrequencies = [
+        'booking_to_outlook' => '*/5',  // Every 5 minutes
+        'outlook_to_booking' => '*/10', // Every 10 minutes
+        'cancellation_detect' => '*/5', // Every 5 minutes
+        'deletion_sync' => '*/30',      // Every 30 minutes
+    ];
+    
+    public function generateCrontab(): string 
+    {
+        $crontab = "# Multi-Tenant Calendar Bridge Cron Jobs\n";
+        $crontab .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
+        
+        $offset = 0;
+        foreach ($this->tenants as $tenant) {
+            $crontab .= $this->generateTenantJobs($tenant, $offset);
+            $offset += 2; // 2-minute offset between tenants
+        }
+        
+        $crontab .= $this->generateGlobalJobs();
+        return $crontab;
+    }
+    
+    private function generateTenantJobs($tenant, $offset): string 
+    {
+        $jobs = "\n# Tenant: {$tenant['id']}\n";
+        
+        // High-priority sync jobs with offset
+        $syncMinutes = $this->calculateOffsetMinutes('*/5', $offset);
+        $jobs .= "{$syncMinutes} * * * * curl -X POST \"localhost/tenants/{$tenant['id']}/bridges/sync/booking_system/outlook\"\n";
+        
+        $outlookMinutes = $this->calculateOffsetMinutes('*/10', $offset);
+        $jobs .= "{$outlookMinutes} * * * * curl -X POST \"localhost/tenants/{$tenant['id']}/bridges/sync/outlook/booking_system\"\n";
+        
+        return $jobs;
+    }
+}
+```
+
+### **Tenant-Aware Processing Scripts**
+
+**Enhanced process_deletions.sh for multi-tenant:**
+
+```bash
+#!/bin/bash
+# scripts/process_deletions_multitenant.sh
+
+TENANT_MODE="${TENANT_MODE:-single}"
+SPECIFIC_TENANT="${1:-}"
+
+if [[ "$TENANT_MODE" == "multi" ]]; then
+    if [[ -n "$SPECIFIC_TENANT" ]]; then
+        # Process specific tenant
+        echo "Processing deletions for tenant: $SPECIFIC_TENANT"
+        curl -X POST "localhost/tenants/$SPECIFIC_TENANT/bridges/sync-deletions"
+    else
+        # Process all tenants
+        echo "Processing deletions for all tenants"
+        curl -X POST "localhost/bridges/sync-deletions-all"
+    fi
+else
+    # Single tenant mode (backward compatibility)
+    curl -X POST "localhost/bridges/sync-deletions"
+fi
+```
+
+### **Parallel Tenant Processing**
+
+**Background job queue for tenant operations:**
+
+```php
+<?php
+// Enhanced tenant sync with parallel processing
+
+class TenantSyncOrchestrator 
+{
+    public function syncAllTenants($operation = 'booking_to_outlook'): array 
+    {
+        $tenants = $this->tenantManager->getActiveTenants();
+        $processes = [];
+        
+        // Start parallel processes for each tenant
+        foreach ($tenants as $tenant) {
+            $processes[] = $this->startTenantSync($tenant['id'], $operation);
+        }
+        
+        // Wait for all processes to complete
+        return $this->waitForCompletion($processes);
+    }
+    
+    private function startTenantSync($tenantId, $operation): Process 
+    {
+        $endpoint = "/tenants/{$tenantId}/bridges/sync/{$operation}";
+        
+        // Use Symfony Process for parallel execution
+        return new Process([
+            'curl', '-X', 'POST', 
+            "http://localhost{$endpoint}",
+            '--max-time', '300'  // 5-minute timeout per tenant
+        ]);
+    }
+}
+```
+
+---
+
+#### **Cron Job Configuration Management**
+
+### **Tenant Onboarding Cron Setup**
+
+**Automatic cron job generation when adding tenants:**
+
+```php
+<?php
+// When adding a new tenant
+class TenantController 
+{
+    public function createTenant(Request $request): Response 
+    {
+        $tenant = $this->tenantService->createTenant($request->getData());
+        
+        // Regenerate cron jobs to include new tenant
+        $this->cronManager->regenerateCrontab();
+        
+        // Restart cron service
+        $this->cronManager->reloadCron();
+        
+        return $this->success(['tenant' => $tenant]);
+    }
+}
+```
+
+### **Tenant-Specific Cron Configuration**
+
+**Per-tenant cron scheduling configuration:**
+
+```php
+// Enhanced .env configuration
+MUNICIPAL_A_SYNC_FREQUENCY=5    # Every 5 minutes
+MUNICIPAL_A_PRIORITY=high       # High priority processing
+MUNICIPAL_A_OFFSET=0           # No offset (first tenant)
+
+MUNICIPAL_B_SYNC_FREQUENCY=10   # Every 10 minutes  
+MUNICIPAL_B_PRIORITY=medium     # Medium priority
+MUNICIPAL_B_OFFSET=3           # 3-minute offset
+
+MUNICIPAL_C_SYNC_FREQUENCY=15   # Every 15 minutes
+MUNICIPAL_C_PRIORITY=low        # Low priority
+MUNICIPAL_C_OFFSET=7           # 7-minute offset
+```
+
+### **Cron Job Monitoring & Health**
+
+**Enhanced monitoring for multi-tenant cron:**
+
+```bash
+# Monitor tenant-specific cron job execution
+*/1 * * * * /scripts/monitor_tenant_jobs.sh >> /var/log/tenant-cron-monitor.log
+
+# Generate tenant cron job statistics  
+0 */6 * * * /scripts/generate_tenant_stats.sh >> /var/log/tenant-cron-stats.log
+
+# Alert on tenant cron failures
+*/5 * * * * /scripts/check_tenant_job_health.sh
+```
+
+---
+
+#### **Implementation Tasks for Multi-Tenant Cron**
+
+### **Phase 4.1 Enhancement: Cron Job Multi-Tenancy**
+
+**Implementation Tasks:**
+- [ ] Create `TenantCronGenerator` for dynamic cron job generation
+- [ ] Implement tenant offset calculation to prevent resource conflicts
+- [ ] Enhance `process_deletions.sh` with multi-tenant support
+- [ ] Create parallel tenant processing capability
+- [ ] Add tenant-specific cron configuration management
+- [ ] Implement cron job health monitoring per tenant
+- [ ] Create tenant onboarding automation for cron jobs
+- [ ] Add failover and retry mechanisms for tenant operations
+
+**Timeline:** 1 week additional to Phase 4.1
+
+**Benefits:**
+- ✅ **Isolated Execution** - Each tenant's jobs run independently
+- ✅ **Parallel Processing** - Multiple tenants sync simultaneously  
+- ✅ **Failure Isolation** - One tenant's issues don't affect others
+- ✅ **Resource Optimization** - Smart scheduling prevents conflicts
+- ✅ **Scalable Management** - Easy to add/remove tenant jobs
+- ✅ **Monitoring** - Per-tenant job health and performance tracking
+
+This approach ensures that multi-tenant cron jobs maintain the same reliability as single-tenant while providing better performance through parallel processing and proper resource management.

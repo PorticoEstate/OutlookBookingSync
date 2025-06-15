@@ -1390,8 +1390,8 @@ Set up comprehensive automation for the bridge system with cron jobs:
 # Manual deletion sync check every 30 minutes
 */30 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
-# Alternative: Use the deletion processor script
-*/5 * * * * /path/to/process_deletions.sh
+# Alternative: Use the enhanced deletion processor script
+*/5 * * * * /scripts/enhanced_process_deletions.sh
 
 # === SYSTEM MONITORING ===
 # Check bridge health every 10 minutes

@@ -104,7 +104,8 @@ OutlookBookingSync/
 ├── scripts/
 │   ├── setup_bridge_database.sh            ✅ COMPLETE
 │   ├── test_bridge.sh                      ✅ COMPLETE
-│   └── process_deletions.sh                ✅ COMPLETE
+│   └── enhanced_process_deletions.sh       ✅ COMPLETE
+├── process_deletions.sh                    ✅ REMOVED (migration complete)
 ├── README.md                               ✅ UPDATED
 ├── README_BRIDGE.md                        ✅ UPDATED
 ├── CLEANUP_SUMMARY.md                      ✅ UPDATED

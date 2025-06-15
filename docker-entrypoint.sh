@@ -16,15 +16,14 @@ cat > /tmp/crontab << 'EOF'
 # Sync from Outlook to booking system every 10 minutes
 */10 * * * * curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system" -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}' > /dev/null 2>&1
 
-# 2. DELETION & CANCELLATION HANDLING
-# Process deletion queue from webhooks every 5 minutes
-*/5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" > /dev/null 2>&1
+# 2. DELETION & CANCELLATION HANDLING (COORDINATED)
+# Use centralized deletion processor instead of individual API calls
+*/5 * * * * /scripts/enhanced_process_deletions.sh > /dev/null 2>&1
 
-# Detect and process cancellations (inactive events) every 5 minutes
-*/5 * * * * curl -s -X POST "http://localhost/cancel/detect" > /dev/null 2>&1
-
-# Manual deletion sync check every 30 minutes
-*/30 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions" > /dev/null 2>&1
+# Alternative: If you prefer individual API calls, use these instead:
+# */5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" > /dev/null 2>&1
+# */5 * * * * curl -s -X POST "http://localhost/cancel/detect" > /dev/null 2>&1  
+# */30 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions" > /dev/null 2>&1
 
 # 3. SYSTEM HEALTH & MONITORING
 # Check bridge health every 10 minutes
