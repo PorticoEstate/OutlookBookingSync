@@ -7,7 +7,7 @@ class TemplateLoader
 {
     private string $templateDir;
     
-    public function __construct(string $templateDir = null) 
+    public function __construct(string|null $templateDir = null) 
     {
         if ($templateDir === null) {
             // Default to public directory relative to project root
