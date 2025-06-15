@@ -101,7 +101,7 @@ BOOKING_SYSTEM_API_URL=http://your-booking-system/api
 BOOKING_SYSTEM_API_KEY=your_api_key
 
 # Application
-APP_BASE_URL=http://localhost:8080
+APP_BASE_URL=http://localhost:8082
 API_KEY=your_api_key
 ```
 
@@ -113,7 +113,7 @@ API_KEY=your_api_key
 4. **Start the service:**
 ```bash
 # Development
-php -S localhost:8080 -t . index.php
+php -S localhost:8082 -t . index.php
 
 # Production (Docker)
 docker-compose up -d
@@ -399,10 +399,10 @@ The bridge service includes a real-time monitoring dashboard at `/public/dashboa
 **Access the Dashboard:**
 ```bash
 # Via web browser
-http://localhost:8080/dashboard.html
+http://localhost:8082/dashboard.html
 
 # Or if using Docker
-http://localhost:8080/dashboard.html
+http://localhost:8082/dashboard.html
 ```
 
 **Dashboard Sections:**
@@ -792,7 +792,7 @@ class BookingSystemApiController
     
     public function getResources()
     {
-        $sql = "SELECT id, name, description FROM bb_resource WHERE active = 1";
+        $sql = "SELECT id, name, description FROM your_resource_table WHERE active = 1";
         $resources = $this->db->query($sql)->fetchAll();
         
         return [
@@ -807,8 +807,8 @@ class BookingSystemApiController
         $sql = "
             SELECT e.id, e.name as title, e.start_time, e.end_time,
                    e.description, e.contact_name, e.contact_email
-            FROM bb_event e
-            JOIN bb_event_resource er ON e.id = er.event_id  
+            FROM your_event_table e
+            JOIN your_event_resource_table er ON e.id = er.event_id  
             WHERE er.resource_id = :resource_id
             AND e.start_time >= :start_date
             AND e.end_time <= :end_date
@@ -839,7 +839,7 @@ class BookingSystemApiController
         try {
             // Insert event
             $sql = "
-                INSERT INTO bb_event (name, description, start_time, end_time, 
+                INSERT INTO your_event_table (name, description, start_time, end_time, 
                                      contact_name, contact_email, active, created_at)
                 VALUES (:name, :description, :start_time, :end_time,
                         :contact_name, :contact_email, 1, CURRENT_TIMESTAMP)
@@ -859,7 +859,7 @@ class BookingSystemApiController
             $eventId = $stmt->fetchColumn();
             
             // Link to resource
-            $sql = "INSERT INTO bb_event_resource (event_id, resource_id) VALUES (?, ?)";
+            $sql = "INSERT INTO your_event_resource_table (event_id, resource_id) VALUES (?, ?)";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$eventId, $resourceId]);
             
@@ -883,7 +883,7 @@ class BookingSystemApiController
     public function updateEvent($resourceId, $eventId, $eventData)
     {
         $sql = "
-            UPDATE bb_event SET
+            UPDATE your_event_table SET
                 name = :name,
                 description = :description, 
                 start_time = :start_time,
@@ -924,7 +924,7 @@ class BookingSystemApiController
     public function deleteEvent($resourceId, $eventId)
     {
         // Soft delete
-        $sql = "UPDATE bb_event SET active = 0 WHERE id = :event_id";
+        $sql = "UPDATE your_event_table SET active = 0 WHERE id = :event_id";
         $stmt = $this->db->prepare($sql);
         $result = $stmt->execute(['event_id' => $eventId]);
         
@@ -1167,7 +1167,7 @@ private function triggerBridgeSync($mappingId) {
 
 ```bash
 # Create a resource mapping
-curl -X POST http://localhost:8080/mappings/resources \
+curl -X POST http://localhost:8082/mappings/resources \
   -H "Content-Type: application/json" \
   -d '{
     "bridge_from": "booking_system",
@@ -1178,13 +1178,13 @@ curl -X POST http://localhost:8080/mappings/resources \
   }'
 
 # Check mapping for a resource
-curl http://localhost:8080/mappings/resources/by-resource/123
+curl http://localhost:8082/mappings/resources/by-resource/123
 
 # Get all mappings
-curl http://localhost:8080/mappings/resources
+curl http://localhost:8082/mappings/resources
 
 # Trigger sync for a mapping  
-curl -X POST http://localhost:8080/mappings/resources/1/sync
+curl -X POST http://localhost:8082/mappings/resources/1/sync
 ```
 
 ## 🗑️ Deletion Sync Handling
@@ -1209,7 +1209,7 @@ POST /bridges/sync-deletions
 Manually check all recent mappings for deleted Outlook events:
 
 ```bash
-curl -X POST http://localhost:8080/bridges/sync-deletions
+curl -X POST http://localhost:8082/bridges/sync-deletions
 ```
 
 **Response:**
@@ -1233,7 +1233,7 @@ POST /bridges/process-deletion-queue
 Process pending deletion checks from the webhook queue:
 
 ```bash
-curl -X POST http://localhost:8080/bridges/process-deletion-queue
+curl -X POST http://localhost:8082/bridges/process-deletion-queue
 ```
 
 **Response:**
@@ -1272,10 +1272,10 @@ Check deletion sync activity:
 
 ```bash
 # View recent deletion operations
-curl "http://localhost:8080/bridges/health" | jq '.logs[] | select(.operation == "delete")'
+curl "http://localhost:8082/bridges/health" | jq '.logs[] | select(.operation == "delete")'
 
 # Check bridge mappings for consistency
-curl "http://localhost:8080/mappings/resources?active_only=true"
+curl "http://localhost:8082/mappings/resources?active_only=true"
 ```
 
 This ensures your booking system stays in sync when events are deleted from Outlook calendars.
@@ -1291,7 +1291,7 @@ The bridge automatically handles when events become inactive in your booking sys
 **How it works:**
 
 1. **Event Creation**: Event created in booking system → automatically synced to Outlook
-2. **Set Inactive**: You set `bb_event.active = 0` in your booking system database
+2. **Set Inactive**: You set `your_event_table.active = 0` in your booking system database
 3. **Automatic Detection**: Bridge detects the inactive event during cancellation check
 4. **Outlook Deletion**: Corresponding Outlook event is automatically deleted
 5. **Mapping Cleanup**: Bridge mapping is updated to 'cancelled' status
@@ -1306,7 +1306,7 @@ POST /bridges/sync-deletions
 Scans for inactive events in booking system and deletes corresponding Outlook events:
 
 ```bash
-curl -X POST http://localhost:8080/bridges/sync-deletions
+curl -X POST http://localhost:8082/bridges/sync-deletions
 ```
 
 Response:
@@ -1339,7 +1339,7 @@ DELETE /cancel/reservation/{reservationType}/{reservationId}/{resourceId}
 Immediately cancel a specific reservation and delete its Outlook event:
 
 ```bash
-curl -X DELETE http://localhost:8080/cancel/reservation/event/12345/67
+curl -X DELETE http://localhost:8082/cancel/reservation/event/12345/67
 ```
 
 #### **Check Reservation Status**
@@ -1350,7 +1350,7 @@ GET /cancel/check/{reservationType}/{reservationId}
 Check if a reservation is cancelled:
 
 ```bash
-curl http://localhost:8080/cancel/check/event/12345
+curl http://localhost:8082/cancel/check/event/12345
 ```
 
 #### **Bulk Cancellation Processing**
@@ -1361,7 +1361,7 @@ POST /cancel/bulk
 Process multiple cancellations at once:
 
 ```bash
-curl -X POST http://localhost:8080/cancel/bulk \
+curl -X POST http://localhost:8082/cancel/bulk \
   -H "Content-Type: application/json" \
   -d '{
     "reservations": [
@@ -1378,32 +1378,32 @@ Set up comprehensive automation for the bridge system with cron jobs:
 ```bash
 # === CORE BRIDGE SYNCHRONIZATION ===
 # Sync from booking system to Outlook every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # Sync from Outlook to booking system every 10 minutes  
-*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
+*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system \
   -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # === DELETION & CANCELLATION PROCESSING ===
 # Process deletion queue from webhooks every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8080/bridges/process-deletion-queue
+*/5 * * * * curl -X POST http://localhost:8082/bridges/process-deletion-queue
 
 # Detect and process cancellations (inactive events) every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # Manual deletion sync check every 30 minutes
-*/30 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+*/30 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # Alternative: Use the enhanced deletion processor script
 */5 * * * * /scripts/enhanced_process_deletions.sh
 
 # === SYSTEM MONITORING ===
 # Check bridge health every 10 minutes
-*/10 * * * * curl -X GET http://localhost:8080/bridges/health
+*/10 * * * * curl -X GET http://localhost:8082/bridges/health
 
 # Run comprehensive system health checks every 15 minutes
-*/15 * * * * curl -X GET http://localhost:8080/health/system
+*/15 * * * * curl -X GET http://localhost:8082/health/system
 ```
 
 **Production Cron Setup** (add to `/etc/cron.d/bridge-sync`):
@@ -1431,33 +1431,33 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 #### **Cancellation Statistics**
 ```bash
 # Get cancellation stats
-curl http://localhost:8080/cancel/stats
+curl http://localhost:8082/cancel/stats
 ```
 
 #### **View Cancelled Reservations**
 ```bash
 # List recently cancelled reservations
-curl http://localhost:8080/cancel/cancelled-reservations
+curl http://localhost:8082/cancel/cancelled-reservations
 ```
 
 #### **Detection Statistics**
 ```bash
 # Get detection performance stats
-curl http://localhost:8080/bridges/sync-deletionsion-stats
+curl http://localhost:8082/bridges/sync-deletionsion-stats
 ```
 
 ### **🔄 Re-enabling Events**
 
 The system also handles when cancelled events are reactivated:
 
-1. **Set Active**: Change `bb_event.active = 1` in booking system
+1. **Set Active**: Change `your_event_table.active = 1` in booking system
 2. **Detection**: Bridge detects the reactivated event
 3. **Outlook Recreation**: Creates new Outlook event for the reactivated reservation
 4. **Mapping Reset**: Resets mapping status from 'cancelled' to 'active'
 
 ```bash
 # Detect and process re-enabled events
-curl -X POST http://localhost:8080/bridges/sync-deletions-reenabled
+curl -X POST http://localhost:8082/bridges/sync-deletions-reenabled
 ```
 
 ### **🎯 Key Benefits**
@@ -1472,11 +1472,11 @@ curl -X POST http://localhost:8080/bridges/sync-deletions-reenabled
 ### **💡 Implementation Notes**
 
 The cancellation system monitors these tables:
-- `bb_event` - Events/reservations
-- `bb_booking` - Bookings (if available)
-- `bb_allocation` - Resource allocations (if available)
+- `your_event_table` - Events/reservations
+- `your_booking_table` - Bookings (if available)
+- `your_allocation_table` - Resource allocations (if available)
 
-Events are considered cancelled when `active != 1` in these tables. The bridge maintains sync mappings in `outlook_calendar_mapping` and updates their status appropriately.
+Events are considered cancelled when `active != 1` in these tables. The bridge maintains sync mappings in `bridge_mappings` and updates their status appropriately.
 
 ---
 
@@ -1504,19 +1504,19 @@ The default cron jobs are already optimized for webhook-free operation:
 
 ```bash
 # Current default (recommended)
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
-*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system  
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook
+*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system  
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # For faster response (every 2 minutes)
-*/2 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+*/2 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
 ```
 
 ### **🎯 Your Inactive Event Use Case:**
 
 This works perfectly with polling:
 
-1. **Set Event Inactive**: `UPDATE bb_event SET active = 0 WHERE id = 12345`
+1. **Set Event Inactive**: `UPDATE your_event_table SET active = 0 WHERE id = 12345`
 2. **Automatic Detection**: Within 5 minutes, cron job runs `/bridges/sync-deletions`
 3. **Outlook Deletion**: Corresponding Outlook event automatically deleted
 4. **No Webhooks Needed**: Pure polling-based detection
@@ -1608,7 +1608,7 @@ OUTLOOK_GROUP_ID=12345678-1234-1234-1234-123456789abc
 
 ```bash
 # Test calendar discovery
-curl http://localhost:8080/bridges/outlook/calendars
+curl http://localhost:8082/bridges/outlook/calendars
 
 # Expected response:
 {

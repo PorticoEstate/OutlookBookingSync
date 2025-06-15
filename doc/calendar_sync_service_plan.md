@@ -112,14 +112,15 @@ The following cron jobs are active in the Docker container for the generic bridg
 
 ---
 
-## 5. **Data Mapping** ✅ IMPLEMENTED
-- **Resource Mapping**: `bb_resource_outlook_item` table maps booking system resources to Outlook calendar IDs
-  - Links `bb_resource.id` to Outlook calendar/room identifiers
+## 5. **Data Mapping** ✅ IMPLEMENTED (Bridge Architecture)
+- **Resource Mapping**: `bridge_resource_mappings` table maps calendar resources between bridge systems
+  - Links booking system resource IDs to Outlook calendar/room identifiers
   - Includes active status and sync metadata
-  - Stores Outlook item names for reference
+  - Stores display names and descriptions for reference
+  - Bridge-agnostic design supports any calendar system
 
-- **Calendar Item Mapping**: `outlook_calendar_mapping` table tracks sync relationships
-  - Maps each reservation (allocation/booking/event) to Outlook events
+- **Event Mapping**: `bridge_mappings` table tracks sync relationships between bridges
+  - Maps each event between source and target bridge systems
   - Tracks sync status, timestamps, and error messages
   - Implements priority-based conflict resolution
   - Supports bidirectional sync tracking
@@ -182,7 +183,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 - **Loop Prevention Strategy** (TO BE IMPLEMENTED):
   - Check custom properties before processing Outlook webhook events
   - Skip processing events that originated from the sync service
-  - Implement sync direction tracking in `outlook_calendar_mapping` table
+  - Implement sync direction tracking in `bridge_mappings` table
   - Add sync lock mechanism for concurrent updates
 
 ---
@@ -190,7 +191,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 ## 8. **Error Handling & Logging** ✅ PARTIALLY IMPLEMENTED
 
 - **Database Tracking**: ✅ IMPLEMENTED
-  - `outlook_calendar_mapping` table tracks sync status and errors
+  - `bridge_mappings` table tracks sync status and errors
   - Error messages stored with timestamps
   - Sync status tracking: pending, synced, error, conflict
 
@@ -249,10 +250,10 @@ The following cron jobs are active in the Docker container for the generic bridg
   - Controller-based routing
   - Dependency injection container
 
-- **Database Design**: ✅ IMPLEMENTED
-  - `outlook_calendar_mapping` - Tracks sync relationships
-  - `bb_resource_outlook_item` - Maps resources to Outlook calendars
-  - `outlook_sync_state` - Tracks sync status and webhooks
+- **Database Design**: ✅ IMPLEMENTED (Bridge Architecture)
+  - `bridge_mappings` - Tracks sync relationships between bridge systems
+  - `bridge_resource_mappings` - Maps resources between bridge systems
+  - `bridge_sync_logs` - Tracks sync status and operations
 
 - **API Endpoints**: ✅ IMPLEMENTED
   - `/resource-mapping` - Resource mapping management
@@ -305,7 +306,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 ### **Recommended Population Approach**
 
 #### **Phase 1: Initial Setup**
-1. **Ensure Resource Mapping**: First populate `bb_resource_outlook_item` table with mapping between booking system resources and Outlook calendars
+1. **Ensure Resource Mapping**: First populate `bridge_resource_mappings` table with mapping between booking system resources and Outlook calendars
 2. **Initial Population**: Run bulk population method to create mapping entries for all existing calendar items:
    ```bash
    # Call the API endpoint

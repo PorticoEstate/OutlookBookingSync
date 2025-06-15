@@ -159,21 +159,21 @@ FROM bb_resource_outlook_item;
 
 ### **Verify Bridge Health:**
 ```bash
-curl http://localhost:8080/bridges/health
+curl http://localhost:8082/bridges/health
 ```
 
 ### **Test Bridge Operations:**
 ```bash
 # List available bridges
-curl http://localhost:8080/bridges
+curl http://localhost:8082/bridges
 
 # Test sync operation
-curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
+curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id": "room@company.com", "target_calendar_id": "123"}'
 
 # Check resource mappings
-curl http://localhost:8080/mappings/resources
+curl http://localhost:8082/mappings/resources
 ```
 
 ### **Verify Legacy Data:**

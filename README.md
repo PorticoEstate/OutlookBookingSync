@@ -80,20 +80,20 @@ cp .env.example .env
 docker compose up -d
 
 # Or run directly with PHP
-php -S localhost:8080 index.php
+php -S localhost:8082 index.php
 ```
 
 ### 5. Verify Installation
 
 ```bash
 # Check bridge health
-curl http://localhost:8080/bridges/health
+curl http://localhost:8082/bridges/health
 
 # List available bridges
-curl http://localhost:8080/bridges
+curl http://localhost:8082/bridges
 
 # Test resource mapping API
-curl http://localhost:8080/mappings/resources
+curl http://localhost:8082/mappings/resources
 ```
 
 ### 6. Setup Your Booking System API
@@ -111,7 +111,7 @@ curl -X PUT http://your-booking-system/api/events/123 \
   -d '{"status": "inactive"}'
 
 # 2. Run deletion detection to sync to Outlook
-curl -X POST http://localhost:8080/bridges/sync-deletions
+curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # Example: Handle Outlook deletion
 # When an Outlook event is deleted, webhooks or polling will detect it
@@ -191,11 +191,11 @@ The system supports automated processing through cron jobs that use bridge endpo
 
 ```bash
 # Bidirectional bridge synchronization
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" \
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
-*/10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
+*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system \
   -H "Content-Type: application/json" \
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
@@ -203,12 +203,12 @@ The system supports automated processing through cron jobs that use bridge endpo
 */5 * * * * /scripts/enhanced_process_deletions.sh
 
 # Alternative: Individual deletion sync calls
-*/5 * * * * curl -X POST http://localhost:8080/bridges/process-deletion-queue
-*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
+*/5 * * * * curl -X POST http://localhost:8082/bridges/process-deletion-queue
+*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # Health monitoring
-*/10 * * * * curl -X GET http://localhost:8080/bridges/health
-*/15 * * * * curl -X GET http://localhost:8080/health/system
+*/10 * * * * curl -X GET http://localhost:8082/bridges/health
+*/15 * * * * curl -X GET http://localhost:8082/health/system
 ```
 
 ## 📚 Documentation
@@ -261,13 +261,13 @@ Generic Calendar Bridge (Port 8080)
 
 ```bash
 # Check overall bridge health
-curl http://localhost:8080/bridges/health
+curl http://localhost:8082/bridges/health
 
 # Test specific bridge
-curl http://localhost:8080/bridges/outlook/calendars
+curl http://localhost:8082/bridges/outlook/calendars
 
 # View recent sync logs
-curl http://localhost:8080/bridges/health | jq '.logs[]'
+curl http://localhost:8082/bridges/health | jq '.logs[]'
 ```
 
 ### Common Issues

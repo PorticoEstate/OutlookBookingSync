@@ -148,7 +148,7 @@ class HealthController
             }
 
             // Test read performance
-            $stmt = $this->db->query('SELECT COUNT(*) as count FROM outlook_calendar_mapping');
+            $stmt = $this->db->query('SELECT COUNT(*) as count FROM bridge_mappings');
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             
             $responseTime = round((microtime(true) - $start) * 1000, 2);
@@ -210,7 +210,7 @@ class HealthController
             // Check recent sync activity as proxy for connectivity
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as recent_syncs 
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '1 hour'
             ");
             $stmt->execute();
@@ -254,7 +254,7 @@ class HealthController
                 SELECT 
                     COUNT(*) as recent_automated_syncs,
                     MAX(updated_at) as last_automated_sync
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '1 hour'
                 AND sync_direction IN ('polling', 'automated')
             ");
@@ -368,7 +368,7 @@ class HealthController
                 SELECT 
                     sync_status,
                     COUNT(*) as count
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 GROUP BY sync_status
             ");
             $stmt->execute();
@@ -414,7 +414,7 @@ class HealthController
         try {
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as error_count
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE sync_status = 'error' 
                 AND updated_at > NOW() - INTERVAL '24 hours'
             ");
@@ -471,7 +471,7 @@ class HealthController
                     COUNT(CASE WHEN sync_status = 'synced' THEN 1 END) as synced_count,
                     COUNT(CASE WHEN sync_status = 'pending' THEN 1 END) as pending_count,
                     COUNT(CASE WHEN sync_status = 'error' THEN 1 END) as error_count
-                FROM outlook_calendar_mapping
+                FROM bridge_mappings
             ");
             $stmt->execute();
             
@@ -494,7 +494,7 @@ class HealthController
                     sync_status,
                     COUNT(*) as count,
                     DATE_TRUNC('hour', updated_at) as hour
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '24 hours'
                 GROUP BY sync_direction, sync_status, DATE_TRUNC('hour', updated_at)
                 ORDER BY hour DESC
@@ -520,7 +520,7 @@ class HealthController
                     sync_status,
                     updated_at,
                     error_message
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '2 hours'
                 ORDER BY updated_at DESC
                 LIMIT 20
@@ -563,7 +563,7 @@ class HealthController
                     error_message,
                     COUNT(*) as error_count,
                     MAX(updated_at) as last_occurrence
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE sync_status = 'error' 
                 AND updated_at > NOW() - INTERVAL '24 hours'
                 AND error_message IS NOT NULL
@@ -633,7 +633,7 @@ class HealthController
                 SELECT 
                     COUNT(*) as syncs_last_hour,
                     COUNT(*) / 60.0 as syncs_per_minute
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '1 hour'
             ");
             $stmt->execute();

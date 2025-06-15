@@ -114,25 +114,25 @@ doc/bridge_architecture_guide.md    # Technical architecture
 ### **Basic Operations**
 ```bash
 # List available bridges
-curl http://localhost:8080/bridges
+curl http://localhost:8082/bridges
 
 # Sync events between bridges
-curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
+curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook
 
 # Process deletions/cancellations
-curl -X POST http://localhost:8080/bridges/sync-deletions
+curl -X POST http://localhost:8082/bridges/sync-deletions
 
 # Health monitoring
-curl http://localhost:8080/bridges/health
+curl http://localhost:8082/bridges/health
 ```
 
 ### **Resource Management**
 ```bash
 # Manage resource mappings
-curl http://localhost:8080/mappings/resources
+curl http://localhost:8082/mappings/resources
 
 # Create new mapping
-curl -X POST http://localhost:8080/mappings/resources \
+curl -X POST http://localhost:8082/mappings/resources \
   -d '{"source_bridge":"booking_system","target_bridge":"outlook"}'
 ```
 

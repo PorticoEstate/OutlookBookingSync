@@ -72,20 +72,20 @@ database/
 
 ### **Verify Bridge Health:**
 ```bash
-curl http://localhost:8080/bridges/health
-curl http://localhost:8080/bridges
+curl http://localhost:8082/bridges/health
+curl http://localhost:8082/bridges
 ```
 
 ### **Test New Endpoints:**
 ```bash
 # Process pending operations
-curl -X POST http://localhost:8080/bridge/process-pending
+curl -X POST http://localhost:8082/bridge/process-pending
 
 # Get bridge statistics  
-curl http://localhost:8080/bridge/stats
+curl http://localhost:8082/bridge/stats
 
 # Check resource mappings
-curl http://localhost:8080/mappings/resources
+curl http://localhost:8082/mappings/resources
 ```
 
 ### **Verify Syntax:**

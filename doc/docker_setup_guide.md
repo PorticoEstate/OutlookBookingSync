@@ -24,8 +24,8 @@ The Docker container includes:
 ```bash
 # For corporate proxy environments
 docker compose build \
-  --build-arg http_proxy=http://proxy.company.com:8080 \
-  --build-arg https_proxy=http://proxy.company.com:8080
+  --build-arg http_proxy=http://proxy.company.com:8082 \
+  --build-arg https_proxy=http://proxy.company.com:8082
 ```
 
 ## Container Services

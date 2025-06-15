@@ -248,13 +248,13 @@ docker compose up -d
 ### **Health Verification**
 ```bash
 # Check bridge health
-curl http://localhost:8080/bridges/health
+curl http://localhost:8082/bridges/health
 
 # List available bridges
-curl http://localhost:8080/bridges
+curl http://localhost:8082/bridges
 
 # Test sync operation
-curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
+curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id": "123", "target_calendar_id": "room1@company.com"}'
 ```

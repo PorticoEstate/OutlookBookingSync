@@ -82,8 +82,8 @@ class AlertService
             $stmt = $this->db->prepare("
                 SELECT 
                     COUNT(*) as total_operations,
-                    COUNT(CASE WHEN sync_status = 'error' THEN 1 END) as error_count
-                FROM outlook_calendar_mapping 
+                    COUNT(CASE WHEN status = 'error' THEN 1 END) as error_count
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '1 hour'
             ");
             $stmt->execute();
@@ -135,8 +135,8 @@ class AlertService
         try {
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as stalled_count
-                FROM outlook_calendar_mapping 
-                WHERE sync_status = 'pending' 
+                FROM bridge_mappings 
+                WHERE status = 'pending' 
                 AND created_at < NOW() - INTERVAL '2 hours'
             ");
             $stmt->execute();
@@ -215,7 +215,7 @@ class AlertService
             // Check for recent automated sync activity
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as recent_activity
-                FROM outlook_calendar_mapping 
+                FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '30 minutes'
                 AND sync_direction IN ('polling', 'automated')
             ");

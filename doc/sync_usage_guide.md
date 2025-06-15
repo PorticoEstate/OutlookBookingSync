@@ -34,7 +34,7 @@ This sync system is **production-ready** with the following verified capabilitie
 
 ## Prerequisites
 
-1. Ensure `bb_resource_outlook_item` table is populated with resource-to-calendar mappings
+1. Ensure `bridge_resource_mappings` table is populated with resource-to-calendar mappings
 2. Outlook authentication is configured (Graph API credentials)
 3. Required Graph permissions are granted
 4. API key is optional (works without API key if not configured in environment)
@@ -258,11 +258,11 @@ curl -X POST "http://localhost:8082/booking/process-imports"
 ```
 
 **What this endpoint does:**
-- Creates complete event entries in `bb_event` table
-- Adds event dates to `bb_event_date` table
-- Links resources in `bb_event_resource` table
-- Sets age groups in `bb_event_agegroup` table
-- Defines target audiences in `bb_event_targetaudience` table
+- Creates complete event entries in `your_event_table` table
+- Adds event dates to `your_event_table_date` table
+- Links resources in `your_event_table_resource` table
+- Sets age groups in `your_event_table_agegroup` table
+- Defines target audiences in `your_event_table_targetaudience` table
 - Converts HTML descriptions to plain text
 - Wraps all operations in database transactions
 - Returns actual reservation IDs (verified: 78268+)
@@ -553,7 +553,7 @@ curl -X GET "http://localhost:8082/polling/stats"
 
 When processing Outlook events into booking system entries, the system creates complete records across multiple related tables:
 
-#### Primary Event Creation (`bb_event`)
+#### Primary Event Creation (`your_event_table`)
 - **Event ID**: Auto-generated unique identifier (verified: 78268+)
 - **Title**: Converted from Outlook subject
 - **Description**: HTML-to-text converted from Outlook body
@@ -562,19 +562,19 @@ When processing Outlook events into booking system entries, the system creates c
 - **Timestamps**: Created and updated times
 
 #### Related Table Population
-1. **Event Dates (`bb_event_date`)**
+1. **Event Dates (`your_event_table_date`)**
    - Start and end times from Outlook event
    - Links to created event via event_id
 
-2. **Event Resources (`bb_event_resource`)**
+2. **Event Resources (`your_event_table_resource`)**
    - Links event to room/resource
    - Uses resource_id from mapping table
 
-3. **Age Groups (`bb_event_agegroup`)**
+3. **Age Groups (`your_event_table_agegroup`)**
    - Default age group assignment
    - Configurable per event type
 
-4. **Target Audiences (`bb_event_targetaudience`)**
+4. **Target Audiences (`your_event_table_targetaudience`)**
    - Default audience assignment
    - Expandable for specific targeting
 
@@ -613,7 +613,7 @@ The system has been verified with actual database operations:
 
 1. **Populate Resource Mappings** (if not done already):
    ```sql
-   INSERT INTO bb_resource_outlook_item (resource_id, outlook_item_id, outlook_item_name, active) 
+   INSERT INTO bridge_resource_mappings (resource_id, outlook_item_id, outlook_item_name, active) 
    VALUES (123, 'room-calendar-id', 'Conference Room A', 1);
    ```
 
@@ -775,7 +775,7 @@ curl -X GET "http://localhost:8082/cancel/cancelled-reservations"
 ```
 
 **Re-enable Workflow:**
-When you re-enable a cancelled reservation in your booking system (`UPDATE bb_event SET active = 1 WHERE id = X`):
+When you re-enable a cancelled reservation in your booking system (`UPDATE your_event_table SET active = 1 WHERE id = X`):
 
 1. **Detection**: `/bridges/sync-deletions` automatically finds reservations with `active = 1` but `sync_status = 'cancelled'`
 2. **Reset**: Mapping status changes from 'cancelled' to 'pending', old Outlook event ID is cleared
@@ -976,16 +976,16 @@ Check database mapping status directly:
 ```sql
 -- Overall mapping status
 SELECT reservation_type, sync_status, COUNT(*) 
-FROM outlook_calendar_mapping 
+FROM bridge_mappings 
 GROUP BY reservation_type, sync_status;
 
 -- Recent processing results
-SELECT * FROM outlook_calendar_mapping 
+SELECT * FROM bridge_mappings 
 WHERE reservation_id IS NOT NULL 
 ORDER BY created_at DESC LIMIT 10;
 
 -- Cancellation tracking
-SELECT * FROM outlook_calendar_mapping 
+SELECT * FROM bridge_mappings 
 WHERE sync_status = 'cancelled' 
 ORDER BY updated_at DESC;
 ```
@@ -1009,7 +1009,7 @@ If you need to reset the entire synchronization state:
 
 ```sql
 -- Reset all mappings to pending (use with caution)
-UPDATE outlook_calendar_mapping 
+UPDATE bridge_mappings 
 SET sync_status = 'pending', 
     outlook_event_id = NULL,
     reservation_id = NULL
@@ -1218,10 +1218,10 @@ BACKUP_DIR="/var/backups/outlook-sync"
 DATE=$(date +"%Y%m%d_%H%M%S")
 
 # Backup mapping table
-mysqldump -u backup_user -p your_database outlook_calendar_mapping > "$BACKUP_DIR/mapping_$DATE.sql"
+mysqldump -u backup_user -p your_database bridge_mappings > "$BACKUP_DIR/mapping_$DATE.sql"
 
 # Backup related booking system tables
-mysqldump -u backup_user -p your_database bb_event bb_event_date bb_event_resource bb_event_agegroup bb_event_targetaudience > "$BACKUP_DIR/booking_system_$DATE.sql"
+mysqldump -u backup_user -p your_database your_event_table your_event_table_date your_event_table_resource your_event_table_agegroup your_event_table_targetaudience > "$BACKUP_DIR/booking_system_$DATE.sql"
 
 # Compress and clean old backups
 gzip "$BACKUP_DIR/mapping_$DATE.sql"

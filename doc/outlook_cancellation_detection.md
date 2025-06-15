@@ -216,7 +216,7 @@ Use both methods for maximum reliability:
 When a booking system event is cancelled in Outlook:
 
 1. **Detection**: System detects the event no longer exists
-2. **Booking Update**: Sets `active = 0` in `bb_event` table
+2. **Booking Update**: Sets `active = 0` in your booking system's event table  
 3. **Description Update**: Appends "--- Cancelled from Outlook ---" to description
 4. **Mapping Update**: Sets sync status to 'cancelled'
 5. **Logging**: Records the cancellation for audit purposes
@@ -225,20 +225,20 @@ When a booking system event is cancelled in Outlook:
 
 Before cancellation:
 ```sql
--- bb_event table
+-- Your booking system event table
 id: 78268, active: 1, description: "Team meeting in conference room"
 
--- outlook_calendar_mapping table  
-sync_status: 'synced', outlook_event_id: 'AAMkAGU...'
+-- bridge_mappings table  
+sync_status: 'synced', external_id: 'AAMkAGU...'
 ```
 
 After Outlook-side cancellation:
 ```sql
--- bb_event table
+-- Your booking system event table
 id: 78268, active: 0, description: "Team meeting in conference room\n\n--- Cancelled from Outlook ---"
 
--- outlook_calendar_mapping table
-sync_status: 'cancelled', outlook_event_id: 'AAMkAGU...'
+-- bridge_mappings table
+sync_status: 'cancelled', external_id: 'AAMkAGU...'
 ```
 
 ## Monitoring and Troubleshooting
@@ -307,7 +307,7 @@ WHERE detected_at >= NOW() - INTERVAL '1 hour'
 ORDER BY detected_at DESC;
 
 -- Cancelled mappings
-SELECT * FROM outlook_calendar_mapping 
+SELECT * FROM bridge_mappings 
 WHERE sync_status = 'cancelled' 
 ORDER BY updated_at DESC;
 ```
