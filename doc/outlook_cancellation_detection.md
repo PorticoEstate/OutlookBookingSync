@@ -1,15 +1,21 @@
-# Outlook-Side Event Cancellation Detection
+# Bridge-Based Deletion & Cancellation Detection
 
-This document explains how to set up and use the new Outlook-side event cancellation detection functionality. When users delete or cancel events directly in Outlook, the system will automatically detect these changes and update the booking system accordingly.
+This document explains how the bridge architecture handles event cancellation and deletion detection between calendar systems. The bridge system provides robust bidirectional deletion sync capabilities.
 
 ## Overview
 
-The system provides **two detection methods**:
+The bridge system provides **automatic deletion/cancellation sync** through:
 
-1. **🔄 Real-time Webhooks** (Recommended) - Instant notifications from Microsoft Graph
-2. **📊 Polling Detection** (Fallback) - Periodic checking for changes
+1. **🔄 Real-time Webhooks** - Instant notifications from Microsoft Graph
+2. **📊 Bridge Polling** - Periodic checking via bridge endpoints
+3. **🎯 Queue Processing** - Reliable async deletion handling
 
-## Method 1: Real-time Webhooks (Recommended)
+## Bridge Architecture Benefits
+
+- **Universal**: Works with any calendar system that implements the bridge interface
+- **Bidirectional**: Handles deletions/cancellations in both directions
+- **Reliable**: Queue-based processing with error handling and retry logic
+- **Extensible**: Easy to add new calendar systems without changing core logic
 
 ### Prerequisites
 
@@ -321,7 +327,7 @@ ORDER BY updated_at DESC;
 - `DELETE /outlook/cleanup-logs` - Clean up old detection logs
 
 ### Cancellation Management (Enhanced)
-- `POST /cancel/detect` - Detect booking system cancellations
+- `POST /bridges/sync-deletions` - Detect booking system cancellations
 - `GET /cancel/cancelled-reservations` - View cancelled reservations
 - `GET /cancel/stats` - Cancellation statistics
 

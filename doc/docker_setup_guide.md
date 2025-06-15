@@ -44,7 +44,7 @@ Automated tasks running as `www-data` user:
 |----------|------|----------|
 | */15 * * * * | Poll Outlook changes | `/polling/poll-changes` |
 | 0 * * * * | Detect missing events | `/polling/detect-missing-events` |
-| */10 * * * * | Process cancellations | `/cancel/detect-and-process` |
+| */10 * * * * | Process cancellations | `/bridges/sync-deletions-and-process` |
 | 0 8 * * * | Daily statistics | `/polling/stats` |
 
 ## Environment Configuration

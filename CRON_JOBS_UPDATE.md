@@ -13,7 +13,7 @@ The cron jobs have been successfully updated from the legacy sync system to the 
 */5 * * * * curl -s -X POST "http://localhost/sync/to-outlook"
 */15 * * * * curl -s -X POST "http://localhost/polling/poll-changes"  
 */10 * * * * curl -s -X POST "http://localhost/sync/from-outlook"
-*/5 * * * * curl -s -X POST "http://localhost/cancel/detect-and-process"
+*/5 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions-and-process"
 ```
 
 **After (Bridge):**
@@ -79,7 +79,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Deletion and cancellation processing  
 */5 * * * * www-data curl -s -X POST "http://localhost/bridges/process-deletion-queue" >/dev/null 2>&1
-*/5 * * * * www-data curl -s -X POST "http://localhost/cancel/detect" >/dev/null 2>&1
+*/5 * * * * www-data curl -s -X POST "http://localhost/bridges/sync-deletions" >/dev/null 2>&1
 
 # System monitoring
 */10 * * * * www-data curl -s -X GET "http://localhost/bridges/health" >/dev/null 2>&1

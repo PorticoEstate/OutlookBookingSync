@@ -37,7 +37,7 @@ The OutlookBookingSync system has been successfully migrated from legacy Booking
 | `GET /booking/pending-imports` | `GET /bridge/pending` | Pending operations |
 | `GET /booking/processed-imports` | `GET /bridge/completed` | Completed operations |
 | `DELETE /cancel/reservation/{id}` | `DELETE /bridges/mappings/{id}` | Remove mapping |
-| `POST /cancel/detect` | `POST /bridges/sync-deletions` | Deletion detection |
+| `POST /bridges/sync-deletions` | `POST /bridges/sync-deletions` | Deletion detection |
 
 ### 🔧 **Configuration Changes**
 

@@ -96,7 +96,7 @@ The following cron jobs are active in the Docker container for the generic bridg
 - **Every 5 minutes**: `curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook"` - Sync events from booking system to Outlook
 - **Every 10 minutes**: `curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system"` - Sync events from Outlook to booking system  
 - **Every 5 minutes**: `curl -s -X POST "http://localhost/bridges/process-deletion-queue"` - Process webhook deletion queue
-- **Every 5 minutes**: `curl -s -X POST "http://localhost/cancel/detect"` - Detect and process cancellations (inactive events)
+- **Every 5 minutes**: `curl -s -X POST "http://localhost/bridges/sync-deletions"` - Detect and process cancellations (inactive events)
 - **Every 30 minutes**: `curl -s -X POST "http://localhost/bridges/sync-deletions"` - Manual deletion sync check
 - **Every 10 minutes**: `curl -s -X GET "http://localhost/bridges/health"` - Monitor bridge health
 - **Daily at 8 AM**: `curl -s -X GET "http://localhost/bridges/health"` - Generate bridge statistics logs
@@ -287,7 +287,7 @@ The following cron jobs are active in the Docker container for the generic bridg
   - ✅ **Booking System Integration**: Soft delete handling (sets `active = 0`)
   - ✅ **Status Management**: Updates mapping status to 'cancelled' with audit trails
   - ✅ **Bulk Processing**: Handles multiple cancellations efficiently
-  - ✅ **Real-time Detection**: `/cancel/detect` endpoint for immediate processing
+  - ✅ **Real-time Detection**: `/bridges/sync-deletions` endpoint for immediate processing
   - ✅ **Statistics & Monitoring**: Complete cancellation tracking and reporting
 
 - **Time Zone Differences**: ✅ IMPLEMENTED
@@ -366,8 +366,8 @@ $mappingService->cleanupOrphanedMappings();
 - `GET /booking/processed-imports` - View processed imports
 
 **Cancellation Management:**
-- `POST /cancel/detect` - Detect and process cancellations
-- `GET /cancel/detection-stats` - Cancellation detection statistics
+- `POST /bridges/sync-deletions` - Detect and process cancellations
+- `GET /bridges/sync-deletionsion-stats` - Cancellation detection statistics
 - `GET /cancel/cancelled-reservations` - View cancelled reservations
 - `GET /cancel/stats` - Overall cancellation statistics
 - `POST /cancel/booking/{type}/{id}/{resourceId}` - Manual cancellation trigger
@@ -838,7 +838,7 @@ POST   /tenants/{tenant}/mappings/resources                   - Create tenant ma
 PUT    /tenants/{tenant}/mappings/resources/{id}              - Update tenant mapping
 
 // Tenant-specific operations
-POST   /tenants/{tenant}/cancel/detect                        - Tenant cancellation detection
+POST   /tenants/{tenant}/bridges/sync-deletions                        - Tenant cancellation detection
 GET    /tenants/{tenant}/cancel/stats                         - Tenant cancellation stats
 ```
 
@@ -1026,7 +1026,7 @@ The existing cron jobs (from `docker-entrypoint.sh`) need significant restructur
 # Current single-tenant cron jobs
 */5 * * * * curl -X POST "localhost/bridges/sync/booking_system/outlook"
 */10 * * * * curl -X POST "localhost/bridges/sync/outlook/booking_system"  
-*/5 * * * * curl -X POST "localhost/cancel/detect"
+*/5 * * * * curl -X POST "localhost/bridges/sync-deletions"
 */30 * * * * curl -X POST "localhost/bridges/sync-deletions"
 ```
 
@@ -1046,12 +1046,12 @@ The existing cron jobs (from `docker-entrypoint.sh`) need significant restructur
 # Municipal A - Sync jobs
 */5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/booking_system/outlook"
 */10 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/outlook/booking_system"
-*/5 * * * * curl -X POST "localhost/tenants/municipal_a/cancel/detect"
+*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync-deletions"
 
 # Municipal B - Sync jobs (offset by 2 minutes to avoid resource conflicts)
 2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/booking_system/outlook"
 2,12,22,32,42,52 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/outlook/booking_system"
-2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/cancel/detect"
+2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync-deletions"
 
 # Municipal C - Sync jobs (offset by 4 minutes)
 4,9,14,19,24,29,34,39,44,49,54,59 * * * * curl -X POST "localhost/tenants/municipal_c/bridges/sync/booking_system/outlook"
@@ -1076,7 +1076,7 @@ The existing cron jobs (from `docker-entrypoint.sh`) need significant restructur
 # Bulk sync jobs - processes all tenants sequentially
 */5 * * * * curl -X POST "localhost/bridges/sync-all/booking_system/outlook"
 */10 * * * * curl -X POST "localhost/bridges/sync-all/outlook/booking_system"
-*/5 * * * * curl -X POST "localhost/cancel/detect-all"
+*/5 * * * * curl -X POST "localhost/bridges/sync-deletions-all"
 
 # Tenant-specific maintenance (less frequent)
 0 2 * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync-deletions"
@@ -1106,7 +1106,7 @@ The existing cron jobs (from `docker-entrypoint.sh`) need significant restructur
 
 # BULK: Less critical operations for all tenants
 */30 * * * * curl -X POST "localhost/bridges/sync-deletions-all"
-*/15 * * * * curl -X POST "localhost/cancel/detect-all"  
+*/15 * * * * curl -X POST "localhost/bridges/sync-deletions-all"  
 */10 * * * * curl -X GET "localhost/bridges/health-all"
 
 # MAINTENANCE: Tenant-specific maintenance (staggered)

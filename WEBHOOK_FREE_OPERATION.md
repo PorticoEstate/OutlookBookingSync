@@ -28,7 +28,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+3 days\" +%Y-%m-%d)"}'
 
 # Cancellation detection - every 2 minutes
-*/2 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/2 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
 # Deletion sync - every 5 minutes
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
@@ -39,7 +39,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 # Current optimized schedule (already in docker-entrypoint.sh)
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
 */10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system
-*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 ```
 
 #### **Conservative Polling** (Resource-friendly - 15-30 minutes)
@@ -47,7 +47,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 # Lower frequency for resource-constrained environments
 */15 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
 */20 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system
-*/10 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/10 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 ```
 
 ### **⚙️ Smart Polling Strategy (Option 3):**
@@ -76,7 +76,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
   }'
 
 # Cancellation detection with recent focus
-*/3 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/3 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
 # Quick deletion sync for immediate responsiveness
 */10 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
@@ -103,7 +103,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 **For High-Activity Systems:**
 ```bash
 # More frequent checks with smaller windows
-*/2 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/2 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 # Sync only last 24 hours + next 3 days
 -d '{"start_date":"$(date -d \"-1 day\" +%Y-%m-%d)","end_date":"$(date -d \"+3 days\" +%Y-%m-%d)","limit": 25}'
 ```
@@ -111,7 +111,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 **For Low-Activity Systems:**
 ```bash
 # Less frequent checks with larger windows  
-*/10 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/10 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 # Sync last 7 days + next 30 days
 -d '{"start_date":"$(date -d \"-7 days\" +%Y-%m-%d)","end_date":"$(date -d \"+30 days\" +%Y-%m-%d)","limit": 100}'
 ```
@@ -119,7 +119,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 **For Your Inactive Event Use Case:**
 ```bash
 # Optimized for cancellation detection
-*/3 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/3 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" \
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)","limit": 30}'
@@ -134,7 +134,7 @@ For webhook-less environments, update your cron jobs for more frequent polling:
 UPDATE bb_event SET active = 0 WHERE id = 12345;
 
 # Within 5 minutes (or 2 minutes with high-frequency polling):
-# 1. Cron job triggers: curl -X POST /cancel/detect
+# 1. Cron job triggers: curl -X POST /bridges/sync-deletions
 # 2. System detects active = 0 
 # 3. Outlook event automatically deleted
 # 4. Mapping updated to 'cancelled'

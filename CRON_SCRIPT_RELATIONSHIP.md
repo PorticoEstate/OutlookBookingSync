@@ -9,7 +9,7 @@
 #### `docker-entrypoint.sh` (Individual Cron Jobs):
 ```bash
 */5 * * * * curl -X POST "localhost/bridges/process-deletion-queue"
-*/5 * * * * curl -X POST "localhost/cancel/detect"  
+*/5 * * * * curl -X POST "localhost/bridges/sync-deletions"  
 */30 * * * * curl -X POST "localhost/bridges/sync-deletions"
 ```
 
@@ -36,7 +36,7 @@ api_call "/bridges/sync-deletions" "Manual deletion sync check"
 
 # Remove these redundant lines:
 # */5 * * * * curl -X POST "localhost/bridges/process-deletion-queue"
-# */5 * * * * curl -X POST "localhost/cancel/detect"  
+# */5 * * * * curl -X POST "localhost/bridges/sync-deletions"  
 # */30 * * * * curl -X POST "localhost/bridges/sync-deletions"
 ```
 
@@ -53,7 +53,7 @@ api_call "/bridges/sync-deletions" "Manual deletion sync check"
 ```bash
 # docker-entrypoint.sh - Keep only direct API calls
 */5 * * * * curl -X POST "localhost/bridges/process-deletion-queue"
-*/5 * * * * curl -X POST "localhost/cancel/detect"  
+*/5 * * * * curl -X POST "localhost/bridges/sync-deletions"  
 */30 * * * * curl -X POST "localhost/bridges/sync-deletions"
 
 # Remove: process_deletions.sh (not used)
@@ -122,7 +122,7 @@ docker-entrypoint.sh (cron) ──► API Endpoints (direct)
    ```bash
    # Keep only these cron jobs
    */5 * * * * curl -X POST "localhost/bridges/process-deletion-queue"
-   */5 * * * * curl -X POST "localhost/cancel/detect"  
+   */5 * * * * curl -X POST "localhost/bridges/sync-deletions"  
    */30 * * * * curl -X POST "localhost/bridges/sync-deletions"
    ```
 
@@ -158,7 +158,7 @@ sync_deletions()             # Step 5: Manual sync check
 ```bash
 # Individual cron jobs might conflict:
 */5 * * * * curl /process-deletion-queue  # Might run at 10:05:00
-*/5 * * * * curl /cancel/detect           # Might run at 10:05:01 (conflict!)
+*/5 * * * * curl /bridges/sync-deletions           # Might run at 10:05:01 (conflict!)
 ```
 
 ---

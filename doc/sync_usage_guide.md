@@ -335,7 +335,7 @@ Automatically detects cancelled reservations in the booking system and processes
 
 ```bash
 # Automatically detect cancelled and re-enabled reservations and process them
-curl -X POST "http://localhost:8082/cancel/detect"
+curl -X POST "http://localhost:8082/bridges/sync-deletions"
 ```
 
 **What this endpoint does:**
@@ -391,7 +391,7 @@ For dedicated re-enable processing:
 
 ```bash
 # Detect and process only re-enabled reservations
-curl -X POST "http://localhost:8082/cancel/detect-reenabled"
+curl -X POST "http://localhost:8082/bridges/sync-deletions-reenabled"
 ```
 
 **What this endpoint does:**
@@ -404,7 +404,7 @@ curl -X POST "http://localhost:8082/cancel/detect-reenabled"
 
 ```bash
 # View statistics about potential cancellations
-curl -X GET "http://localhost:8082/cancel/detection-stats"
+curl -X GET "http://localhost:8082/bridges/sync-deletionsion-stats"
 ```
 
 Shows statistics about reservations that may be cancelled based on their active status.
@@ -765,7 +765,7 @@ curl -X GET "http://localhost:8082/booking/processed-imports"
 
 ```bash
 # Automatically detect cancelled and re-enabled reservations in booking system
-curl -X POST "http://localhost:8082/cancel/detect"
+curl -X POST "http://localhost:8082/bridges/sync-deletions"
 
 # View cancellation and re-enable statistics
 curl -X GET "http://localhost:8082/cancel/stats"
@@ -777,7 +777,7 @@ curl -X GET "http://localhost:8082/cancel/cancelled-reservations"
 **Re-enable Workflow:**
 When you re-enable a cancelled reservation in your booking system (`UPDATE bb_event SET active = 1 WHERE id = X`):
 
-1. **Detection**: `/cancel/detect` automatically finds reservations with `active = 1` but `sync_status = 'cancelled'`
+1. **Detection**: `/bridges/sync-deletions` automatically finds reservations with `active = 1` but `sync_status = 'cancelled'`
 2. **Reset**: Mapping status changes from 'cancelled' to 'pending', old Outlook event ID is cleared
 3. **Sync**: Normal sync process (`/sync/to-outlook`) creates a fresh Outlook event
 4. **Result**: Re-enabled reservation gets a completely new Outlook calendar event
@@ -949,7 +949,7 @@ curl -X POST "http://localhost:8082/booking/process-imports"
 **Failed Cancellation Detection**
 ```bash
 # Retry cancellation detection and processing
-curl -X POST "http://localhost:8082/cancel/detect"
+curl -X POST "http://localhost:8082/bridges/sync-deletions"
 ```
 
 ### Debug and Monitoring
@@ -1000,7 +1000,7 @@ curl -X GET "http://localhost:8082/sync/pending-items" | jq '.count'
 curl -X GET "http://localhost:8082/booking/pending-imports" | jq '.count'
 
 # Monitor cancellation detection
-curl -X GET "http://localhost:8082/cancel/detection-stats"
+curl -X GET "http://localhost:8082/bridges/sync-deletionsion-stats"
 ```
 
 #### Reset and Recovery
@@ -1032,7 +1032,7 @@ curl -X GET "http://localhost:8082/booking/pending-imports"
 curl -X POST "http://localhost:8082/booking/process-imports"
 
 # Re-detect missed cancellations
-curl -X POST "http://localhost:8082/cancel/detect"
+curl -X POST "http://localhost:8082/bridges/sync-deletions"
 
 # Clean up orphaned entries
 curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
@@ -1061,7 +1061,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 */30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
 
 # Detect and process cancellations and re-enables every 10 minutes
-*/10 * * * * www-data curl -X POST "http://localhost:8082/cancel/detect" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" > /dev/null 2>&1
 
 # Cleanup orphaned mappings daily at 2 AM
 0 2 * * * www-data curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned" > /dev/null 2>&1
@@ -1203,7 +1203,7 @@ For multiple servers, distribute the load:
 */30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
 
 # Server 3: Handle cancellation processing
-*/10 * * * * www-data curl -X POST "http://localhost:8082/cancel/detect" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" > /dev/null 2>&1
 ```
 
 ### Backup and Recovery
@@ -1256,7 +1256,7 @@ Create a simple monitoring dashboard:
     <h2>Quick Actions</h2>
     <button onclick="fetch('/sync/to-outlook', {method: 'POST'})">Sync to Outlook</button>
     <button onclick="fetch('/booking/process-imports', {method: 'POST'})">Process Imports</button>
-    <button onclick="fetch('/cancel/detect', {method: 'POST'})">Detect Cancellations</button>
+    <button onclick="fetch('/bridges/sync-deletions', {method: 'POST'})">Detect Cancellations</button>
 </body>
 </html>
 ```

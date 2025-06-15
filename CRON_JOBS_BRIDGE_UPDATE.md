@@ -9,14 +9,14 @@ Yes, the latest bridge migration changes **DO HAVE IMPACT** on the cron jobs. Th
 ### 1. **Docker Container Cron Jobs** (`docker-entrypoint.sh`)
 
 **UPDATED:**
-- ✅ Removed legacy `/cancel/detect` endpoint from alternative cron job configuration
+- ✅ Removed legacy `/bridges/sync-deletions` endpoint from alternative cron job configuration
 - ✅ Kept only bridge-compatible endpoints: `/bridges/process-deletion-queue` and `/bridges/sync-deletions`
 
 ### 2. **Enhanced Deletion Script** (`scripts/enhanced_process_deletions.sh`)
 
 **UPDATED:**
-- ✅ **Line 94**: Replaced `/cancel/detect` → `/bridges/sync-deletions`
-- ✅ **Line 111**: Replaced `/tenants/{id}/cancel/detect` → `/tenants/{id}/bridges/sync-deletions`
+- ✅ **Line 94**: Replaced `/bridges/sync-deletions` → `/bridges/sync-deletions`
+- ✅ **Line 111**: Replaced `/tenants/{id}/bridges/sync-deletions` → `/tenants/{id}/bridges/sync-deletions`
 - ✅ All deletion processing now uses bridge endpoints exclusively
 
 ### 3. **Dashboard Web Interface** (`public/dashboard.html`)
@@ -36,7 +36,7 @@ Yes, the latest bridge migration changes **DO HAVE IMPACT** on the cron jobs. Th
 
 | **Legacy Endpoint** | **New Bridge Endpoint** | **Function** |
 |-------------------|------------------------|-------------|
-| `POST /cancel/detect` | `POST /bridges/sync-deletions` | Cancellation detection |
+| `POST /bridges/sync-deletions` | `POST /bridges/sync-deletions` | Cancellation detection |
 | `GET /cancel/stats` | `GET /bridges/health` | Health monitoring |
 | N/A | `POST /bridges/process-deletion-queue` | Webhook deletions |
 

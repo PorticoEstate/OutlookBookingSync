@@ -39,17 +39,22 @@ OutlookCalendarBridge/
 │   │   ├── AbstractCalendarBridge.php     # Base bridge class
 │   │   ├── OutlookBridge.php               # Microsoft Graph integration
 │   │   └── BookingSystemBridge.php         # Booking system integration
-│   ├── Service/
-│   │   └── BridgeManager.php               # Bridge orchestration
+│   ├── Services/
+│   │   ├── BridgeManager.php               # Bridge orchestration
+│   │   ├── DeletionSyncService.php         # Deletion/cancellation sync
+│   │   └── OutlookEventDetectionService.php # Event change detection
 │   ├── Controller/
-│   │   └── BridgeController.php            # REST API endpoints
-│   └── Model/
+│   │   ├── BridgeController.php            # REST API endpoints
+│   │   ├── BridgeBookingController.php     # Bridge booking operations
+│   │   └── ResourceMappingController.php   # Resource mapping management
+│   └── Middleware/
 ├── database/
-│   └── bridge_schema.sql                   # Database schema
-├── config/
-└── scripts/
-    ├── setup_bridge_database.sh           # Database setup
-    └── test_bridge.sh                     # Testing script
+│   └── bridge_schema.sql                   # Bridge database schema
+├── scripts/
+│   ├── setup_bridge_database.sh           # Database setup
+│   ├── test_bridge.sh                     # Testing script
+│   └── enhanced_process_deletions.sh       # Automated deletion processing
+└── docker-compose.yml                      # Container orchestration
 ```
 
 ## 🚀 Getting Started
@@ -414,8 +419,8 @@ http://localhost:8080/dashboard.html
 - `/health/system` - System health monitoring
 - `/health/dashboard` - Dashboard metrics  
 - `/bridges/sync/{source}/{target}` - Manual bidirectional sync
-- `/bridges/sync-deletions` - Process deletion queue
-- `/cancel/detect` - Detect cancellations
+- `/bridges/sync-deletions` - Process deletion queue and detect cancellations
+- `/bridges/process-deletion-queue` - Process webhook deletion notifications
 
 **Auto-refresh:**
 The dashboard automatically refreshes every 30 seconds to provide real-time monitoring.
@@ -1295,13 +1300,13 @@ The bridge automatically handles when events become inactive in your booking sys
 
 #### **Automatic Cancellation Detection**
 ```http
-POST /cancel/detect
+POST /bridges/sync-deletions
 ```
 
 Scans for inactive events in booking system and deletes corresponding Outlook events:
 
 ```bash
-curl -X POST http://localhost:8080/cancel/detect
+curl -X POST http://localhost:8080/bridges/sync-deletions
 ```
 
 Response:
@@ -1385,7 +1390,7 @@ Set up comprehensive automation for the bridge system with cron jobs:
 */5 * * * * curl -X POST http://localhost:8080/bridges/process-deletion-queue
 
 # Detect and process cancellations (inactive events) every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
 # Manual deletion sync check every 30 minutes
 */30 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
@@ -1413,7 +1418,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Deletion and cancellation processing  
 */5 * * * * www-data curl -s -X POST "http://localhost/bridges/process-deletion-queue" >/dev/null 2>&1
-*/5 * * * * www-data curl -s -X POST "http://localhost/cancel/detect" >/dev/null 2>&1
+*/5 * * * * www-data curl -s -X POST "http://localhost/bridges/sync-deletions" >/dev/null 2>&1
 
 # System monitoring
 */10 * * * * www-data curl -s -X GET "http://localhost/bridges/health" >/dev/null 2>&1
@@ -1438,7 +1443,7 @@ curl http://localhost:8080/cancel/cancelled-reservations
 #### **Detection Statistics**
 ```bash
 # Get detection performance stats
-curl http://localhost:8080/cancel/detection-stats
+curl http://localhost:8080/bridges/sync-deletionsion-stats
 ```
 
 ### **🔄 Re-enabling Events**
@@ -1452,7 +1457,7 @@ The system also handles when cancelled events are reactivated:
 
 ```bash
 # Detect and process re-enabled events
-curl -X POST http://localhost:8080/cancel/detect-reenabled
+curl -X POST http://localhost:8080/bridges/sync-deletions-reenabled
 ```
 
 ### **🎯 Key Benefits**
@@ -1501,10 +1506,10 @@ The default cron jobs are already optimized for webhook-free operation:
 # Current default (recommended)
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook
 */10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system  
-*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
 # For faster response (every 2 minutes)
-*/2 * * * * curl -X POST http://localhost:8080/cancel/detect
+*/2 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 ```
 
 ### **🎯 Your Inactive Event Use Case:**
@@ -1512,7 +1517,7 @@ The default cron jobs are already optimized for webhook-free operation:
 This works perfectly with polling:
 
 1. **Set Event Inactive**: `UPDATE bb_event SET active = 0 WHERE id = 12345`
-2. **Automatic Detection**: Within 5 minutes, cron job runs `/cancel/detect`
+2. **Automatic Detection**: Within 5 minutes, cron job runs `/bridges/sync-deletions`
 3. **Outlook Deletion**: Corresponding Outlook event automatically deleted
 4. **No Webhooks Needed**: Pure polling-based detection
 

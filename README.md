@@ -100,18 +100,22 @@ curl http://localhost:8080/mappings/resources
 
 See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API requirements.
 
-### 7. Test Common Use Cases
+### Example: Bridge-Based Deletion Handling
 
 ```bash
-# Example: Sync events from booking system to Outlook
-curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
-  -H "Content-Type: application/json" \
-  -d '{"source_calendar_id": "123", "target_calendar_id": "room1@company.com"}'
+# Example: Handle booking system cancellation (sets event to inactive)
+# The bridge system will automatically detect and sync the deletion to Outlook
 
-# Example: Handle inactive events (booking system → Outlook deletion)
-# First, set an event to inactive in your booking system database
-# Then run cancellation detection to delete corresponding Outlook event
-curl -X POST http://localhost:8080/cancel/detect
+# 1. Set booking system event to inactive (via your booking system)
+curl -X PUT http://your-booking-system/api/events/123 \
+  -d '{"status": "inactive"}'
+
+# 2. Run deletion detection to sync to Outlook
+curl -X POST http://localhost:8080/bridges/sync-deletions
+
+# Example: Handle Outlook deletion
+# When an Outlook event is deleted, webhooks or polling will detect it
+# and automatically mark the corresponding booking system event as inactive
 ```
 
 ## 🔧 Configuration
@@ -157,18 +161,11 @@ The bridges will be automatically available once the service starts.
 - `DELETE /mappings/resources/{id}` - Delete resource mapping
 - `GET /mappings/resources/by-resource/{id}` - Get mappings by resource ID
 
-### Deletion Sync
+### Deletion & Cancellation Sync
 
-- `POST /bridges/sync-deletions` - Manual deletion sync check
-- `POST /bridges/process-deletion-queue` - Process deletion queue
-
-### Cancellation & Inactive Events
-
-- `POST /cancel/detect` - Detect inactive booking system events and delete corresponding Outlook events
-- `DELETE /cancel/reservation/{type}/{id}/{resourceId}` - Cancel specific reservation
-- `POST /cancel/bulk` - Process multiple cancellations
-- `GET /cancel/stats` - Get cancellation statistics
-- `GET /cancel/cancelled-reservations` - View cancelled reservations
+- `POST /bridges/sync-deletions` - Detect and sync deletions across bridge systems
+- `POST /bridges/process-deletion-queue` - Process webhook-based deletion notifications
+- `GET /bridges/health` - Monitor deletion sync status and health
 
 ### Health & Monitoring
 
@@ -176,35 +173,42 @@ The bridges will be automatically available once the service starts.
 - `GET /health/system` - Comprehensive system health
 - `POST /alerts/check` - Run alert checks
 
-### Legacy Endpoints (Deprecated)
+### Legacy Endpoints (Removed)
 
-- `GET /sync/pending-items` - View items awaiting sync (use `/mappings/resources`)
-- `POST /sync/to-outlook` - Sync to Outlook (use `/bridges/sync/booking_system/outlook`)
-- `POST /webhook/outlook-notifications` - Outlook webhooks (use `/bridges/webhook/outlook`)
+The following legacy endpoints have been removed and replaced with bridge equivalents:
+
+- `POST /bridges/sync-deletions` → Use `POST /bridges/sync-deletions`
+- `DELETE /cancel/reservation/{type}/{id}/{resourceId}` → Use bridge deletion sync
+- `POST /cancel/bulk` → Use `POST /bridges/process-deletion-queue`
+- `GET /cancel/stats` → Use `GET /bridges/health`
+- `GET /sync/pending-items` → Use `GET /mappings/resources`
+- `POST /sync/to-outlook` → Use `POST /bridges/sync/booking_system/outlook`
+- `POST /webhook/outlook-notifications` → Use `POST /bridges/webhook/outlook`
 
 ## ⚙️ Automated Processing
 
-The system supports automated processing through cron jobs:
+The system supports automated processing through cron jobs that use bridge endpoints:
 
 ```bash
-# Bridge synchronization - sync from booking system to Outlook every 5 minutes
+# Bidirectional bridge synchronization
 */5 * * * * curl -X POST http://localhost:8080/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" \
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
-# Bridge synchronization - sync from Outlook to booking system every 10 minutes  
 */10 * * * * curl -X POST http://localhost:8080/bridges/sync/outlook/booking_system \
   -H "Content-Type: application/json" \
   -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
-# Process deletion sync every 5 minutes
+# Enhanced deletion processing (recommended)
 */5 * * * * /scripts/enhanced_process_deletions.sh
 
-# Detect and process cancellations (inactive events) every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8080/cancel/detect
+# Alternative: Individual deletion sync calls
+*/5 * * * * curl -X POST http://localhost:8080/bridges/process-deletion-queue
+*/5 * * * * curl -X POST http://localhost:8080/bridges/sync-deletions
 
-# Health monitoring every 10 minutes
+# Health monitoring
 */10 * * * * curl -X GET http://localhost:8080/bridges/health
+*/15 * * * * curl -X GET http://localhost:8080/health/system
 ```
 
 ## 📚 Documentation
