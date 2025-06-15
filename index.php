@@ -16,113 +16,27 @@ try
 }
 catch (Throwable $e)
 {
-	// Friendly error message for missing .env file
+	// Load the template for environment configuration error
+	require_once __DIR__ . '/src/Services/TemplateLoader.php';
+	
+	$templateLoader = new TemplateLoader();
 	$envExampleExists = file_exists(__DIR__ . '/.env.example');
 
-	echo "
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Calendar Bridge Service - Configuration Required</title>
-        <style>
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-                max-width: 800px; margin: 50px auto; padding: 20px; 
-                background: #f5f5f5; color: #333; line-height: 1.6;
-            }
-            .container { 
-                background: white; padding: 40px; border-radius: 12px; 
-                box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
-            }
-            .header { 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                color: white; padding: 20px; margin: -40px -40px 30px -40px; 
-                border-radius: 12px 12px 0 0; text-align: center; 
-            }
-            .error { background: #fee; border-left: 4px solid #e53e3e; padding: 15px; margin: 20px 0; }
-            .info { background: #e6f3ff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; }
-            .success { background: #f0fff4; border-left: 4px solid #38a169; padding: 15px; margin: 20px 0; }
-            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-            pre { background: #f4f4f4; padding: 15px; border-radius: 6px; overflow-x: auto; }
-            .step { margin: 20px 0; padding: 15px; background: #fafafa; border-radius: 6px; }
-            .step-number { 
-                display: inline-block; width: 30px; height: 30px; background: #667eea; 
-                color: white; text-align: center; line-height: 30px; border-radius: 50%; 
-                margin-right: 10px; font-weight: bold; 
-            }
-        </style>
-    </head>
-    <body>
-        <div class='container'>
-            <div class='header'>
-                <h1>🌉 Calendar Bridge Service</h1>
-                <p>Configuration Required</p>
-            </div>
-            
-            <div class='error'>
-                <strong>⚠️ Environment Configuration Missing</strong><br>
-                The <code>.env</code> file is required but not found or could not be loaded.
-            </div>
-            
-            <h2>🚀 Quick Setup</h2>
-            
-            <div class='step'>
-                <span class='step-number'>1</span>
-                <strong>Create Environment File</strong><br>
-                " . ($envExampleExists ?
-		"Copy the example file: <code>cp .env.example .env</code>" :
-		"Create a new <code>.env</code> file in the project root"
-	) . "
-            </div>
-            
-            <div class='step'>
-                <span class='step-number'>2</span>
-                <strong>Basic Configuration</strong><br>
-                Add the following minimal configuration to your <code>.env</code> file:
-                <pre># Basic configuration
-DB_NAME=/tmp/bridge_demo.db
-API_KEY=your_secure_api_key_here
-APP_BASE_URL=http://localhost:8088
-OUTLOOK_CLIENT_ID=your_outlook_client_id
-OUTLOOK_CLIENT_SECRET=your_outlook_client_secret
-OUTLOOK_TENANT_ID=your_outlook_tenant_id</pre>
-            </div>
-            
-            <div class='step'>
-                <span class='step-number'>3</span>
-                <strong>Reload the Page</strong><br>
-                Refresh this page after creating the <code>.env</code> file.
-            </div>
-            
-            <div class='info'>
-                <strong>💡 Demo Mode</strong><br>
-                For quick testing, you can use demo values for the Outlook credentials. 
-                The system will use SQLite for the database and provide limited functionality.
-            </div>
-            
-            " . ($envExampleExists ? "
-            <div class='success'>
-                <strong>✅ Found .env.example</strong><br>
-                A template file is available. Copy it to <code>.env</code> and customize the values.
-            </div>
-            " : "") . "
-            
-            <div class='info'>
-                <strong>📚 Documentation</strong><br>
-                For detailed setup instructions, see <code>README_BRIDGE.md</code> or visit the 
-                <a href='/health' style='color: #667eea;'>health endpoint</a> after configuration.
-            </div>
-            
-            <hr style='margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;'>
-            
-            <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-                <strong>Technical Details:</strong><br>
-                Error: " . htmlspecialchars($e->getMessage()) . "<br>
-                File: " . htmlspecialchars($e->getFile()) . " (Line " . $e->getLine() . ")
-            </div>
-        </div>
-    </body>
-    </html>";
+	$templateVariables = [
+		'env_example_message' => $envExampleExists ? 
+			"Copy the example file: <code>cp .env.example .env</code>" : 
+			"Create a new <code>.env</code> file in the project root",
+		'env_example_status' => $envExampleExists ? "
+			<div class='success'>
+				<strong>✅ Found .env.example</strong><br>
+				A template file is available. Copy it to <code>.env</code> and customize the values.
+			</div>" : "",
+		'error_message' => htmlspecialchars($e->getMessage()),
+		'error_file' => htmlspecialchars($e->getFile()),
+		'error_line' => $e->getLine()
+	];
+
+	echo $templateLoader->render('setup', $templateVariables);
 	exit(1);
 }
 
