@@ -359,7 +359,6 @@ $deletionResults = $bridgeManager->processDeletionQueue();
 // Get bridge health and statistics
 $healthStatus = $bridgeManager->getBridgeHealth();
 ```
-```
 
 ### **API Endpoints for Bridge Management**
 
@@ -664,9 +663,9 @@ The generic bridge architecture has been **fully implemented and is production-r
 ### ✅ **Production Features Implemented**
 
 - [x] **Bridge Discovery** - `/bridges` endpoint listing all available bridges
-- [x] **Calendar Discovery** - `/bridges/{bridge}/calendars` for calendar enumeration
-- [x] **Bidirectional Sync** - `/bridges/sync/{source}/{target}` for event synchronization
-- [x] **Webhook Handling** - `/bridges/webhook/{bridge}` for real-time updates
+- [x] **Calendar Discovery** - `/bridges/{bridge}/calendars` - Enumerate bridge calendars
+- [x] **Bidirectional Sync** - `/bridges/sync/{source}/{target}` - Event synchronization
+- [x] **Webhook Handling** - `/bridges/webhook/{bridge}` - Real-time update processing
 - [x] **Resource Mapping** - `/resource-mappings` for calendar resource management
 - [x] **Deletion Sync** - `/bridges/sync-deletions` and `/bridges/process-deletion-queue`
 - [x] **Health Checks** - `/bridges/health` for monitoring and status
@@ -803,535 +802,1466 @@ $bridgeManager->registerTenantBridge('municipal_b', 'outlook', OutlookBridge::cl
 **Database Schema Enhancement:**
 ```sql
 -- Add tenant_id to all relevant tables
-ALTER TABLE bridge_mappings ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
-ALTER TABLE bridge_resource_mappings ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
-ALTER TABLE bridge_sync_logs ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
-ALTER TABLE bridge_webhook_subscriptions ADD COLUMN tenant_id VARCHAR(50) NOT NULL DEFAULT 'default';
+ALTER TABLE bridge_mappings ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE bridge_sync_logs ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE bridge_queue ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
 
 -- Create tenant management table
-CREATE TABLE bridge_tenants (
-    tenant_id VARCHAR(50) PRIMARY KEY,
-    tenant_name VARCHAR(255) NOT NULL,
-    configuration JSONB,
+CREATE TABLE tenants (
+    id SERIAL PRIMARY KEY,
+    tenant_key VARCHAR(64) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255),
+    status VARCHAR(20) DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT true
+    
+    -- Operational settings
+    sync_frequency_minutes INTEGER DEFAULT 5,
+    max_events_per_sync INTEGER DEFAULT 1000,
+    timezone VARCHAR(50) DEFAULT 'UTC',
+    priority INTEGER DEFAULT 100,
+    
+    -- Feature flags
+    webhook_enabled BOOLEAN DEFAULT true,
+    deletion_sync_enabled BOOLEAN DEFAULT true,
+    real_time_sync BOOLEAN DEFAULT false,
+    health_monitoring BOOLEAN DEFAULT true,
+    
+    -- Resource limits
+    max_bridge_connections INTEGER DEFAULT 10,
+    max_sync_retries INTEGER DEFAULT 3,
+    rate_limit_per_minute INTEGER DEFAULT 60
 );
 
--- Add indexes for tenant-based queries
-CREATE INDEX idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);
-CREATE INDEX idx_bridge_resource_mappings_tenant ON bridge_resource_mappings(tenant_id);
-CREATE INDEX idx_bridge_sync_logs_tenant ON bridge_sync_logs(tenant_id);
+-- Bridge system configurations per tenant
+CREATE TABLE tenant_bridge_configs (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    bridge_type VARCHAR(50) NOT NULL, -- 'outlook', 'google', 'exchange', 'booking_system'
+    bridge_name VARCHAR(100) NOT NULL, -- 'primary_outlook', 'backup_exchange'
+    
+    -- Encrypted configuration data
+    config_data JSONB NOT NULL, -- Encrypted bridge-specific settings
+    credentials_data JSONB NOT NULL, -- Encrypted authentication details
+    
+    -- Bridge settings
+    status VARCHAR(20) DEFAULT 'active',
+    priority INTEGER DEFAULT 100,
+    max_connections INTEGER DEFAULT 5,
+    timeout_seconds INTEGER DEFAULT 30,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(tenant_id, bridge_name)
+);
+
+-- API endpoint and field mapping configurations
+CREATE TABLE tenant_api_configs (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    system_type VARCHAR(50) NOT NULL, -- 'booking_system', 'calendar_system'
+    
+    -- API configuration
+    api_base_url VARCHAR(500) NOT NULL,
+    authentication_config JSONB NOT NULL, -- Encrypted auth details
+    
+    -- Custom mappings
+    endpoint_mappings JSONB NOT NULL, -- Custom endpoint configurations
+    field_mappings JSONB NOT NULL, -- Custom field transformations
+    webhook_config JSONB, -- Webhook endpoints and settings
+    
+    -- API settings
+    rate_limit_per_minute INTEGER DEFAULT 60,
+    timeout_seconds INTEGER DEFAULT 30,
+    retry_attempts INTEGER DEFAULT 3,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tenant-specific resource mappings
+CREATE TABLE tenant_resource_mappings (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    source_bridge_type VARCHAR(50) NOT NULL,
+    source_resource_id VARCHAR(255) NOT NULL,
+    target_bridge_type VARCHAR(50) NOT NULL,
+    target_resource_id VARCHAR(255) NOT NULL,
+    
+    -- Mapping metadata
+    resource_type VARCHAR(50) NOT NULL, -- 'room', 'equipment', 'person'
+    display_name VARCHAR(255),
+    sync_enabled BOOLEAN DEFAULT true,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(tenant_id, source_bridge_type, source_resource_id, target_bridge_type)
+);
 ```
 
-**Implementation Tasks:**
-- [ ] Create database migration scripts for multi-tenant schema
-- [ ] Implement tenant-aware data access layer with automatic tenant filtering
-- [ ] Create `TenantRepository` for tenant CRUD operations
-- [ ] Add data isolation validation and testing
+**Performance and Security Enhancements:**
+```sql
+-- Partition existing tables by tenant for performance
+ALTER TABLE bridge_mappings ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE bridge_sync_logs ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
+ALTER TABLE bridge_queue ADD COLUMN tenant_id INTEGER REFERENCES tenants(id);
 
----
+-- Indexes for high-performance queries
+CREATE INDEX idx_tenants_key_status ON tenants(tenant_key, status);
+CREATE INDEX idx_tenant_bridge_configs_tenant_type ON tenant_bridge_configs(tenant_id, bridge_type);
+CREATE INDEX idx_bridge_mappings_tenant_status ON bridge_mappings(tenant_id, sync_status);
+CREATE INDEX idx_bridge_sync_logs_tenant_date ON bridge_sync_logs(tenant_id, created_at DESC);
 
-### 🛣️ **Phase 4.2: Tenant-Prefixed API Routes** (Week 3)
-
-#### **New Route Structure**
-
-**Tenant-Specific Routes:**
-```php
-// Tenant-specific bridge operations
-GET    /tenants/{tenant}/bridges                              - List tenant bridges
-GET    /tenants/{tenant}/bridges/{bridge}/calendars           - Get tenant calendars
-POST   /tenants/{tenant}/bridges/sync/{source}/{target}       - Tenant-specific sync
-POST   /tenants/{tenant}/bridges/webhook/{bridge}             - Tenant webhooks
-GET    /tenants/{tenant}/bridges/health                       - Tenant health
-
-// Tenant resource management
-GET    /tenants/{tenant}/mappings/resources                   - Tenant resource mappings
-POST   /tenants/{tenant}/mappings/resources                   - Create tenant mapping
-PUT    /tenants/{tenant}/mappings/resources/{id}              - Update tenant mapping
-
-// Tenant-specific operations
-POST   /tenants/{tenant}/bridges/sync-deletions                        - Tenant cancellation detection
-GET    /tenants/{tenant}/cancel/stats                         - Tenant cancellation stats
+-- Encryption key management
+CREATE TABLE encryption_keys (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    key_name VARCHAR(100) NOT NULL,
+    encrypted_key_data BYTEA NOT NULL,
+    key_version INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    
+    UNIQUE(tenant_id, key_name, key_version)
+);
 ```
 
-**Global Tenant Management:**
-```php
-// Tenant administration
-GET    /tenants                           - List all tenants
-POST   /tenants                           - Create new tenant
-GET    /tenants/{tenant}                  - Get tenant details
-PUT    /tenants/{tenant}                  - Update tenant configuration
-DELETE /tenants/{tenant}                  - Remove tenant (with safeguards)
+#### **Step 2: Tenant Configuration Service Architecture**
 
-// Multi-tenant operations
-POST   /bridges/sync-all                  - Sync all tenants
-GET    /bridges/health-all                - Health check all tenants
-POST   /tenants/{tenant}/sync-all         - Sync all bridges for specific tenant
-```
-
-**Implementation Tasks:**
-- [ ] Implement tenant-prefixed route groups in `index.php`
-- [ ] Create `TenantController` for tenant management operations
-- [ ] Enhance existing controllers with tenant context support
-- [ ] Add tenant validation middleware for route protection
-
-#### **Backward Compatibility**
-
-**Legacy Route Support:**
-```php
-// Maintain existing routes for backward compatibility (default tenant)
-GET    /bridges/outlook/calendars         → /tenants/default/bridges/outlook/calendars
-POST   /bridges/sync/outlook/booking      → /tenants/default/bridges/sync/outlook/booking
-```
-
-**Implementation Tasks:**
-- [ ] Create route redirects for backward compatibility
-- [ ] Implement default tenant fallback mechanism
-- [ ] Add deprecation warnings for legacy routes
-- [ ] Create migration guide for existing API consumers
-
----
-
-### 🎛️ **Phase 4.3: Enhanced Dashboard & Monitoring** (Week 4)
-
-#### **Multi-Tenant Dashboard**
-
-**Dashboard Features:**
-- **Tenant Selector** - Dropdown to switch between tenants or view all
-- **Tenant Overview** - Summary cards showing status per tenant
-- **Cross-Tenant Statistics** - Aggregated metrics across all tenants
-- **Tenant-Specific Health** - Individual health monitoring per tenant
-
-**Dashboard Routes:**
-```php
-GET    /dashboard                         - Multi-tenant dashboard overview
-GET    /dashboard/{tenant}                - Tenant-specific dashboard
-GET    /api/dashboard/tenants             - Tenant list for dashboard
-GET    /api/dashboard/{tenant}/health     - Tenant health data
-GET    /api/dashboard/global/stats        - Cross-tenant statistics
-```
-
-**Implementation Tasks:**
-- [ ] Enhance dashboard UI with tenant selection capabilities
-- [ ] Implement tenant-aware dashboard API endpoints
-- [ ] Create tenant comparison and aggregation views
-- [ ] Add tenant-specific action buttons and operations
-
-#### **Tenant Management Interface**
-
-**Admin Interface Features:**
-- **Tenant Configuration** - GUI for tenant setup and management
-- **Tenant Health Monitoring** - Real-time status per tenant
-- **Bulk Operations** - Cross-tenant sync and maintenance operations
-- **Tenant Analytics** - Usage statistics and performance metrics
-
-**Implementation Tasks:**
-- [ ] Create tenant administration interface
-- [ ] Implement tenant configuration forms
-- [ ] Add tenant health monitoring widgets
-- [ ] Create tenant analytics and reporting
-
----
-
-### 🔧 **Phase 4.4: Advanced Multi-Tenant Features** (Month 2)
-
-#### **Tenant Isolation & Security**
-
-**Security Enhancements:**
-- **API Key per Tenant** - Separate authentication per tenant
-- **Rate Limiting per Tenant** - Independent rate limits
-- **Audit Logging** - Tenant-specific activity tracking
-- **Data Encryption** - Tenant-specific encryption keys
-
-**Implementation Tasks:**
-- [ ] Implement tenant-specific API authentication
-- [ ] Add tenant-aware rate limiting middleware
-- [ ] Create comprehensive audit logging system
-- [ ] Implement tenant data encryption at rest
-
-#### **Performance & Scaling**
-
-**Performance Optimizations:**
-- **Tenant-Specific Caching** - Isolated cache namespaces
-- **Connection Pooling** - Per-tenant database connection management
-- **Background Job Queues** - Tenant-aware job processing
-- **Resource Allocation** - Configurable resource limits per tenant
-
-**Implementation Tasks:**
-- [ ] Implement tenant-specific caching strategies
-- [ ] Optimize database queries with tenant partitioning
-- [ ] Create tenant-aware background job system
-- [ ] Add tenant resource monitoring and limiting
-
-#### **Advanced Configuration**
-
-**Per-Tenant Customization:**
-- **Custom Field Mappings** - Tenant-specific field mapping overrides
-- **Sync Schedules** - Independent sync frequencies per tenant
-- **Feature Flags** - Enable/disable features per tenant
-- **Custom Webhooks** - Tenant-specific webhook configurations
-
-**Implementation Tasks:**
-- [ ] Create tenant configuration override system
-- [ ] Implement tenant-specific scheduling
-- [ ] Add feature flag management per tenant
-- [ ] Create advanced webhook configuration options
-
----
-
-### 📊 **Implementation Timeline & Effort**
-
-#### **Effort Estimation:**
-- **Phase 4.1** (Infrastructure): 1-2 weeks, 2 developers
-- **Phase 4.2** (API Routes): 1 week, 1 developer  
-- **Phase 4.3** (Dashboard): 1 week, 1 developer
-- **Phase 4.4** (Advanced Features): 2-3 weeks, 2 developers
-
-**Total Effort:** 5-7 weeks, 80-120 developer hours
-
-#### **Dependencies:**
-- ✅ Current bridge architecture (completed)
-- ✅ Database infrastructure (PostgreSQL recommended)
-- ✅ Monitoring and logging system
-- → Multi-tenant testing environment
-- → Tenant onboarding procedures
-
-#### **Success Criteria:**
-- [ ] Support for minimum 5 concurrent tenants
-- [ ] Complete data isolation between tenants
-- [ ] <100ms overhead for tenant context switching
-- [ ] Unified monitoring and alerting across tenants
-- [ ] Zero-downtime tenant addition/removal
-
----
-
-### 🚀 **Deployment Strategy**
-
-#### **Migration Approach:**
-1. **Parallel Development** - Implement multi-tenant features alongside current system
-2. **Feature Flags** - Enable multi-tenant mode through configuration
-3. **Gradual Migration** - Move existing configuration to "default" tenant
-4. **New Tenant Addition** - Add new tenants without affecting existing operations
-
-#### **Rollback Plan:**
-- Multi-tenant mode can be disabled via configuration
-- Database schema changes are backward compatible
-- Legacy routes remain functional during transition
-
-#### **Monitoring & Success Metrics:**
-- **Tenant Isolation** - Zero cross-tenant data leakage
-- **Performance** - No degradation in single-tenant performance
-- **Reliability** - 99.9% uptime per tenant
-- **Scalability** - Linear scaling with tenant addition
-
-This multi-tenant extension transforms the calendar bridge from a single-organization solution into a scalable platform capable of serving multiple independent entities while maintaining the same reliability and performance characteristics.
-
----
-
-### 🕒 **Multi-Tenant Cron Job Strategy**
-
-#### **Current Single-Tenant Cron Jobs**
-
-The existing cron jobs (from `docker-entrypoint.sh`) need significant restructuring:
-
-```bash
-# Current single-tenant cron jobs
-*/5 * * * * curl -X POST "localhost/bridges/sync/booking_system/outlook"
-*/10 * * * * curl -X POST "localhost/bridges/sync/outlook/booking_system"  
-*/5 * * * * curl -X POST "localhost/bridges/sync-deletions"
-*/30 * * * * curl -X POST "localhost/bridges/sync-deletions"
-```
-
-**Challenges with Multi-Tenant:**
-- ❌ **No Tenant Context** - Current jobs don't specify which tenant to process
-- ❌ **Sequential Processing** - All tenants processed one after another (slow)
-- ❌ **No Isolation** - Failure in one tenant affects others
-- ❌ **Resource Contention** - All tenants compete for same resources
-
-#### **Multi-Tenant Cron Job Solutions**
-
-### **Option 1: Tenant-Specific Cron Jobs (Recommended)**
-
-**Separate cron jobs per tenant with parallel execution:**
-
-```bash
-# Municipal A - Sync jobs
-*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/booking_system/outlook"
-*/10 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/outlook/booking_system"
-*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync-deletions"
-
-# Municipal B - Sync jobs (offset by 2 minutes to avoid resource conflicts)
-2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/booking_system/outlook"
-2,12,22,32,42,52 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/outlook/booking_system"
-2,7,12,17,22,27,32,37,42,47,52,57 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync-deletions"
-
-# Municipal C - Sync jobs (offset by 4 minutes)
-4,9,14,19,24,29,34,39,44,49,54,59 * * * * curl -X POST "localhost/tenants/municipal_c/bridges/sync/booking_system/outlook"
-```
-
-**✅ Benefits:**
-- Complete tenant isolation
-- Parallel processing capability
-- Independent failure handling
-- Configurable sync frequencies per tenant
-
-**⚠️ Considerations:**
-- Cron file grows with tenant count
-- Manual cron management per tenant
-- Resource scheduling complexity
-
-### **Option 2: Bulk Tenant Processing Jobs**
-
-**Single cron jobs that process all tenants:**
-
-```bash
-# Bulk sync jobs - processes all tenants sequentially
-*/5 * * * * curl -X POST "localhost/bridges/sync-all/booking_system/outlook"
-*/10 * * * * curl -X POST "localhost/bridges/sync-all/outlook/booking_system"
-*/5 * * * * curl -X POST "localhost/bridges/sync-deletions-all"
-
-# Tenant-specific maintenance (less frequent)
-0 2 * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync-deletions"
-0 2 * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync-deletions"
-```
-
-**✅ Benefits:**
-- Simpler cron management
-- Fewer cron entries
-- Centralized tenant processing
-
-**❌ Disadvantages:**
-- Sequential processing (slower)
-- One tenant failure can affect others
-- Less flexible scheduling per tenant
-
-### **Option 3: Hybrid Approach (Recommended)**
-
-**Combine bulk operations with tenant-specific critical jobs:**
-
-```bash
-# CRITICAL: High-frequency tenant-specific sync (parallel)
-# Municipal A
-*/5 * * * * curl -X POST "localhost/tenants/municipal_a/bridges/sync/booking_system/outlook"
-# Municipal B (offset)
-1,6,11,16,21,26,31,36,41,46,51,56 * * * * curl -X POST "localhost/tenants/municipal_b/bridges/sync/booking_system/outlook"
-
-# BULK: Less critical operations for all tenants
-*/30 * * * * curl -X POST "localhost/bridges/sync-deletions-all"
-*/15 * * * * curl -X POST "localhost/bridges/sync-deletions-all"  
-*/10 * * * * curl -X GET "localhost/bridges/health-all"
-
-# MAINTENANCE: Tenant-specific maintenance (staggered)
-0 2 * * * curl -X POST "localhost/tenants/municipal_a/maintenance/full"
-15 2 * * * curl -X POST "localhost/tenants/municipal_b/maintenance/full"
-30 2 * * * curl -X POST "localhost/tenants/municipal_c/maintenance/full"
-```
-
----
-
-#### **Enhanced Cron Job Implementation**
-
-### **Multi-Tenant Cron Generator**
-
-**Dynamic cron generation based on tenant configuration:**
-
+**Core Service Design:**
 ```php
 <?php
-// scripts/generate_tenant_crontab.php
+namespace App\Services;
 
-class MultiTenantCronGenerator 
+/**
+ * Scalable tenant configuration management with caching and encryption
+ */
+class TenantConfigService
 {
-    private $tenants;
-    private $baseFrequencies = [
-        'booking_to_outlook' => '*/5',  // Every 5 minutes
-        'outlook_to_booking' => '*/10', // Every 10 minutes
-        'cancellation_detect' => '*/5', // Every 5 minutes
-        'deletion_sync' => '*/30',      // Every 30 minutes
-    ];
+    private PDO $db;
+    private EncryptionService $encryption;
+    private CacheInterface $cache;
+    private array $memoryCache = [];
     
-    public function generateCrontab(): string 
+    // Configuration constants
+    private const CACHE_TTL = 300; // 5 minutes
+    private const MAX_MEMORY_CACHE = 100; // Max tenants in memory
+    
+    public function __construct(
+        PDO $db, 
+        EncryptionService $encryption, 
+        CacheInterface $cache
+    ) {
+        $this->db = $db;
+        $this->encryption = $encryption;
+        $this->cache = $cache;
+    }
+
+    /**
+     * Get complete tenant configuration with multi-layer caching
+     */
+    public function getTenantConfig(string $tenantKey): ?TenantConfig
     {
-        $crontab = "# Multi-Tenant Calendar Bridge Cron Jobs\n";
-        $crontab .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
+        // 1. Memory cache (fastest)
+        if (isset($this->memoryCache[$tenantKey])) {
+            return $this->memoryCache[$tenantKey];
+        }
+
+        // 2. Redis cache (fast)
+        $cacheKey = "tenant_config:{$tenantKey}";
+        $cached = $this->cache->get($cacheKey);
+        if ($cached !== null) {
+            $config = unserialize($cached);
+            $this->addToMemoryCache($tenantKey, $config);
+            return $config;
+        }
+
+        // 3. Database (authoritative)
+        $config = $this->loadTenantFromDatabase($tenantKey);
+        if ($config) {
+            $this->cache->set($cacheKey, serialize($config), self::CACHE_TTL);
+            $this->addToMemoryCache($tenantKey, $config);
+        }
+
+        return $config;
+    }
+
+    /**
+     * Load and decrypt tenant configuration from database
+     */
+    private function loadTenantFromDatabase(string $tenantKey): ?TenantConfig
+    {
+        $stmt = $this->db->prepare("
+            SELECT 
+                t.*,
+                COALESCE(json_agg(DISTINCT 
+                    jsonb_build_object(
+                        'id', tbc.id,
+                        'bridge_type', tbc.bridge_type,
+                        'bridge_name', tbc.bridge_name,
+                        'config_data', tbc.config_data,
+                        'credentials_data', tbc.credentials_data,
+                        'status', tbc.status,
+                        'priority', tbc.priority
+                    )
+                ) FILTER (WHERE tbc.id IS NOT NULL), '[]') as bridge_configs,
+                COALESCE(json_agg(DISTINCT 
+                    jsonb_build_object(
+                        'id', tac.id,
+                        'system_type', tac.system_type,
+                        'api_base_url', tac.api_base_url,
+                        'authentication_config', tac.authentication_config,
+                        'endpoint_mappings', tac.endpoint_mappings,
+                        'field_mappings', tac.field_mappings
+                    )
+                ) FILTER (WHERE tac.id IS NOT NULL), '[]') as api_configs
+            FROM tenants t
+            LEFT JOIN tenant_bridge_configs tbc ON t.id = tbc.tenant_id AND tbc.status = 'active'
+            LEFT JOIN tenant_api_configs tac ON t.id = tac.tenant_id
+            WHERE t.tenant_key = ? AND t.status = 'active'
+            GROUP BY t.id
+        ");
         
-        $offset = 0;
-        foreach ($this->tenants as $tenant) {
-            $crontab .= $this->generateTenantJobs($tenant, $offset);
-            $offset += 2; // 2-minute offset between tenants
+        $stmt->execute([$tenantKey]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$result) return null;
+
+        return $this->buildTenantConfig($result);
+    }
+
+    /**
+     * Decrypt and build tenant configuration object
+     */
+    private function buildTenantConfig(array $dbResult): TenantConfig
+    {
+        // Decrypt sensitive data
+        foreach ($dbResult['bridge_configs'] as &$bridgeConfig) {
+            $bridgeConfig['config_data'] = $this->encryption->decrypt(
+                $bridgeConfig['config_data'], 
+                $dbResult['tenant_key']
+            );
+            $bridgeConfig['credentials_data'] = $this->encryption->decrypt(
+                $bridgeConfig['credentials_data'], 
+                $dbResult['tenant_key']
+            );
+        }
+
+        foreach ($dbResult['api_configs'] as &$apiConfig) {
+            $apiConfig['authentication_config'] = $this->encryption->decrypt(
+                $apiConfig['authentication_config'], 
+                $dbResult['tenant_key']
+            );
+        }
+
+        return new TenantConfig($dbResult);
+    }
+
+    /**
+     * Create or update tenant with transaction safety
+     */
+    public function upsertTenant(string $tenantKey, array $config): bool
+    {
+        $this->db->beginTransaction();
+        
+        try {
+            // 1. Insert/update tenant record
+            $tenantId = $this->upsertTenantRecord($tenantKey, $config);
+            
+            // 2. Update bridge configurations
+            if (isset($config['bridges'])) {
+                $this->updateBridgeConfigs($tenantId, $tenantKey, $config['bridges']);
+            }
+            
+            // 3. Update API configurations
+            if (isset($config['apis'])) {
+                $this->updateApiConfigs($tenantId, $tenantKey, $config['apis']);
+            }
+            
+            // 4. Update resource mappings
+            if (isset($config['resource_mappings'])) {
+                $this->updateResourceMappings($tenantId, $config['resource_mappings']);
+            }
+            
+            $this->db->commit();
+            
+            // 5. Invalidate caches
+            $this->invalidateTenantCache($tenantKey);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            $this->db->rollback();
+            throw new TenantConfigException(
+                "Failed to update tenant {$tenantKey}: " . $e->getMessage(),
+                0,
+                $e
+            );
+        }
+    }
+
+    /**
+     * Get all active tenants for bulk operations
+     */
+    public function getActiveTenants(array $filters = []): array
+    {
+        $sql = "SELECT tenant_key, name, sync_frequency_minutes, priority 
+                FROM tenants 
+                WHERE status = 'active'";
+        
+        $params = [];
+        
+        // Apply filters
+        if (isset($filters['priority_min'])) {
+            $sql .= " AND priority >= ?";
+            $params[] = $filters['priority_min'];
         }
         
-        $crontab .= $this->generateGlobalJobs();
-        return $crontab;
+        if (isset($filters['sync_enabled'])) {
+            $sql .= " AND sync_frequency_minutes > 0";
+        }
+        
+        $sql .= " ORDER BY priority ASC, name ASC";
+        
+        if (isset($filters['limit'])) {
+            $sql .= " LIMIT ?";
+            $params[] = $filters['limit'];
+        }
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-    
-    private function generateTenantJobs($tenant, $offset): string 
+
+    /**
+     * Memory cache management with LRU eviction
+     */
+    private function addToMemoryCache(string $tenantKey, TenantConfig $config): void
     {
-        $jobs = "\n# Tenant: {$tenant['id']}\n";
-        
-        // High-priority sync jobs with offset
-        $syncMinutes = $this->calculateOffsetMinutes('*/5', $offset);
-        $jobs .= "{$syncMinutes} * * * * curl -X POST \"localhost/tenants/{$tenant['id']}/bridges/sync/booking_system/outlook\"\n";
-        
-        $outlookMinutes = $this->calculateOffsetMinutes('*/10', $offset);
-        $jobs .= "{$outlookMinutes} * * * * curl -X POST \"localhost/tenants/{$tenant['id']}/bridges/sync/outlook/booking_system\"\n";
-        
-        return $jobs;
+        // Remove oldest if cache is full
+        if (count($this->memoryCache) >= self::MAX_MEMORY_CACHE) {
+            $oldestKey = array_key_first($this->memoryCache);
+            unset($this->memoryCache[$oldestKey]);
+        }
+
+        $this->memoryCache[$tenantKey] = $config;
+    }
+
+    /**
+     * Invalidate all cache layers for a tenant
+     */
+    private function invalidateTenantCache(string $tenantKey): void
+    {
+        unset($this->memoryCache[$tenantKey]);
+        $this->cache->delete("tenant_config:{$tenantKey}");
     }
 }
 ```
 
-### **Tenant-Aware Processing Scripts**
+#### **Step 3: Scalable Bridge Manager**
 
-**Enhanced process_deletions.sh for multi-tenant:**
-
-```bash
-#!/bin/bash
-# scripts/process_deletions_multitenant.sh
-
-TENANT_MODE="${TENANT_MODE:-single}"
-SPECIFIC_TENANT="${1:-}"
-
-if [[ "$TENANT_MODE" == "multi" ]]; then
-    if [[ -n "$SPECIFIC_TENANT" ]]; then
-        # Process specific tenant
-        echo "Processing deletions for tenant: $SPECIFIC_TENANT"
-        curl -X POST "localhost/tenants/$SPECIFIC_TENANT/bridges/sync-deletions"
-    else
-        # Process all tenants
-        echo "Processing deletions for all tenants"
-        curl -X POST "localhost/bridges/sync-deletions-all"
-    fi
-else
-    # Single tenant mode (backward compatibility)
-    curl -X POST "localhost/bridges/sync-deletions"
-fi
-```
-
-### **Parallel Tenant Processing**
-
-**Background job queue for tenant operations:**
-
+**Enhanced Bridge Management:**
 ```php
 <?php
-// Enhanced tenant sync with parallel processing
+namespace App\Services;
 
-class TenantSyncOrchestrator 
+/**
+ * Database-driven bridge manager with lazy loading and resource pooling
+ */
+class DatabaseBridgeManager
 {
-    public function syncAllTenants($operation = 'booking_to_outlook'): array 
+    private TenantConfigService $tenantConfig;
+    private array $bridgeInstances = [];
+    private array $bridgeFactories = [];
+    
+    // Resource management
+    private const MAX_CACHED_BRIDGES = 200;
+    private const MAX_BRIDGES_PER_TENANT = 20;
+    
+    public function __construct(TenantConfigService $tenantConfig)
     {
-        $tenants = $this->tenantManager->getActiveTenants();
-        $processes = [];
+        $this->tenantConfig = $tenantConfig;
+        $this->registerBridgeFactories();
+    }
+
+    /**
+     * Get bridge instance with lazy loading and caching
+     */
+    public function getBridge(string $tenantKey, string $bridgeName): AbstractCalendarBridge
+    {
+        $cacheKey = "{$tenantKey}:{$bridgeName}";
         
-        // Start parallel processes for each tenant
-        foreach ($tenants as $tenant) {
-            $processes[] = $this->startTenantSync($tenant['id'], $operation);
+        // Return cached instance
+        if (isset($this->bridgeInstances[$cacheKey])) {
+            return $this->bridgeInstances[$cacheKey];
+        }
+
+        // Load tenant configuration
+        $tenantConfig = $this->tenantConfig->getTenantConfig($tenantKey);
+        if (!$tenantConfig) {
+            throw new TenantNotFoundException("Tenant '{$tenantKey}' not found");
+        }
+
+        // Find bridge configuration
+        $bridgeConfig = $tenantConfig->getBridgeConfig($bridgeName);
+        if (!$bridgeConfig) {
+            throw new BridgeNotFoundException(
+                "Bridge '{$bridgeName}' not found for tenant '{$tenantKey}'"
+            );
+        }
+
+        // Create and cache bridge instance
+        $bridge = $this->createBridgeInstance($bridgeConfig, $tenantConfig);
+        $this->cacheBridgeInstance($cacheKey, $bridge);
+        
+        return $bridge;
+    }
+
+    /**
+     * Sync all bridges for a tenant
+     */
+    public function syncTenant(string $tenantKey): TenantSyncResult
+    {
+        $tenantConfig = $this->tenantConfig->getTenantConfig($tenantKey);
+        if (!$tenantConfig) {
+            throw new TenantNotFoundException("Tenant '{$tenantKey}' not found");
+        }
+
+        $syncResult = new TenantSyncResult($tenantKey);
+        
+        // Get active bridge configurations sorted by priority
+        $bridgeConfigs = $tenantConfig->getActiveBridgeConfigs();
+        
+        foreach ($bridgeConfigs as $bridgeConfig) {
+            try {
+                $result = $this->syncBridgeForTenant($tenantKey, $bridgeConfig);
+                $syncResult->addBridgeResult($result);
+                
+            } catch (Exception $e) {
+                $syncResult->addError($bridgeConfig['bridge_name'], $e->getMessage());
+                
+                // Continue with other bridges unless it's a critical error
+                if ($e instanceof CriticalTenantException) {
+                    break;
+                }
+            }
+        }
+
+        return $syncResult;
+    }
+
+    /**
+     * Bulk sync for multiple tenants with parallel processing
+     */
+    public function syncMultipleTenants(array $tenantKeys, bool $parallel = true): array
+    {
+        if (!$parallel) {
+            // Sequential processing
+            $results = [];
+            foreach ($tenantKeys as $tenantKey) {
+                $results[$tenantKey] = $this->syncTenant($tenantKey);
+            }
+            return $results;
+        }
+
+        // Parallel processing using process pools
+        return $this->parallelTenantSync($tenantKeys);
+    }
+
+    /**
+     * Get health status for all bridges of a tenant
+     */
+    public function getTenantHealth(string $tenantKey): TenantHealthStatus
+    {
+        $tenantConfig = $this->tenantConfig->getTenantConfig($tenantKey);
+        if (!$tenantConfig) {
+            throw new TenantNotFoundException("Tenant '{$tenantKey}' not found");
+        }
+
+        $health = new TenantHealthStatus($tenantKey);
+        
+        foreach ($tenantConfig->getActiveBridgeConfigs() as $bridgeConfig) {
+            try {
+                $bridge = $this->getBridge($tenantKey, $bridgeConfig['bridge_name']);
+                $bridgeHealth = $bridge->getHealthStatus();
+                $health->addBridgeHealth($bridgeConfig['bridge_name'], $bridgeHealth);
+                
+            } catch (Exception $e) {
+                $health->addBridgeError($bridgeConfig['bridge_name'], $e->getMessage());
+            }
+        }
+
+        return $health;
+    }
+
+    /**
+     * Resource management and cleanup
+     */
+    public function cleanup(): void
+    {
+        // Remove unused bridge instances
+        $tenantKeys = array_keys($this->bridgeInstances);
+        foreach ($tenantKeys as $cacheKey) {
+            if (!$this->isBridgeRecentlyUsed($cacheKey)) {
+                unset($this->bridgeInstances[$cacheKey]);
+            }
+        }
+
+        // Garbage collection
+        if (count($this->bridgeInstances) > self::MAX_CACHED_BRIDGES) {
+            $this->evictOldestBridges();
+        }
+    }
+
+    /**
+     * Bridge instance caching with LRU eviction
+     */
+    private function cacheBridgeInstance(string $cacheKey, AbstractCalendarBridge $bridge): void
+    {
+        // Check tenant limits
+        $tenantKey = explode(':', $cacheKey)[0];
+        $tenantBridges = array_filter(
+            array_keys($this->bridgeInstances),
+            fn($key) => str_starts_with($key, $tenantKey . ':')
+        );
+        
+        if (count($tenantBridges) >= self::MAX_BRIDGES_PER_TENANT) {
+            $oldestTenantBridge = min($tenantBridges);
+            unset($this->bridgeInstances[$oldestTenantBridge]);
+        }
+
+        $this->bridgeInstances[$cacheKey] = $bridge;
+    }
+}
+```
+
+---
+
+### 🔐 **Phase 8: Advanced Security & Compliance** (Week 9-10)
+
+#### **Security Architecture:**
+
+**Multi-Layer Encryption:**
+```php
+<?php
+namespace App\Security;
+
+/**
+ * Advanced encryption service with tenant-specific key management
+ */
+class TenantEncryptionService
+{
+    private const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+    private const KEY_DERIVATION_ROUNDS = 100000;
+    
+    private array $keyCache = [];
+    private KeyManagerInterface $keyManager;
+    
+    public function __construct(KeyManagerInterface $keyManager)
+    {
+        $this->keyManager = $keyManager;
+    }
+
+    /**
+     * Encrypt sensitive data with tenant-specific keys
+     */
+    public function encryptForTenant(string $data, string $tenantKey, string $context = 'default'): string
+    {
+        $key = $this->getTenantKey($tenantKey, $context);
+        $nonce = random_bytes(12); // GCM nonce
+        
+        $ciphertext = openssl_encrypt(
+            $data,
+            self::ENCRYPTION_ALGORITHM,
+            $key,
+            OPENSSL_RAW_DATA,
+            $nonce,
+            $tag
+        );
+        
+        if ($ciphertext === false) {
+            throw new EncryptionException('Encryption failed');
         }
         
-        // Wait for all processes to complete
-        return $this->waitForCompletion($processes);
+        // Combine nonce + tag + ciphertext
+        return base64_encode($nonce . $tag . $ciphertext);
+    }
+
+    /**
+     * Decrypt with automatic key rotation handling
+     */
+    public function decryptForTenant(string $encryptedData, string $tenantKey, string $context = 'default'): string
+    {
+        $data = base64_decode($encryptedData);
+        $nonce = substr($data, 0, 12);
+        $tag = substr($data, 12, 16);
+        $ciphertext = substr($data, 28);
+        
+        // Try current key first
+        $key = $this->getTenantKey($tenantKey, $context);
+        $plaintext = $this->attemptDecryption($ciphertext, $key, $nonce, $tag);
+        
+        if ($plaintext === false) {
+            // Try previous key versions for key rotation
+            $previousKeys = $this->keyManager->getPreviousKeys($tenantKey, $context, 3);
+            foreach ($previousKeys as $oldKey) {
+                $plaintext = $this->attemptDecryption($ciphertext, $oldKey, $nonce, $tag);
+                if ($plaintext !== false) break;
+            }
+        }
+        
+        if ($plaintext === false) {
+            throw new DecryptionException('Decryption failed - invalid key or corrupted data');
+        }
+        
+        return $plaintext;
+    }
+
+    /**
+     * Rotate encryption keys for a tenant
+     */
+    public function rotateTenantKeys(string $tenantKey): void
+    {
+        $this->keyManager->rotateKeys($tenantKey);
+        unset($this->keyCache[$tenantKey]); // Clear cached keys
+    }
+
+    private function getTenantKey(string $tenantKey, string $context): string
+    {
+        $cacheKey = "{$tenantKey}:{$context}";
+        
+        if (!isset($this->keyCache[$cacheKey])) {
+            $this->keyCache[$cacheKey] = $this->keyManager->getDerivedKey($tenantKey, $context);
+        }
+        
+        return $this->keyCache[$cacheKey];
+    }
+}
+
+/**
+ * Hardware Security Module (HSM) integration for enterprise deployments
+ */
+class HSMKeyManager implements KeyManagerInterface
+{
+    private HSMClient $hsmClient;
+    private array $keyMetadata = [];
+    
+    public function getDerivedKey(string $tenantKey, string $context): string
+    {
+        // Use HSM to derive tenant-specific keys
+        $masterKeyId = $this->getMasterKeyId();
+        $derivationData = hash('sha256', $tenantKey . ':' . $context);
+        
+        return $this->hsmClient->deriveKey($masterKeyId, $derivationData);
     }
     
-    private function startTenantSync($tenantId, $operation): Process 
+    public function rotateKeys(string $tenantKey): void
     {
-        $endpoint = "/tenants/{$tenantId}/bridges/sync/{$operation}";
+        // HSM-based key rotation
+        $this->hsmClient->rotateKeyDerivation($tenantKey);
+        $this->logKeyRotation($tenantKey);
+    }
+}
+```
+
+**Access Control & Authorization:**
+```php
+/**
+ * Role-based access control for multi-tenant operations
+ */
+class TenantAccessControl
+{
+    private const ROLES = [
+        'super_admin' => ['*'], // All permissions
+        'tenant_admin' => ['tenant:read', 'tenant:write', 'bridge:*', 'mapping:*'],
+        'tenant_operator' => ['tenant:read', 'bridge:read', 'sync:execute'],
+        'tenant_viewer' => ['tenant:read', 'bridge:read', 'stats:read'],
+        'system_monitor' => ['health:read', 'stats:read', 'logs:read'],
+    ];
+    
+    public function checkPermission(User $user, string $action, string $tenantKey = null): bool
+    {
+        // Super admin can do everything
+        if ($user->hasRole('super_admin')) {
+            return true;
+        }
         
-        // Use Symfony Process for parallel execution
-        return new Process([
-            'curl', '-X', 'POST', 
-            "http://localhost{$endpoint}",
-            '--max-time', '300'  // 5-minute timeout per tenant
+        // Check tenant-specific permissions
+        if ($tenantKey && !$this->userHasTenantAccess($user, $tenantKey)) {
+            return false;
+        }
+        
+        // Check action permissions
+        foreach ($user->getRoles() as $role) {
+            if ($this->roleHasPermission($role, $action)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    private function userHasTenantAccess(User $user, string $tenantKey): bool
+    {
+        // Check if user has access to specific tenant
+        return in_array($tenantKey, $user->getTenantAccess()) || $user->hasRole('super_admin');
+    }
+}
+```
+
+#### **Compliance Features:**
+
+**Audit Logging:**
+```sql
+-- Comprehensive audit trail for compliance
+CREATE TABLE security_audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id),
+    user_id VARCHAR(255),
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id VARCHAR(255),
+    
+    -- Request details
+    ip_address INET,
+    user_agent TEXT,
+    request_payload JSONB,
+    
+    -- Result details
+    success BOOLEAN NOT NULL,
+    error_message TEXT,
+    response_code INTEGER,
+    
+    -- Timing
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processing_time_ms INTEGER,
+    
+    -- Security context
+    session_id VARCHAR(255),
+    api_key_id VARCHAR(255),
+    
+    INDEX idx_audit_tenant_date (tenant_id, created_at DESC),
+    INDEX idx_audit_user_action (user_id, action),
+    INDEX idx_audit_resource (resource_type, resource_id)
+);
+
+-- Data retention policies for compliance
+CREATE TABLE data_retention_policies (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id),
+    data_type VARCHAR(50) NOT NULL, -- 'audit_logs', 'sync_logs', 'personal_data'
+    retention_days INTEGER NOT NULL,
+    archive_before_delete BOOLEAN DEFAULT true,
+    encryption_required BOOLEAN DEFAULT true,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(tenant_id, data_type)
+);
+```
+
+**GDPR/Privacy Compliance:**
+```php
+/**
+ * Privacy compliance service for handling personal data
+ */
+class PrivacyComplianceService
+{
+    public function exportTenantData(string $tenantKey, array $personalIdentifiers): array
+    {
+        // Export all personal data for GDPR data portability
+        $exportData = [
+            'tenant_info' => $this->getTenantInfo($tenantKey),
+            'calendar_mappings' => $this->getPersonalMappings($tenantKey, $personalIdentifiers),
+            'sync_history' => $this->getPersonalSyncHistory($tenantKey, $personalIdentifiers),
+            'audit_trail' => $this->getPersonalAuditTrail($tenantKey, $personalIdentifiers),
+        ];
+        
+        return $this->sanitizePersonalData($exportData);
+    }
+    
+    public function deleteTenantPersonalData(string $tenantKey, array $personalIdentifiers): bool
+    {
+        // GDPR right to be forgotten
+        $this->db->beginTransaction();
+        
+        try {
+            // Anonymize instead of hard delete for audit trail
+            $this->anonymizePersonalMappings($tenantKey, $personalIdentifiers);
+            $this->anonymizeSyncHistory($tenantKey, $personalIdentifiers);
+            $this->retainAuditTrailWithoutPI($tenantKey, $personalIdentifiers);
+            
+            $this->db->commit();
+            return true;
+            
+        } catch (Exception $e) {
+            $this->db->rollback();
+            throw new PrivacyComplianceException(
+                "Failed to delete personal data: " . $e->getMessage()
+            );
+        }
+    }
+}
+```
+
+---
+
+### 📊 **Phase 9: Advanced Monitoring & Observability** (Week 11-12)
+
+#### **Comprehensive Monitoring System:**
+
+**Metrics Collection:**
+```php
+<?php
+namespace App\Monitoring;
+
+/**
+ * Multi-tenant metrics collection and aggregation
+ */
+class TenantMetricsCollector
+{
+    private MetricsClientInterface $metricsClient;
+    private array $collectors = [];
+    
+    // Metric categories
+    private const METRIC_CATEGORIES = [
+        'performance' => ['sync_duration', 'api_response_time', 'queue_processing_time'],
+        'reliability' => ['sync_success_rate', 'api_error_rate', 'bridge_uptime'],
+        'business' => ['events_synced', 'tenants_active', 'resources_mapped'],
+        'security' => ['failed_authentications', 'unauthorized_access', 'encryption_errors'],
+    ];
+    
+    public function collectTenantMetrics(string $tenantKey): TenantMetrics
+    {
+        $metrics = new TenantMetrics($tenantKey);
+        
+        // Performance metrics
+        $metrics->setSyncDuration($this->getSyncDuration($tenantKey));
+        $metrics->setApiResponseTime($this->getApiResponseTime($tenantKey));
+        $metrics->setThroughput($this->getThroughput($tenantKey));
+        
+        // Reliability metrics
+        $metrics->setSyncSuccessRate($this->getSyncSuccessRate($tenantKey));
+        $metrics->setErrorRate($this->getErrorRate($tenantKey));
+        $metrics->setUptime($this->getUptime($tenantKey));
+        
+        // Business metrics
+        $metrics->setEventsSynced($this->getEventsSynced($tenantKey));
+        $metrics->setResourcesMapped($this->getResourcesMapped($tenantKey));
+        
+        // Security metrics
+        $metrics->setSecurityEvents($this->getSecurityEvents($tenantKey));
+        
+        return $metrics;
+    }
+    
+    public function aggregateSystemMetrics(): SystemMetrics
+    {
+        // System-wide aggregation across all tenants
+        $systemMetrics = new SystemMetrics();
+        
+        $tenantKeys = $this->tenantConfig->getActiveTenantKeys();
+        
+        foreach ($tenantKeys as $tenantKey) {
+            $tenantMetrics = $this->collectTenantMetrics($tenantKey);
+            $systemMetrics->aggregateTenantMetrics($tenantMetrics);
+        }
+        
+        return $systemMetrics;
+    }
+    
+    public function publishMetrics(TenantMetrics $metrics): void
+    {
+        // Publish to monitoring systems (Prometheus, DataDog, etc.)
+        $this->metricsClient->gauge('tenant.sync.duration', $metrics->getSyncDuration(), [
+            'tenant' => $metrics->getTenantKey(),
+        ]);
+        
+        $this->metricsClient->counter('tenant.events.synced', $metrics->getEventsSynced(), [
+            'tenant' => $metrics->getTenantKey(),
+        ]);
+        
+        $this->metricsClient->histogram('tenant.api.response_time', $metrics->getApiResponseTime(), [
+            'tenant' => $metrics->getTenantKey(),
         ]);
     }
 }
 ```
 
----
-
-#### **Cron Job Configuration Management**
-
-### **Tenant Onboarding Cron Setup**
-
-**Automatic cron job generation when adding tenants:**
-
+**Health Monitoring:**
 ```php
-<?php
-// When adding a new tenant
-class TenantController 
+/**
+ * Advanced health monitoring with predictive alerting
+ */
+class TenantHealthMonitor
 {
-    public function createTenant(Request $request): Response 
+    private array $healthChecks = [
+        'database_connectivity' => DatabaseHealthCheck::class,
+        'api_connectivity' => ApiHealthCheck::class,
+        'authentication' => AuthHealthCheck::class,
+        'resource_availability' => ResourceHealthCheck::class,
+        'sync_performance' => PerformanceHealthCheck::class,
+    ];
+    
+    public function performComprehensiveHealthCheck(string $tenantKey): HealthReport
     {
-        $tenant = $this->tenantService->createTenant($request->getData());
+        $report = new HealthReport($tenantKey);
         
-        // Regenerate cron jobs to include new tenant
-        $this->cronManager->regenerateCrontab();
+        foreach ($this->healthChecks as $checkName => $checkClass) {
+            try {
+                $checker = new $checkClass($this->tenantConfig->getTenantConfig($tenantKey));
+                $result = $checker->execute();
+                
+                $report->addCheckResult($checkName, $result);
+                
+                // Predictive alerting
+                if ($result->isWarning()) {
+                    $this->schedulePreventiveMaintenance($tenantKey, $checkName, $result);
+                }
+                
+            } catch (Exception $e) {
+                $report->addCheckError($checkName, $e->getMessage());
+            }
+        }
         
-        // Restart cron service
-        $this->cronManager->reloadCron();
-        
-        return $this->success(['tenant' => $tenant]);
+        return $report;
+    }
+    
+    public function getHealthTrends(string $tenantKey, int $days = 7): array
+    {
+        // Analyze health trends over time for predictive monitoring
+        return $this->healthAnalytics->getTrends($tenantKey, $days);
+    }
+    
+    private function schedulePreventiveMaintenance(string $tenantKey, string $component, HealthResult $result): void
+    {
+        // Schedule maintenance before issues become critical
+        $this->maintenanceScheduler->schedulePreventive($tenantKey, $component, $result->getSeverity());
     }
 }
 ```
 
-### **Tenant-Specific Cron Configuration**
-
-**Per-tenant cron scheduling configuration:**
-
+**Alerting System:**
 ```php
-// Enhanced .env configuration
-MUNICIPAL_A_SYNC_FREQUENCY=5    # Every 5 minutes
-MUNICIPAL_A_PRIORITY=high       # High priority processing
-MUNICIPAL_A_OFFSET=0           # No offset (first tenant)
-
-MUNICIPAL_B_SYNC_FREQUENCY=10   # Every 10 minutes  
-MUNICIPAL_B_PRIORITY=medium     # Medium priority
-MUNICIPAL_B_OFFSET=3           # 3-minute offset
-
-MUNICIPAL_C_SYNC_FREQUENCY=15   # Every 15 minutes
-MUNICIPAL_C_PRIORITY=low        # Low priority
-MUNICIPAL_C_OFFSET=7           # 7-minute offset
+/**
+ * Intelligent alerting with noise reduction and escalation
+ */
+class TenantAlertManager
+{
+    private const ALERT_THRESHOLDS = [
+        'sync_failure_rate' => 0.1,      // 10% failure rate
+        'api_response_time' => 30000,    // 30 seconds
+        'queue_backup' => 1000,          // 1000 items
+        'error_rate' => 0.05,            // 5% error rate
+    ];
+    
+    private const ESCALATION_LEVELS = [
+        'info' => ['email'],
+        'warning' => ['email', 'slack'],
+        'critical' => ['email', 'slack', 'sms', 'pagerduty'],
+        'emergency' => ['email', 'slack', 'sms', 'pagerduty', 'phone'],
+    ];
+    
+    public function evaluateAlerts(TenantMetrics $metrics): array
+    {
+        $alerts = [];
+        
+        // Dynamic threshold evaluation
+        foreach (self::ALERT_THRESHOLDS as $metric => $threshold) {
+            $value = $metrics->getMetric($metric);
+            
+            if ($value > $threshold) {
+                $severity = $this->calculateSeverity($metric, $value, $threshold);
+                $alert = new Alert($metrics->getTenantKey(), $metric, $value, $severity);
+                
+                // Noise reduction - check if this is a recurring issue
+                if (!$this->isNoiseAlert($alert)) {
+                    $alerts[] = $alert;
+                }
+            }
+        }
+        
+        return $alerts;
+    }
+    
+    public function sendAlert(Alert $alert): void
+    {
+        $channels = self::ESCALATION_LEVELS[$alert->getSeverity()];
+        
+        foreach ($channels as $channel) {
+            $this->notificationChannels[$channel]->send($alert);
+        }
+        
+        // Log alert for analysis
+        $this->auditLogger->logAlert($alert);
+    }
+    
+    private function isNoiseAlert(Alert $alert): bool
+    {
+        // Implement noise reduction logic
+        $recentSimilarAlerts = $this->alertHistory->getRecentSimilar($alert, hours: 1);
+        return count($recentSimilarAlerts) > 5; // More than 5 similar alerts in 1 hour
+    }
+}
 ```
 
-### **Cron Job Monitoring & Health**
+#### **Dashboarding & Visualization:**
 
-**Enhanced monitoring for multi-tenant cron:**
-
-```bash
-# Monitor tenant-specific cron job execution
-*/1 * * * * /scripts/monitor_tenant_jobs.sh >> /var/log/tenant-cron-monitor.log
-
-# Generate tenant cron job statistics  
-0 */6 * * * /scripts/generate_tenant_stats.sh >> /var/log/tenant-cron-stats.log
-
-# Alert on tenant cron failures
-*/5 * * * * /scripts/check_tenant_job_health.sh
+**Grafana Dashboard Configuration:**
+```json
+{
+  "dashboard": {
+    "title": "Multi-Tenant Calendar Bridge - Executive Dashboard",
+    "panels": [
+      {
+        "title": "Tenant Health Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(tenant_health_score) / count(tenant_health_score) * 100"
+          }
+        ]
+      },
+      {
+        "title": "Sync Performance by Tenant",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "avg_over_time(tenant_sync_duration_seconds[5m]) by (tenant)"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate Heatmap",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "rate(tenant_errors_total[5m]) by (tenant, error_type)"
+          }
+        ]
+      },
+      {
+        "title": "Resource Utilization",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "tenant_cpu_usage_percent by (tenant)"
+          },
+          {
+            "expr": "tenant_memory_usage_bytes by (tenant)"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 ---
 
-#### **Implementation Tasks for Multi-Tenant Cron**
+### 🚀 **Phase 10: Operational Excellence** (Week 13-14)
 
-### **Phase 4.1 Enhancement: Cron Job Multi-Tenancy**
+#### **Deployment Automation:**
 
-**Implementation Tasks:**
-- [ ] Create `TenantCronGenerator` for dynamic cron job generation
-- [ ] Implement tenant offset calculation to prevent resource conflicts
-- [ ] Enhance `process_deletions.sh` with multi-tenant support
-- [ ] Create parallel tenant processing capability
-- [ ] Add tenant-specific cron configuration management
-- [ ] Implement cron job health monitoring per tenant
-- [ ] Create tenant onboarding automation for cron jobs
-- [ ] Add failover and retry mechanisms for tenant operations
+**Infrastructure as Code:**
+```yaml
+# Kubernetes deployment for multi-tenant bridge service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calendar-bridge-service
+  labels:
+    app: calendar-bridge
+    tier: production
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: calendar-bridge
+  template:
+    metadata:
+      labels:
+        app: calendar-bridge
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: calendar-bridge
+        image: calendar-bridge:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: url
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calendar-bridge-service
+spec:
+  selector:
+    app: calendar-bridge
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  - port: 9090
+    targetPort: 9090
+    name: metrics
+  type: LoadBalancer
+```
 
-**Timeline:** 1 week additional to Phase 4.1
+**Auto-scaling Configuration:**
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: calendar-bridge-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: calendar-bridge-service
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: tenant_sync_queue_length
+      target:
+        type: AverageValue
+        averageValue: "100"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+```
 
-**Benefits:**
-- ✅ **Isolated Execution** - Each tenant's jobs run independently
-- ✅ **Parallel Processing** - Multiple tenants sync simultaneously  
-- ✅ **Failure Isolation** - One tenant's issues don't affect others
-- ✅ **Resource Optimization** - Smart scheduling prevents conflicts
-- ✅ **Scalable Management** - Easy to add/remove tenant jobs
-- ✅ **Monitoring** - Per-tenant job health and performance tracking
+#### **Disaster Recovery:**
 
-This approach ensures that multi-tenant cron jobs maintain the same reliability as single-tenant while providing better performance through parallel processing and proper resource management.
+**Backup Strategy:**
+```bash
+#!/bin/bash
+# Multi-tenant backup script with encryption
+
+BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="/backups/calendar-bridge/$BACKUP_DATE"
+ENCRYPTION_KEY_FILE="/secrets/backup-encryption.key"
+
+mkdir -p "$BACKUP_DIR"
+
+# Database backup with tenant separation
+echo "Starting database backup..."
+for tenant_id in $(psql -t -c "SELECT id FROM tenants WHERE status='active'"); do
+    echo "Backing up tenant $tenant_id..."
+    
+    # Backup tenant-specific data
+    pg_dump --data-only \
+        --table="tenants" \
+        --table="tenant_bridge_configs" \
+        --table="tenant_api_configs" \
+        --where="tenant_id=$tenant_id" \
+        "$DATABASE_URL" | \
+    gpg --cipher-algo AES256 --compress-algo 1 --symmetric \
+        --passphrase-file "$ENCRYPTION_KEY_FILE" > \
+        "$BACKUP_DIR/tenant_${tenant_id}_data.sql.gpg"
+    
+    # Backup tenant-specific sync data (last 30 days)
+    pg_dump --data-only \
+        --table="bridge_mappings" \
+        --table="bridge_sync_logs" \
+        --where="tenant_id=$tenant_id AND created_at > NOW() - INTERVAL '30 days'" \
+        "$DATABASE_URL" | \
+    gpg --cipher-algo AES256 --compress-algo 1 --symmetric \
+        --passphrase-file "$ENCRYPTION_KEY_FILE" > \
+        "$BACKUP_DIR/tenant_${tenant_id}_sync.sql.gpg"
+done
+
+# Configuration backup
+echo "Backing up configuration..."
+tar czf - /app/config/ | \
+gpg --cipher-algo AES256 --compress-algo 1 --symmetric \
+    --passphrase-file "$ENCRYPTION_KEY_FILE" > \
+    "$BACKUP_DIR/configuration.tar.gz.gpg"
+
+# Upload to cloud storage with retention
+echo "Uploading to cloud storage..."
+aws s3 sync "$BACKUP_DIR" "s3://calendar-bridge-backups/$BACKUP_DATE" \
+    --storage-class STANDARD_IA
+
+# Cleanup old backups (keep 30 days)
+find /backups/calendar-bridge -type d -mtime +30 -exec rm -rf {} \;
+aws s3 ls s3://calendar-bridge-backups/ | \
+    awk '$1 < "'$(date -d '30 days ago' '+%Y-%m-%d')'" {print $4}' | \
+    xargs -I {} aws s3 rm --recursive s3://calendar-bridge-backups/{}
+
+echo "Backup completed: $BACKUP_DIR"
+```
+
+**Restore Procedures:**
+```bash
+#!/bin/bash
+# Disaster recovery restore script
+
+RESTORE_DATE="$1"
+TENANT_ID="$2"  # Optional: restore specific tenant only
+
+if [ -z "$RESTORE_DATE" ]; then
+    echo "Usage: $0 <backup_date> [tenant_id]"
+    exit 1
+fi
+
+BACKUP_DIR="/backups/calendar-bridge/$RESTORE_DATE"
+ENCRYPTION_KEY_FILE="/secrets/backup-encryption.key"
+
+echo "Starting restore from $RESTORE_DATE..."
+
+# Download from cloud storage if not local
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "Downloading backup from cloud storage..."
+    aws s3 sync "s3://calendar-bridge-backups/$RESTORE_DATE" "$BACKUP_DIR"
+fi
+
+# Stop services during restore
+kubectl scale deployment calendar-bridge-service --replicas=0
+
+# Create restore point
+pg_dump "$DATABASE_URL" > "/tmp/pre_restore_$(date +%Y%m%d_%H%M%S).sql"
+
+if [ -n "$TENANT_ID" ]; then
+    # Restore specific tenant
+    echo "Restoring tenant $TENANT_ID..."
+    
+    gpg --decrypt --passphrase-file "$ENCRYPTION_KEY_FILE" \
+        "$BACKUP_DIR/tenant_${TENANT_ID}_data.sql.gpg" | \
+        psql "$DATABASE_URL"
+    
+    gpg --decrypt --passphrase-file "$ENCRYPTION_KEY_FILE" \
+        "$BACKUP_DIR/tenant_${TENANT_ID}_sync.sql.gpg" | \
+        psql "$DATABASE_URL"
+else
+    # Full system restore
+    echo "Performing full system restore..."
+    
+    for backup_file in "$BACKUP_DIR"/tenant_*_data.sql.gpg; do
+        echo "Restoring $(basename "$backup_file")..."
+        gpg --decrypt --passphrase-file "$ENCRYPTION_KEY_FILE" "$backup_file" | \
+            psql "$DATABASE_URL"
+    done
+    
+    for backup_file in "$BACKUP_DIR"/tenant_*_sync.sql.gpg; do
+        echo "Restoring $(basename "$backup_file")..."
+        gpg --decrypt --passphrase-file "$ENCRYPTION_KEY_FILE" "$backup_file" | \
+            psql "$DATABASE_URL"
+    done
+    
+    # Restore configuration
+    gpg --decrypt --passphrase-file "$ENCRYPTION_KEY_FILE" \
+        "$BACKUP_DIR/configuration.tar.gz.gpg" | \
+        tar xzf - -C /
+fi
+
+# Restart services
+kubectl scale deployment calendar-bridge-service --replicas=3
+
+# Verify restore
+echo "Verifying restore..."
+./scripts/verify_restore.sh "$TENANT_ID"
+
+echo "Restore completed successfully"
+```
+
+#### **Maintenance Automation:**
+
+**Automated Maintenance Tasks:**
+```php
+<?php
+namespace App\Maintenance;
+
+/**
+ * Automated maintenance scheduler with minimal tenant impact
+ */
+class MaintenanceScheduler
+{
+    private const MAINTENANCE_WINDOWS = [
+        'daily' => '02:00-04:00',      // Low activity period
+        'weekly' => 'Sunday 01:00-05:00',
+        'monthly' => 'First Sunday 00:00-06:00',
+    ];
+    
+    public function scheduleMaintenanceTasks(): void
+    {
+        // Daily maintenance
+        $this->scheduler->dailyAt('02:00', function() {
+            $this->performDailyMaintenance();
+        });
+        
+        // Weekly maintenance
+        $this->scheduler->weeklyOn(0, '01:00', function() {
+            $this->performWeeklyMaintenance();
+        });
+        
+        // Monthly maintenance
+        $this->scheduler->monthlyOn(1, '00:00', function() {
+            $this->performMonthlyMaintenance();
+        });
+    }
+    
+    private function performDailyMaintenance(): void
+    {
+        // Log cleanup
+        $this->cleanupOldLogs();
+        
+        // Cache optimization
+        $this->optimizeCaches();
+        
+        // Database maintenance
+        $this->updateDatabaseStatistics();
+        
+        // Health check all tenants
+        $this->performHealthChecks();
+    }
+    
+    private function performWeeklyMaintenance(): void
+    {
+        // Database optimization
+        $this->optimizeDatabaseIndexes();
+        
+        // Security audit
+        $this->performSecurityAudit();
+        
+        // Performance analysis
+        $this->analyzePerformanceTrends();
+        
+        // Backup verification
+        $this->verifyBackupIntegrity();
+    }
+    
+    private function performMonthlyMaintenance(): void
+    {
+        // Key rotation
+        $this->rotateEncryptionKeys();
+        
+        // Certificate renewal
+        $this->renewSSLCertificates();
+        
+        // Capacity planning
+        $this->performCapacityAnalysis();
+        
+        // Security updates
+        $this->applySecurityUpdates();
+    }
+}
+```
+
+---
+
+### 📈 **Production Readiness Checklist**
+
+#### **Pre-Production Validation:**
+
+- [ ] **Security Hardening**
+  - [ ] All credentials encrypted at rest
+  - [ ] HSM integration configured
+  - [ ] Access control policies implemented
+  - [ ] Security audit completed
+  - [ ] Penetration testing passed
+
+- [ ] **Performance Validation**
+  - [ ] Load testing with 1000+ tenants
+  - [ ] Database performance optimized
+  - [ ] Caching strategies validated
+  - [ ] Auto-scaling tested
+  - [ ] Resource limits configured
+
+- [ ] **Monitoring & Alerting**
+  - [ ] Comprehensive metrics collection
+  - [ ] Alerting thresholds configured
+  - [ ] Dashboard deployment
+  - [ ] On-call procedures documented
+  - [ ] Escalation paths established
+
+- [ ] **Disaster Recovery**
+  - [ ] Backup procedures automated
+  - [ ] Restore procedures tested
+  - [ ] RTO/RPO requirements met
+  - [ ] Failover mechanisms tested
+  - [ ] Data integrity validation
+
+- [ ] **Operational Procedures**
+  - [ ] Deployment automation
+  - [ ] Maintenance scheduling
+  - [ ] Incident response procedures
+  - [ ] Documentation complete
+  - [ ] Team training conducted
+
+#### **Go-Live Requirements:**
+
+1. **Infrastructure**: Multi-zone deployment with redundancy
+2. **Security**: SOC 2 Type II compliance ready
+3. **Performance**: <1s response time for 99% of requests
+4. **Availability**: 99.9% uptime SLA capability
+5. **Scalability**: Support for 5000+ tenants
+6. **Support**: 24/7 monitoring and support procedures
+
+This comprehensive architecture provides enterprise-grade scalability, security, and operational excellence for a multi-tenant calendar bridge service capable of serving thousands of organizations efficiently and reliably.
