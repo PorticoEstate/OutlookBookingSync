@@ -92,6 +92,10 @@ curl http://localhost:8082/bridges/health
 # List available bridges
 curl http://localhost:8082/bridges
 
+# Test resource discovery (example with outlook bridge)
+curl http://localhost:8082/bridges/outlook/available-resources
+curl http://localhost:8082/bridges/outlook/available-groups
+
 # Test resource mapping API
 curl http://localhost:8082/mappings/resources
 ```
@@ -150,7 +154,11 @@ The bridges will be automatically available once the service starts.
 
 - `GET /bridges` - List all available bridges
 - `GET /bridges/{bridge}/calendars` - Get calendars for a bridge
+- `GET /bridges/{bridge}/available-resources` - Get available resources (rooms/equipment) for a bridge
+- `GET /bridges/{bridge}/available-groups` - Get available groups/collections for a bridge
+- `GET /bridges/{bridge}/users/{userId}/calendar-items` - Get calendar items for specific user on a bridge
 - `POST /bridges/sync/{from}/{to}` - Sync events between bridges
+- `POST /bridges/webhook/{bridge}` - Handle bridge webhooks
 - `GET /bridges/health` - Get health status of all bridges
 
 ### Resource Mapping
@@ -172,6 +180,15 @@ The bridges will be automatically available once the service starts.
 - `GET /health` - Quick health check
 - `GET /health/system` - Comprehensive system health
 - `POST /alerts/check` - Run alert checks
+
+### 📖 Documentation
+
+For complete technical documentation and API reference:
+
+- **[README_BRIDGE.md](README_BRIDGE.md)** - Complete technical documentation with detailed API specs, configuration examples, and implementation guides
+- **[Database Schema](database/bridge_schema.sql)** - Bridge database tables and views
+- **[Calendar Sync Service Plan](doc/calendar_sync_service_plan.md)** - Architecture and design documentation
+- **[Setup Scripts](setup_bridge_database.sh)** - Database initialization and testing tools
 
 ### Legacy Endpoints (Removed)
 
@@ -322,9 +339,10 @@ OutlookBookingSync has been successfully transformed into a **Generic Calendar B
 - **Database Schema**: Complete bridge schema for mappings and configurations
 
 ### **✅ Working Bridges (COMPLETED)**
-- **OutlookBridge**: Microsoft Graph API with webhook support
-- **BookingSystemBridge**: Generic booking system with REST API + DB fallback
+- **OutlookBridge**: Microsoft Graph API with webhook support and resource discovery
+- **BookingSystemBridge**: Generic booking system with REST API + DB fallback and configurable endpoints
 - **BridgeManager**: Central orchestration service managing all bridges
+- **Resource Discovery**: All bridges support available-resources, available-groups, and user calendar queries
 
 ### **✅ Production Features (COMPLETED)**
 - **Bidirectional Sync**: Events sync seamlessly between any bridge types

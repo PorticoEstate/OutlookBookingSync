@@ -33,7 +33,7 @@ The Generic Calendar Bridge transforms calendar synchronization from a single-pu
 ## 📁 Project Structure
 
 ```
-OutlookCalendarBridge/
+OutlookBookingSync/
 ├── src/
 │   ├── Bridge/
 │   │   ├── AbstractCalendarBridge.php     # Base bridge class
@@ -42,12 +42,25 @@ OutlookCalendarBridge/
 │   ├── Services/
 │   │   ├── BridgeManager.php               # Bridge orchestration
 │   │   ├── DeletionSyncService.php         # Deletion/cancellation sync
-│   │   └── OutlookEventDetectionService.php # Event change detection
+│   │   ├── OutlookEventDetectionService.php # Event change detection
+│   │   ├── AlertService.php                # Alert management
+│   │   └── TemplateLoader.php              # Template loading service
 │   ├── Controller/
 │   │   ├── BridgeController.php            # REST API endpoints
 │   │   ├── BridgeBookingController.php     # Bridge booking operations
-│   │   └── ResourceMappingController.php   # Resource mapping management
+│   │   ├── ResourceMappingController.php   # Resource mapping management
+│   │   ├── AlertController.php             # Alert management endpoints
+│   │   └── HealthController.php            # Health monitoring endpoints
 │   └── Middleware/
+│       └── ApiKeyMiddleware.php            # API authentication
+├── database/
+│   └── bridge_schema.sql                   # Bridge database schema
+├── scripts/
+│   ├── setup_bridge_database.sh           # Database setup
+│   ├── test_bridge.sh                     # Testing script
+│   └── enhanced_process_deletions.sh       # Automated deletion processing
+└── docker-compose.yml                      # Container orchestration
+```
 ├── database/
 │   └── bridge_schema.sql                   # Bridge database schema
 ├── scripts/
@@ -121,6 +134,40 @@ docker-compose up -d
 
 ## 📚 API Documentation
 
+### API Endpoint Overview
+
+The Calendar Bridge provides a comprehensive REST API for managing bridge connections, synchronizing events, and monitoring system health:
+
+#### **Core Bridge Operations**
+- `GET /bridges` - List all available bridges
+- `GET /bridges/{bridge}/calendars` - Get calendars for a bridge  
+- `GET /bridges/health` - Check health status of all bridges
+
+#### **Resource Discovery**
+- `GET /bridges/{bridge}/available-resources` - Get available resources (rooms/equipment)
+- `GET /bridges/{bridge}/available-groups` - Get available groups/collections
+- `GET /bridges/{bridge}/users/{userId}/calendar-items` - Get user calendar items
+
+#### **Event Synchronization**
+- `POST /bridges/sync/{source}/{target}` - Sync events between bridges
+- `POST /bridges/sync-deletions` - Detect and sync deletions
+- `POST /bridges/process-deletion-queue` - Process webhook-based deletions
+
+#### **Webhook Management**
+- `POST /bridges/webhook/{bridge}` - Handle bridge webhooks
+- `POST /bridges/{bridge}/subscriptions` - Create webhook subscriptions
+
+#### **Resource Mapping**
+- `GET /mappings/resources` - Get resource mappings
+- `POST /mappings/resources` - Create resource mapping
+- `PUT /mappings/resources/{id}` - Update resource mapping
+- `DELETE /mappings/resources/{id}` - Delete resource mapping
+
+#### **Health & Monitoring**
+- `GET /health` - Quick system health check
+- `GET /health/system` - Comprehensive system health
+- `POST /alerts/check` - Run alert checks
+
 ### Bridge Management
 
 #### List All Bridges
@@ -183,6 +230,95 @@ Response:
       "email": "room1@company.com",
       "type": "room",
       "bridge_type": "outlook"
+    }
+  ]
+}
+```
+
+#### Get Available Resources
+```http
+GET /bridges/{bridgeName}/available-resources
+```
+
+Get available resources (rooms, equipment) for a specific bridge.
+
+Example: `GET /bridges/outlook/available-resources`
+
+Response:
+```json
+{
+  "success": true,
+  "bridge_name": "outlook",
+  "resources": [
+    {
+      "id": "room1@company.com",
+      "name": "Conference Room 1",
+      "type": "room",
+      "capacity": 10,
+      "email": "room1@company.com"
+    },
+    {
+      "id": "projector1@company.com", 
+      "name": "Mobile Projector #1",
+      "type": "equipment",
+      "email": "projector1@company.com"
+    }
+  ]
+}
+```
+
+#### Get Available Groups
+```http
+GET /bridges/{bridgeName}/available-groups
+```
+
+Get available groups/collections for a specific bridge.
+
+Example: `GET /bridges/outlook/available-groups`
+
+Response:
+```json
+{
+  "success": true,
+  "bridge_name": "outlook",
+  "groups": [
+    {
+      "id": "meeting-rooms@company.com",
+      "name": "Meeting Rooms",
+      "description": "All conference and meeting rooms"
+    },
+    {
+      "id": "equipment@company.com",
+      "name": "Equipment Resources", 
+      "description": "Projectors, screens, and other equipment"
+    }
+  ]
+}
+```
+
+#### Get User Calendar Items
+```http
+GET /bridges/{bridgeName}/users/{userId}/calendar-items
+```
+
+Get calendar items for a specific user on a bridge.
+
+Example: `GET /bridges/outlook/users/john.doe@company.com/calendar-items?start_date=2025-06-15&end_date=2025-06-22`
+
+Response:
+```json
+{
+  "success": true,
+  "bridge_name": "outlook",
+  "user_id": "john.doe@company.com",
+  "events": [
+    {
+      "id": "event123",
+      "subject": "Team Meeting",
+      "start": "2025-06-15T10:00:00Z",
+      "end": "2025-06-15T11:00:00Z",
+      "organizer": "john.doe@company.com",
+      "attendees": ["jane.smith@company.com"]
     }
   ]
 }
@@ -994,7 +1130,7 @@ curl -X POST -H "Authorization: Bearer your_api_key" \
      http://your-booking-system/api/resources/123/events
 ```
 
-## 🔗 Resource Mapping Management
+## 🔧 Resource Mapping Management
 
 The bridge provides a comprehensive API to manage resource mappings between your booking system and calendar systems like Outlook.
 
@@ -1623,233 +1759,3 @@ curl http://localhost:8082/bridges/outlook/calendars
   ]
 }
 ```
-
-## 🔧 Configurable API Integration
-
-The BookingSystemBridge supports **configurable API mappings** to adapt to any booking system's API structure without code changes. Configure endpoints, field mappings, and authentication through the bridge configuration.
-
-#### **Configuration Options**
-
-**Basic Configuration:**
-```php
-// In index.php or bridge registration
-$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
-    'api_base_url' => 'http://your-booking-system.com',
-    'api_key' => 'your_api_key'
-]);
-```
-
-**Advanced Configuration with Custom Mappings:**
-```php
-$manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
-    'api_base_url' => 'http://your-booking-system.com',
-    'api_key' => 'your_api_key',
-    
-    // Custom API endpoint mappings
-    'api_endpoints' => [
-        'list_events' => [
-            'method' => 'GET',
-            'url' => '/api/v2/bookings',  // Your custom endpoint
-            'params' => ['room_id', 'from_date', 'to_date', 'status' => 'active']
-        ],
-        'create_event' => [
-            'method' => 'POST', 
-            'url' => '/api/v2/bookings'
-        ],
-        'update_event' => [
-            'method' => 'PATCH',  // Some systems use PATCH instead of PUT
-            'url' => '/api/v2/bookings/{event_id}'
-        ],
-        'delete_event' => [
-            'method' => 'DELETE',
-            'url' => '/api/v2/bookings/{event_id}'
-        ],
-        'list_resources' => [
-            'method' => 'GET',
-            'url' => '/api/v2/rooms'
-        ]
-    ],
-    
-    // Custom field mappings
-    'field_mappings' => [
-        'to_booking_system' => [
-            'subject' => 'booking_title',        // Bridge 'subject' → Your 'booking_title'
-            'start' => 'start_datetime',         // Bridge 'start' → Your 'start_datetime'
-            'end' => 'end_datetime',             // Bridge 'end' → Your 'end_datetime'
-            'description' => 'notes',            // Bridge 'description' → Your 'notes'
-            'organizer' => 'booked_by',          // Bridge 'organizer' → Your 'booked_by'
-            'attendees' => 'participant_email'   // Bridge 'attendees' → Your 'participant_email'
-        ],
-        'from_booking_system' => [
-            'booking_title' => 'subject',        // Your 'booking_title' → Bridge 'subject'
-            'start_datetime' => 'start',         // Your 'start_datetime' → Bridge 'start'
-            'end_datetime' => 'end',             // Your 'end_datetime' → Bridge 'end'
-            'notes' => 'description',            // Your 'notes' → Bridge 'description'
-            'booked_by' => 'organizer',          // Your 'booked_by' → Bridge 'organizer'
-            'participant_email' => 'attendees'   // Your 'participant_email' → Bridge 'attendees'
-        ]
-    ],
-    
-    // Authentication configuration
-    'auth' => [
-        'type' => 'api_key',       // 'bearer', 'basic', 'api_key', 'header'
-        'header' => 'X-API-Key',   // Custom header name
-        'prefix' => ''             // No prefix for API key
-    ]
-]);
-```
-
-#### **Supported API Patterns**
-
-**1. Different URL Structures:**
-```php
-// Default: /api/resources/{resource_id}/events
-'url' => '/api/resources/{resource_id}/events'
-
-// Alternative patterns:
-'url' => '/api/bookings'                    // Flat structure
-'url' => '/api/rooms/{resource_id}/events'  // Different naming
-'url' => '/api/v2/calendar/{resource_id}'   // Versioned API
-'url' => '/bookings/room/{resource_id}'     // No /api prefix
-```
-
-**2. Different HTTP Methods:**
-```php
-'update_event' => [
-    'method' => 'PATCH',  // Instead of PUT
-    'url' => '/api/bookings/{event_id}'
-],
-'delete_event' => [
-    'method' => 'POST',   // Some systems use POST for deletion
-    'url' => '/api/bookings/{event_id}/cancel'
-]
-```
-
-**3. Custom Parameters:**
-```php
-'list_events' => [
-    'method' => 'GET',
-    'url' => '/api/bookings',
-    'params' => [
-        'room_id',           // Dynamic parameter (filled by bridge)
-        'from_date',         // Dynamic parameter (filled by bridge) 
-        'to_date',           // Dynamic parameter (filled by bridge)
-        'format' => 'json',  // Static parameter
-        'status' => 'active', // Static parameter
-        'include' => 'details' // Static parameter
-    ]
-]
-```
-
-**4. Authentication Methods:**
-```php
-// Bearer token (default)
-'auth' => ['type' => 'bearer', 'header' => 'Authorization', 'prefix' => 'Bearer ']
-
-// API Key in header
-'auth' => ['type' => 'api_key', 'header' => 'X-API-Key', 'prefix' => '']
-
-// Custom header
-'auth' => ['type' => 'header', 'header' => 'X-Auth-Token', 'prefix' => 'Token ']
-
-// Basic authentication
-'auth' => ['type' => 'basic']
-```
-
-#### **Real-World Examples**
-
-**Example 1: Laravel-based Booking System**
-```php
-'api_endpoints' => [
-    'list_events' => [
-        'method' => 'GET',
-        'url' => '/api/bookings',
-        'params' => ['resource_id', 'start_date', 'end_date']
-    ],
-    'create_event' => [
-        'method' => 'POST',
-        'url' => '/api/bookings'
-    ]
-],
-'field_mappings' => [
-    'to_booking_system' => [
-        'subject' => 'title',
-        'start' => 'starts_at',
-        'end' => 'ends_at',
-        'organizer' => 'user_name'
-    ],
-    'from_booking_system' => [
-        'title' => 'subject',
-        'starts_at' => 'start',
-        'ends_at' => 'end',
-        'user_name' => 'organizer'
-    ]
-]
-```
-
-**Example 2: Legacy System with Different Structure**
-```php
-'api_endpoints' => [
-    'list_events' => [
-        'method' => 'GET',
-        'url' => '/bookings/list',
-        'params' => ['room' => 'resource_id', 'from', 'to', 'type' => 'calendar']
-    ],
-    'create_event' => [
-        'method' => 'POST',
-        'url' => '/bookings/new'
-    ],
-    'delete_event' => [
-        'method' => 'POST',
-        'url' => '/bookings/cancel/{event_id}'
-    ]
-],
-'auth' => [
-    'type' => 'header',
-    'header' => 'X-Legacy-Token'
-]
-```
-
-#### **Response Format Flexibility**
-
-The bridge automatically handles different response formats:
-
-```json
-// Option 1: Wrapped in 'events' key (default)
-{"events": [{"id": 1, "title": "Meeting"}]}
-
-// Option 2: Wrapped in 'data' key  
-{"data": [{"id": 1, "title": "Meeting"}]}
-
-// Option 3: Direct array
-[{"id": 1, "title": "Meeting"}]
-
-// Option 4: Single object (for creates/updates)
-{"event_id": 123, "status": "created"}
-```
-
-#### **Migration from Fixed API**
-
-**Before (Fixed API):**
-```php
-// Bridge was hardcoded to expect:
-// GET /api/resources/{id}/events
-// Field: 'title' maps to 'subject'
-```
-
-**After (Configurable API):**
-```php
-// Bridge adapts to your existing API:
-'api_endpoints' => [
-    'list_events' => [
-        'url' => '/your/existing/endpoint/{resource_id}'
-    ]
-],
-'field_mappings' => [
-    'from_booking_system' => [
-        'your_title_field' => 'subject'
-    ]
-]
-```
-
-**This means you don't need to change your existing booking system API - just configure the bridge to match your API!**
