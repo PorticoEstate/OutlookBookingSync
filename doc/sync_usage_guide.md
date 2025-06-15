@@ -547,149 +547,172 @@ curl -X GET "http://localhost:8082/polling/stats"
 - Use `/polling/detect-missing-events` as a weekly backup check
 - Monitor `/polling/stats` for system health
 
-## Production Database Integration
+## Bridge Integration Principles
 
-### Multi-Table Creation Process
+### Bridge Responsibilities vs. System Responsibilities
 
-When processing Outlook events into booking system entries, the system creates complete records across multiple related tables:
+The calendar bridge follows the **separation of concerns** principle:
 
-#### Primary Event Creation (`your_event_table`)
-- **Event ID**: Auto-generated unique identifier (verified: 78268+)
-- **Title**: Converted from Outlook subject
-- **Description**: HTML-to-text converted from Outlook body
-- **Activity**: Links to default activity or creates new one
-- **Status**: Set to active (1)
-- **Timestamps**: Created and updated times
+#### 🌉 Bridge Responsibilities (What the Bridge Does)
+- **Event Transport**: Move event data between systems via standardized APIs
+- **Format Translation**: Convert between different calendar formats (iCal, JSON, etc.)
+- **Status Tracking**: Track sync status in `bridge_mappings` table
+- **Resource Mapping**: Map resources between systems via `bridge_resource_mappings`
+- **Error Handling**: Log sync failures and provide retry mechanisms
 
-#### Related Table Population
-1. **Event Dates (`your_event_table_date`)**
-   - Start and end times from Outlook event
-   - Links to created event via event_id
+#### 🏢 Booking System Responsibilities (What Your System Does)
+- **Internal Data Structure**: How you organize events, dates, resources, etc.
+- **Business Logic**: How you handle event creation, validation, conflicts
+- **Database Schema**: Your table structure, relationships, constraints
+- **Event Processing**: How you process incoming events (create, update, cancel)
+- **Cancellation Handling**: How you mark events as cancelled in your system
 
-2. **Event Resources (`your_event_table_resource`)**
-   - Links event to room/resource
-   - Uses resource_id from mapping table
+### Bridge API Contract
 
-3. **Age Groups (`your_event_table_agegroup`)**
-   - Default age group assignment
-   - Configurable per event type
+The bridge communicates with your booking system through **standardized REST APIs**:
 
-4. **Target Audiences (`your_event_table_targetaudience`)**
-   - Default audience assignment
-   - Expandable for specific targeting
+#### Incoming Events (Bridge → Your System)
+```bash
+POST /api/events
+{
+    "external_id": "outlook-event-123",
+    "title": "Team Meeting",
+    "description": "Weekly team sync",
+    "start_time": "2024-12-15T10:00:00Z",
+    "end_time": "2024-12-15T11:00:00Z",
+    "organizer": {
+        "name": "John Doe",
+        "email": "john@company.com"
+    },
+    "location": "Conference Room A",
+    "source_system": "outlook"
+}
+```
 
-### Transaction Safety
+**Your System's Response**: Your booking system handles this however it wants:
+- Create events across multiple tables
+- Apply your business rules
+- Return your internal event ID
 
-All database operations are wrapped in transactions:
+#### Event Updates (Bridge → Your System)
+```bash
+PUT /api/events/{your_internal_id}
+```
+
+#### Event Cancellations (Bridge → Your System)
+```bash
+DELETE /api/events/{your_internal_id}
+```
+
+**Your Implementation**: You decide how to handle cancellations:
+- Set `active = 0`
+- Move to archive table
+- Add cancellation notes
+- Trigger notifications
+
+### Implementation Example
+
+This is **your booking system's responsibility**, not the bridge's:
 
 ```php
-// Simplified transaction flow
-$this->db->beginTransaction();
-try {
-    $eventId = $this->createEvent($data);
-    $this->createEventDate($eventId, $startTime, $endTime);
-    $this->createEventResource($eventId, $resourceId);
-    $this->createEventAgeGroup($eventId, $ageGroupId);
-    $this->createEventTargetAudience($eventId, $audienceId);
-    $this->db->commit();
-    return $eventId; // Real reservation ID
-} catch (Exception $e) {
-    $this->db->rollback();
-    throw $e;
-}
-```
-
-### Verification of Real Database Integration
-
-The system has been verified with actual database operations:
-
-- ✅ **Real Reservation IDs**: 78268, 78269, 78270, 78271, 78272, 78273, 78274, 78275, 78276, 78277, 78278
-- ✅ **100% Success Rate**: 11/11 Outlook events successfully converted
-- ✅ **Zero Errors**: All operations completed without database errors
-- ✅ **Transaction Integrity**: All related records created atomically
-- ✅ **HTML Conversion**: Proper text formatting for event descriptions
-
-### Step 1: Initial Setup
-
-1. **Populate Resource Mappings** (if not done already):
-   ```sql
-   INSERT INTO bridge_resource_mappings (resource_id, outlook_item_id, outlook_item_name, active) 
-   VALUES (123, 'room-calendar-id', 'Conference Room A', 1);
-   ```
-
-2. **Populate Calendar Mappings**:
-
-   ```bash
-   curl -X POST "http://localhost:8082/sync/populate-mapping"
-   ```
-
-### Step 2: Check What's Pending
-
-```bash
-curl -X GET "http://localhost:8082/sync/pending-items"
-```
-
-Expected response:
-```json
-{
-  "success": true,
-  "count": 15,
-  "items": [
-    {
-      "id": 1,
-      "reservation_type": "event",
-      "reservation_id": 456,
-      "resource_id": 123,
-      "outlook_item_id": "room-calendar-id",
-      "sync_status": "pending",
-      "priority_level": 1
+// YOUR booking system API endpoint
+class BookingSystemEventController {
+    public function createEvent(Request $request) {
+        // YOUR business logic
+        $this->db->beginTransaction();
+        try {
+            // YOUR data structure
+            $eventId = $this->createEventRecord($request->data);
+            $this->createEventDates($eventId, $request->times);
+            $this->assignResources($eventId, $request->location);
+            $this->applyBusinessRules($eventId);
+            
+            $this->db->commit();
+            return response()->json(['id' => $eventId]);
+        } catch (Exception $e) {
+            $this->db->rollback();
+            throw $e;
+        }
     }
-  ]
 }
 ```
 
-### Step 3: Sync to Outlook
+### Bridge Usage Steps
+
+#### Step 1: Set Up Resource Mappings
+
+Map your booking system resources to calendar resources:
 
 ```bash
-curl -X POST "http://localhost:8082/sync/to-outlook"
+curl -X POST "http://localhost:8082/mappings/resources" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "booking_system_resource_id": "123",
+    "calendar_system": "outlook",
+    "calendar_resource_id": "room-calendar-id",
+    "calendar_resource_name": "Conference Room A",
+    "active": true
+  }'
+```
+
+#### Step 2: Configure Your Booking System API
+
+Ensure your booking system exposes the required endpoints:
+
+```bash
+# Your booking system should provide:
+POST   /api/events          # Create new events
+PUT    /api/events/{id}     # Update existing events  
+DELETE /api/events/{id}     # Cancel/delete events
+GET    /api/events          # List events for sync
+```
+
+#### Step 3: Sync Between Systems
+
+**Sync from your booking system to Outlook:**
+```bash
+curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook"
+```
+
+**Sync from Outlook to your booking system:**
+```bash
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
+```
+
+**Process any pending sync operations:**
+```bash
+curl -X POST "http://localhost:8082/bridge/process-pending"
+```
+
+#### Step 4: Monitor Bridge Health
+
+```bash
+curl -X GET "http://localhost:8082/bridges/health"
 ```
 
 Expected response:
 ```json
 {
   "success": true,
-  "message": "Sync completed",
-  "results": {
-    "processed": 15,
-    "created": 12,
-    "updated": 2,
-    "errors": 1,
-    "details": [
-      {
-        "item_type": "event",
-        "item_id": 456,
-        "resource_id": 123,
-        "action": "created",
-        "outlook_event_id": "AAMkAGVmMDEzMTM4LTZmYWUtNDdkNC1hMDZiLTU1OGY5OTZhYmY4OABGAAAAAAAiQ8W967B7TKBjgx9rVEURBwAiIsqMbYjsT5e-T-KzowKTAAAAAAENAAAiIsqMbYjsT5e-T-KzowKTAAAYvYDZAAA=",
-        "title": "Important Meeting"
-      }
-    ]
+  "bridges": {
+    "outlook": {
+      "status": "healthy",
+      "last_sync": "2024-12-15T10:30:00Z",
+      "calendars_available": 5
+    },
+    "booking_system": {
+      "status": "healthy", 
+      "api_accessible": true,
+      "last_response_time": "0.2s"
+    }
+  },
+  "mappings": {
+    "total": 150,
+    "active": 145,
+    "pending": 3,
+    "errors": 2
   }
 }
-```
-
-### Step 4: Monitor Sync Status
-
-```bash
-curl -X GET "http://localhost:8082/sync/status"
-```
-
-Expected response:
-```json
-{
-  "success": true,
-  "statistics": {
-    "total_mappings": 150,
     "summary": {
       "pending": 5,
       "synced": 140,
