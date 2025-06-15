@@ -702,9 +702,6 @@ Generic Calendar Bridge Service (IMPLEMENTED)
 │   └── OutlookController.php           ✅ DONE
 ├── src/Middleware/
 │   └── ApiKeyMiddleware.php            ✅ DONE
-├── src/Obsolete/
-│   ├── CancellationDetectionService.php ✅ MOVED
-│   └── CancellationService.php         ✅ MOVED
 ├── database/
 │   └── bridge_schema.sql               ✅ DONE
 └── scripts/
