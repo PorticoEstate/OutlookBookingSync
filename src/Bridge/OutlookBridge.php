@@ -14,8 +14,6 @@ use Microsoft\Kiota\Abstractions\HttpMethod;
 
 class OutlookBridge extends AbstractCalendarBridge
 {
-    private $accessToken;
-    private $graphBaseUrl = 'https://graph.microsoft.com/v1.0';
     private $graphServiceClient;
     
     protected function validateConfig()
@@ -34,12 +32,11 @@ class OutlookBridge extends AbstractCalendarBridge
     
     protected function initialize()
     {
-        $this->accessToken = $this->getAccessToken();
         $this->initializeGraphClient();
     }
     
     /**
-     * Initialize Microsoft Graph Service Client (same as OutlookController)
+     * Initialize Microsoft Graph Service Client with proxy support
      */
     private function initializeGraphClient()
     {
@@ -57,12 +54,13 @@ class OutlookBridge extends AbstractCalendarBridge
         // Create authentication provider
         $authProvider = new GraphPhpLeagueAuthenticationProvider($tokenRequestContext);
         
-        // Create HTTP client (with proxy support if configured)
-        $guzzleConfig = [];
-        if (!empty($_ENV['httpproxy_server'] ?? '')) {
+        // Create HTTP client with proxy support if configured
+        if (!empty($_ENV['httpproxy_server'])) {
             $guzzleConfig = [
                 "proxy" => "{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}"
             ];
+        } else {
+            $guzzleConfig = [];
         }
         
         $httpClient = GraphClientFactory::createWithConfig($guzzleConfig);
@@ -94,17 +92,20 @@ class OutlookBridge extends AbstractCalendarBridge
     {
         $this->logOperation('get_events', ['calendar_id' => $calendarId]);
         
-        $url = "{$this->graphBaseUrl}/users/{$calendarId}/calendar/events";
-        $params = [
-            '$filter' => "start/dateTime ge '{$startDate}' and end/dateTime le '{$endDate}'",
-            '$select' => 'id,subject,start,end,location,attendees,body,organizer,isAllDay,createdDateTime,lastModifiedDateTime',
-            '$top' => 999,
-            '$orderby' => 'start/dateTime asc'
-        ];
-        
-        $response = $this->makeGraphRequest('GET', $url, $params);
-        
-        return array_map([$this, 'mapOutlookEventToGeneric'], $response['value'] ?? []);
+        try {
+            $requestConfig = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetRequestConfiguration();
+            $requestConfig->queryParameters = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetQueryParameters();
+            $requestConfig->queryParameters->filter = "start/dateTime ge '{$startDate}' and end/dateTime le '{$endDate}'";
+            $requestConfig->queryParameters->select = ['id','subject','start','end','location','attendees','body','organizer','isAllDay','createdDateTime','lastModifiedDateTime'];
+            $requestConfig->queryParameters->top = 999;
+            $requestConfig->queryParameters->orderby = ['start/dateTime asc'];
+            
+            $events = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->get($requestConfig)->getValue();
+            
+            return array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to get events: " . $e->getMessage());
+        }
     }
     
     public function createEvent($calendarId, $event): string
@@ -115,12 +116,14 @@ class OutlookBridge extends AbstractCalendarBridge
             throw new \InvalidArgumentException('Invalid event data provided');
         }
         
-        $outlookEvent = $this->mapGenericEventToOutlook($event);
-        
-        $url = "{$this->graphBaseUrl}/users/{$calendarId}/calendar/events";
-        $response = $this->makeGraphRequest('POST', $url, [], $outlookEvent);
-        
-        return $response['id'];
+        try {
+            $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
+            $createdEvent = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->post($outlookEvent);
+            
+            return $createdEvent->getId();
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to create event: " . $e->getMessage());
+        }
     }
     
     public function updateEvent($calendarId, $eventId, $event): bool
@@ -131,22 +134,27 @@ class OutlookBridge extends AbstractCalendarBridge
             throw new \InvalidArgumentException('Invalid event data provided');
         }
         
-        $outlookEvent = $this->mapGenericEventToOutlook($event);
-        
-        $url = "{$this->graphBaseUrl}/users/{$calendarId}/calendar/events/{$eventId}";
-        $response = $this->makeGraphRequest('PATCH', $url, [], $outlookEvent);
-        
-        return !empty($response);
+        try {
+            $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
+            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->patch($outlookEvent);
+            
+            return true;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to update event: " . $e->getMessage());
+        }
     }
     
     public function deleteEvent($calendarId, $eventId): bool
     {
         $this->logOperation('delete_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
         
-        $url = "{$this->graphBaseUrl}/users/{$calendarId}/calendar/events/{$eventId}";
-        $this->makeGraphRequest('DELETE', $url);
-        
-        return true;
+        try {
+            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->delete();
+            
+            return true;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to delete event: " . $e->getMessage());
+        }
     }
     
     public function getCalendars(): array
@@ -159,19 +167,22 @@ class OutlookBridge extends AbstractCalendarBridge
         }
         
         // Default: Get room mailboxes from /places endpoint
-        $url = "{$this->graphBaseUrl}/places/microsoft.graph.room";
-        $response = $this->makeGraphRequest('GET', $url);
-        
-        return array_map(function($room) {
-            return [
-                'id' => $room['id'],
-                'name' => $room['displayName'],
-                'email' => $room['emailAddress'],
-                'type' => 'room',
-                'bridge_type' => $this->getBridgeType(),
-                'raw_data' => $room
-            ];
-        }, $response['value'] ?? []);
+        try {
+            $places = $this->graphServiceClient->places()->microsoftGraphRoom()->get();
+            
+            return array_map(function($room) {
+                return [
+                    'id' => $room->getId(),
+                    'name' => $room->getDisplayName(),
+                    'email' => $room->getAdditionalData()['emailAddress'] ?? '',
+                    'type' => 'room',
+                    'bridge_type' => $this->getBridgeType(),
+                    'raw_data' => $room->getAdditionalData()
+                ];
+            }, $places->getValue() ?? []);
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to get calendars: " . $e->getMessage());
+        }
     }
     
     /**
@@ -181,27 +192,31 @@ class OutlookBridge extends AbstractCalendarBridge
     {
         $this->logOperation('get_calendars_from_group', ['group_id' => $groupId]);
         
-        // Get group members
-        $url = "{$this->graphBaseUrl}/groups/{$groupId}/members";
-        $response = $this->makeGraphRequest('GET', $url);
-        
-        $calendars = [];
-        
-        foreach ($response['value'] ?? [] as $member) {
-            // Filter for mailbox-enabled members (rooms, resources, or users with calendars)
-            if (isset($member['mail']) && !empty($member['mail'])) {
-                $calendars[] = [
-                    'id' => $member['mail'], // Use email as calendar ID for group members
-                    'name' => $member['displayName'] ?? $member['mail'],
-                    'email' => $member['mail'],
-                    'type' => $this->determineCalendarType($member),
-                    'bridge_type' => $this->getBridgeType(),
-                    'raw_data' => $member
-                ];
+        try {
+            // Get group members
+            $members = $this->graphServiceClient->groups()->byGroupId($groupId)->members()->get();
+            
+            $calendars = [];
+            
+            foreach ($members->getValue() ?? [] as $member) {
+                // Filter for mailbox-enabled members (rooms, resources, or users with calendars)
+                $memberData = $member->getAdditionalData();
+                if (isset($memberData['mail']) && !empty($memberData['mail'])) {
+                    $calendars[] = [
+                        'id' => $memberData['mail'], // Use email as calendar ID for group members
+                        'name' => $member->getDisplayName() ?? $memberData['mail'],
+                        'email' => $memberData['mail'],
+                        'type' => $this->determineCalendarType($memberData),
+                        'bridge_type' => $this->getBridgeType(),
+                        'raw_data' => $memberData
+                    ];
+                }
             }
+            
+            return $calendars;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to get calendars from group: " . $e->getMessage());
         }
-        
-        return $calendars;
     }
     
     /**
@@ -235,224 +250,142 @@ class OutlookBridge extends AbstractCalendarBridge
     {
         $this->logOperation('subscribe_to_changes', ['calendar_id' => $calendarId, 'webhook_url' => $webhookUrl]);
         
-        $subscription = [
-            'changeType' => 'created,updated,deleted',
-            'notificationUrl' => $webhookUrl,
-            'resource' => "users/{$calendarId}/calendar/events",
-            'expirationDateTime' => date('c', strtotime('+1 day')),
-            'clientState' => 'outlook-bridge-' . uniqid()
-        ];
-        
-        $url = "{$this->graphBaseUrl}/subscriptions";
-        $response = $this->makeGraphRequest('POST', $url, [], $subscription);
-        
-        // Store subscription info in database
-        $this->storeSubscription($response['id'], $calendarId, $webhookUrl, $response);
-        
-        return $response['id'];
+        try {
+            $subscription = new \Microsoft\Graph\Generated\Models\Subscription();
+            $subscription->setChangeType('created,updated,deleted');
+            $subscription->setNotificationUrl($webhookUrl);
+            $subscription->setResource("users/{$calendarId}/calendar/events");
+            $subscription->setExpirationDateTime(new \DateTime('+1 day'));
+            $subscription->setClientState('outlook-bridge-' . uniqid());
+            
+            $createdSubscription = $this->graphServiceClient->subscriptions()->post($subscription);
+            
+            // Store subscription info in database
+            $this->storeSubscription($createdSubscription->getId(), $calendarId, $webhookUrl, $createdSubscription->getAdditionalData());
+            
+            return $createdSubscription->getId();
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to create subscription: " . $e->getMessage());
+        }
     }
     
     public function unsubscribeFromChanges($subscriptionId): bool
     {
         $this->logOperation('unsubscribe_from_changes', ['subscription_id' => $subscriptionId]);
         
-        $url = "{$this->graphBaseUrl}/subscriptions/{$subscriptionId}";
-        $this->makeGraphRequest('DELETE', $url);
-        
-        // Remove subscription from database
-        $this->removeSubscription($subscriptionId);
-        
-        return true;
+        try {
+            $this->graphServiceClient->subscriptions()->bySubscriptionId($subscriptionId)->delete();
+            
+            // Remove subscription from database
+            $this->removeSubscription($subscriptionId);
+            
+            return true;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to delete subscription: " . $e->getMessage());
+        }
     }
     
     /**
-     * Get access token for Microsoft Graph API
+     * Map Outlook SDK Event object to generic format
      */
-    private function getAccessToken(): string
-    {
-        $tokenUrl = "https://login.microsoftonline.com/{$this->config['tenant_id']}/oauth2/v2.0/token";
-        
-        $postData = [
-            'client_id' => $this->config['client_id'],
-            'client_secret' => $this->config['client_secret'],
-            'scope' => 'https://graph.microsoft.com/.default',
-            'grant_type' => 'client_credentials'
-        ];
-        
-        $contextOptions = [
-            'http' => [
-                'method' => 'POST',
-                'header' => 'Content-Type: application/x-www-form-urlencoded',
-                'content' => http_build_query($postData),
-                'timeout' => 30
-            ]
-        ];
-        
-        // Add proxy support if configured
-        if (!empty($_ENV['httpproxy_server'] ?? '')) {
-            $contextOptions['http']['proxy'] = "tcp://{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}";
-            $contextOptions['http']['request_fulluri'] = true;
-        }
-        
-        $context = stream_context_create($contextOptions);
-        
-        $response = file_get_contents($tokenUrl, false, $context);
-        
-        if ($response === false) {
-            throw new \Exception('Failed to get access token from Microsoft');
-        }
-        
-        $tokenData = json_decode($response, true);
-        
-        if (!isset($tokenData['access_token'])) {
-            throw new \Exception('Access token not found in response: ' . $response);
-        }
-        
-        return $tokenData['access_token'];
-    }
-    
-    /**
-     * Make request to Microsoft Graph API
-     */
-    private function makeGraphRequest($method, $url, $params = [], $data = [])
-    {
-        $headers = [
-            'Authorization: Bearer ' . $this->accessToken,
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ];
-        
-        if ($method === 'GET' && !empty($params)) {
-            $url .= '?' . http_build_query($params);
-        }
-        
-        $contextOptions = [
-            'http' => [
-                'method' => $method,
-                'header' => implode("\r\n", $headers),
-                'content' => !empty($data) ? json_encode($data) : null,
-                'timeout' => 60
-            ]
-        ];
-        
-        // Add proxy support if configured
-        if (!empty($_ENV['httpproxy_server'] ?? '')) {
-            $contextOptions['http']['proxy'] = "tcp://{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}";
-            $contextOptions['http']['request_fulluri'] = true;
-        }
-        
-        $context = stream_context_create($contextOptions);
-        
-        $response = file_get_contents($url, false, $context);
-        
-        if ($response === false) {
-            $error = error_get_last();
-            throw new \Exception("Graph API request failed: {$method} {$url} - " . $error['message']);
-        }
-        
-        // Handle empty responses for DELETE operations
-        if ($method === 'DELETE' && empty($response)) {
-            return [];
-        }
-        
-        $decoded = json_decode($response, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \Exception("Invalid JSON response from Graph API: " . json_last_error_msg());
-        }
-        
-        // Check for Graph API errors
-        if (isset($decoded['error'])) {
-            throw new \Exception("Graph API error: " . $decoded['error']['message']);
-        }
-        
-        return $decoded;
-    }
-    
-    /**
-     * Map Outlook event to generic format
-     */
-    private function mapOutlookEventToGeneric($outlookEvent): array
+    private function mapOutlookSDKEventToGeneric(\Microsoft\Graph\Generated\Models\Event $outlookEvent): array
     {
         return $this->createGenericEvent([
-            'id' => $outlookEvent['id'],
-            'subject' => $outlookEvent['subject'] ?? '',
-            'start' => $outlookEvent['start']['dateTime'] ?? '',
-            'end' => $outlookEvent['end']['dateTime'] ?? '',
-            'location' => $outlookEvent['location']['displayName'] ?? '',
-            'description' => $this->extractTextFromHtml($outlookEvent['body']['content'] ?? ''),
+            'id' => $outlookEvent->getId(),
+            'subject' => $outlookEvent->getSubject() ?? '',
+            'start' => $outlookEvent->getStart() ? $outlookEvent->getStart()->getDateTime() : '',
+            'end' => $outlookEvent->getEnd() ? $outlookEvent->getEnd()->getDateTime() : '',
+            'location' => $outlookEvent->getLocation() ? $outlookEvent->getLocation()->getDisplayName() : '',
+            'description' => $this->extractTextFromHtml($outlookEvent->getBody() ? $outlookEvent->getBody()->getContent() : ''),
             'attendees' => array_map(function($attendee) {
-                return $attendee['emailAddress']['address'] ?? '';
-            }, $outlookEvent['attendees'] ?? []),
-            'organizer' => $outlookEvent['organizer']['emailAddress']['address'] ?? '',
-            'all_day' => $outlookEvent['isAllDay'] ?? false,
-            'timezone' => $outlookEvent['start']['timeZone'] ?? 'UTC',
-            'created' => $outlookEvent['createdDateTime'] ?? date('c'),
-            'last_modified' => $outlookEvent['lastModifiedDateTime'] ?? date('c')
+                return $attendee->getEmailAddress() ? $attendee->getEmailAddress()->getAddress() : '';
+            }, $outlookEvent->getAttendees() ?? []),
+            'organizer' => $outlookEvent->getOrganizer() && $outlookEvent->getOrganizer()->getEmailAddress() ? 
+                         $outlookEvent->getOrganizer()->getEmailAddress()->getAddress() : '',
+            'all_day' => $outlookEvent->getIsAllDay() ?? false,
+            'timezone' => $outlookEvent->getStart() ? $outlookEvent->getStart()->getTimeZone() : 'UTC',
+            'created' => $outlookEvent->getCreatedDateTime() ? $outlookEvent->getCreatedDateTime()->format('c') : date('c'),
+            'last_modified' => $outlookEvent->getLastModifiedDateTime() ? $outlookEvent->getLastModifiedDateTime()->format('c') : date('c')
         ]);
     }
     
     /**
      * Map generic event to Outlook format
      */
-    private function mapGenericEventToOutlook($event): array
+    /**
+     * Map generic event to Outlook SDK Event object
+     */
+    private function mapGenericEventToOutlookSDK($event): \Microsoft\Graph\Generated\Models\Event
     {
-        $outlookEvent = [
-            'subject' => $event['subject'],
-            'start' => [
-                'dateTime' => $this->normalizeDateTime($event['start']),
-                'timeZone' => $event['timezone'] ?? 'UTC'
-            ],
-            'end' => [
-                'dateTime' => $this->normalizeDateTime($event['end']),
-                'timeZone' => $event['timezone'] ?? 'UTC'
-            ],
-            'body' => [
-                'contentType' => 'text',
-                'content' => $event['description'] ?? ''
-            ]
-        ];
+        $outlookEvent = new \Microsoft\Graph\Generated\Models\Event();
+        
+        $outlookEvent->setSubject($event['subject']);
+        
+        // Set start time
+        $startTime = new \Microsoft\Graph\Generated\Models\DateTimeTimeZone();
+        $startTime->setDateTime($this->normalizeDateTime($event['start']));
+        $startTime->setTimeZone($event['timezone'] ?? 'UTC');
+        $outlookEvent->setStart($startTime);
+        
+        // Set end time
+        $endTime = new \Microsoft\Graph\Generated\Models\DateTimeTimeZone();
+        $endTime->setDateTime($this->normalizeDateTime($event['end']));
+        $endTime->setTimeZone($event['timezone'] ?? 'UTC');
+        $outlookEvent->setEnd($endTime);
+        
+        // Set body
+        $body = new \Microsoft\Graph\Generated\Models\ItemBody();
+        $body->setContentType(new \Microsoft\Graph\Generated\Models\BodyType('text'));
+        $body->setContent($event['description'] ?? '');
+        $outlookEvent->setBody($body);
         
         // Add location if provided
         if (!empty($event['location'])) {
-            $outlookEvent['location'] = [
-                'displayName' => $event['location']
-            ];
+            $location = new \Microsoft\Graph\Generated\Models\Location();
+            $location->setDisplayName($event['location']);
+            $outlookEvent->setLocation($location);
         }
         
         // Add attendees if provided
         if (!empty($event['attendees'])) {
-            $outlookEvent['attendees'] = array_map(function($email) {
-                return [
-                    'emailAddress' => ['address' => $email],
-                    'type' => 'required'
-                ];
-            }, $event['attendees']);
+            $attendees = [];
+            foreach ($event['attendees'] as $email) {
+                $attendee = new \Microsoft\Graph\Generated\Models\Attendee();
+                $emailAddress = new \Microsoft\Graph\Generated\Models\EmailAddress();
+                $emailAddress->setAddress($email);
+                $attendee->setEmailAddress($emailAddress);
+                $attendee->setType(new \Microsoft\Graph\Generated\Models\AttendeeType('required'));
+                $attendees[] = $attendee;
+            }
+            $outlookEvent->setAttendees($attendees);
         }
         
         // Add all-day flag if needed
         if ($event['all_day'] ?? false) {
-            $outlookEvent['isAllDay'] = true;
+            $outlookEvent->setIsAllDay(true);
         }
         
         // Add custom properties to track bridge source
-        $outlookEvent['singleValueExtendedProperties'] = [
-            [
-                'id' => 'String {66f5a359-4659-4830-9070-00047ec6ac6e} Name BridgeSource',
-                'value' => 'calendar_bridge'
-            ],
-            [
-                'id' => 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name SourceBridge',
-                'value' => $event['bridge_type'] ?? 'unknown'
-            ]
-        ];
+        $extendedProperties = [];
+        
+        $bridgeSourceProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
+        $bridgeSourceProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac6e} Name BridgeSource');
+        $bridgeSourceProp->setValue('calendar_bridge');
+        $extendedProperties[] = $bridgeSourceProp;
+        
+        $sourceBridgeProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
+        $sourceBridgeProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac6f} Name SourceBridge');
+        $sourceBridgeProp->setValue($event['bridge_type'] ?? 'unknown');
+        $extendedProperties[] = $sourceBridgeProp;
         
         if (isset($event['external_id'])) {
-            $outlookEvent['singleValueExtendedProperties'][] = [
-                'id' => 'String {66f5a359-4659-4830-9070-00047ec6ac70} Name SourceEventId',
-                'value' => $event['external_id']
-            ];
+            $sourceEventIdProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
+            $sourceEventIdProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac70} Name SourceEventId');
+            $sourceEventIdProp->setValue($event['external_id']);
+            $extendedProperties[] = $sourceEventIdProp;
         }
+        
+        $outlookEvent->setSingleValueExtendedProperties($extendedProperties);
         
         return $outlookEvent;
     }
