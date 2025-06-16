@@ -279,14 +279,22 @@ class OutlookBridge extends AbstractCalendarBridge
             'grant_type' => 'client_credentials'
         ];
         
-        $context = stream_context_create([
+        $contextOptions = [
             'http' => [
                 'method' => 'POST',
                 'header' => 'Content-Type: application/x-www-form-urlencoded',
                 'content' => http_build_query($postData),
                 'timeout' => 30
             ]
-        ]);
+        ];
+        
+        // Add proxy support if configured
+        if (!empty($_ENV['httpproxy_server'] ?? '')) {
+            $contextOptions['http']['proxy'] = "tcp://{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}";
+            $contextOptions['http']['request_fulluri'] = true;
+        }
+        
+        $context = stream_context_create($contextOptions);
         
         $response = file_get_contents($tokenUrl, false, $context);
         
@@ -318,14 +326,22 @@ class OutlookBridge extends AbstractCalendarBridge
             $url .= '?' . http_build_query($params);
         }
         
-        $context = stream_context_create([
+        $contextOptions = [
             'http' => [
                 'method' => $method,
                 'header' => implode("\r\n", $headers),
                 'content' => !empty($data) ? json_encode($data) : null,
                 'timeout' => 60
             ]
-        ]);
+        ];
+        
+        // Add proxy support if configured
+        if (!empty($_ENV['httpproxy_server'] ?? '')) {
+            $contextOptions['http']['proxy'] = "tcp://{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}";
+            $contextOptions['http']['request_fulluri'] = true;
+        }
+        
+        $context = stream_context_create($contextOptions);
         
         $response = file_get_contents($url, false, $context);
         
