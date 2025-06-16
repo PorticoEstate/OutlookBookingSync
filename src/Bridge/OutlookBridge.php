@@ -100,7 +100,8 @@ class OutlookBridge extends AbstractCalendarBridge
             $requestConfig->queryParameters->top = 999;
             $requestConfig->queryParameters->orderby = ['start/dateTime asc'];
             
-            $events = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->get($requestConfig)->getValue();
+            $eventsResponse = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->get($requestConfig)->wait();
+            $events = $eventsResponse->getValue();
             
             return array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
         } catch (\Exception $e) {
@@ -118,7 +119,7 @@ class OutlookBridge extends AbstractCalendarBridge
         
         try {
             $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
-            $createdEvent = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->post($outlookEvent);
+            $createdEvent = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->post($outlookEvent)->wait();
             
             return $createdEvent->getId();
         } catch (\Exception $e) {
@@ -136,7 +137,7 @@ class OutlookBridge extends AbstractCalendarBridge
         
         try {
             $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
-            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->patch($outlookEvent);
+            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->patch($outlookEvent)->wait();
             
             return true;
         } catch (\Exception $e) {
@@ -149,7 +150,7 @@ class OutlookBridge extends AbstractCalendarBridge
         $this->logOperation('delete_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
         
         try {
-            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->delete();
+            $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->delete()->wait();
             
             return true;
         } catch (\Exception $e) {
@@ -168,7 +169,8 @@ class OutlookBridge extends AbstractCalendarBridge
         
         // Default: Get room mailboxes from /places endpoint
         try {
-            $places = $this->graphServiceClient->places()->microsoftGraphRoom()->get();
+            $placesResponse = $this->graphServiceClient->places()->microsoftGraphRoom()->get()->wait();
+            $places = $placesResponse->getValue();
             
             return array_map(function($room) {
                 return [
@@ -179,7 +181,7 @@ class OutlookBridge extends AbstractCalendarBridge
                     'bridge_type' => $this->getBridgeType(),
                     'raw_data' => $room->getAdditionalData()
                 ];
-            }, $places->getValue() ?? []);
+            }, $places ?? []);
         } catch (\Exception $e) {
             throw new \Exception("Failed to get calendars: " . $e->getMessage());
         }
@@ -194,56 +196,99 @@ class OutlookBridge extends AbstractCalendarBridge
         
         try {
             // Get group members
-            $members = $this->graphServiceClient->groups()->byGroupId($groupId)->members()->get();
+            $membersResponse = $this->graphServiceClient->groups()->byGroupId($groupId)->members()->get()->wait();
             
             $calendars = [];
+            $totalMembers = count($membersResponse->getValue() ?? []);
             
-            foreach ($members->getValue() ?? [] as $member) {
-                // Filter for mailbox-enabled members (rooms, resources, or users with calendars)
-                $memberData = $member->getAdditionalData();
-                if (isset($memberData['mail']) && !empty($memberData['mail'])) {
-                    $calendars[] = [
-                        'id' => $memberData['mail'], // Use email as calendar ID for group members
-                        'name' => $member->getDisplayName() ?? $memberData['mail'],
-                        'email' => $memberData['mail'],
-                        'type' => $this->determineCalendarType($memberData),
-                        'bridge_type' => $this->getBridgeType(),
-                        'raw_data' => $memberData
-                    ];
+            $this->logger->info('Processing group members', [
+                'group_id' => $groupId,
+                'total_members' => $totalMembers,
+                'bridge' => 'outlook'
+            ]);
+            
+            foreach ($membersResponse->getValue() ?? [] as $member) {
+                $this->logger->debug('Processing group member', [
+                    'member_id' => $member->getId(),
+                    'member_type' => get_class($member),
+                    'display_name' => $member->getDisplayName(),
+                    'odata_type' => $member->getOdataType(),
+                    'bridge' => 'outlook'
+                ]);
+                
+                // Check if this is a User object with calendar access
+                if ($member instanceof \Microsoft\Graph\Generated\Models\User) {
+                    $userEmail = $member->getMail() ?? $member->getUserPrincipalName();
+                    if (!empty($userEmail)) {
+                        $calendars[] = [
+                            'id' => $userEmail, // Use email/UPN as calendar ID
+                            'name' => $member->getDisplayName() ?? $userEmail,
+                            'email' => $userEmail,
+                            'type' => 'user',
+                            'bridge_type' => $this->getBridgeType(),
+                            'raw_data' => [
+                                'id' => $member->getId(),
+                                'userPrincipalName' => $member->getUserPrincipalName(),
+                                'mail' => $member->getMail(),
+                                'displayName' => $member->getDisplayName(),
+                                'jobTitle' => $member->getJobTitle(),
+                                'odataType' => $member->getOdataType()
+                            ]
+                        ];
+                    }
+                }
+                // Check if this is a Group object (nested groups)
+                elseif ($member instanceof \Microsoft\Graph\Generated\Models\Group) {
+                    $groupEmail = $member->getMail();
+                    if (!empty($groupEmail)) {
+                        $calendars[] = [
+                            'id' => $groupEmail,
+                            'name' => $member->getDisplayName() ?? $groupEmail,
+                            'email' => $groupEmail,
+                            'type' => 'group',
+                            'bridge_type' => $this->getBridgeType(),
+                            'raw_data' => [
+                                'id' => $member->getId(),
+                                'displayName' => $member->getDisplayName(),
+                                'mail' => $member->getMail(),
+                                'odataType' => $member->getOdataType()
+                            ]
+                        ];
+                    }
+                }
+                // Handle other directory objects (like service principals, etc.)
+                else {
+                    // Try to get basic info from any directory object
+                    $objectId = $member->getId();
+                    $displayName = $member->getDisplayName();
+                    
+                    if ($objectId && $displayName) {
+                        $calendars[] = [
+                            'id' => $objectId,
+                            'name' => $displayName,
+                            'email' => '', // May not have email
+                            'type' => 'other',
+                            'bridge_type' => $this->getBridgeType(),
+                            'raw_data' => [
+                                'id' => $objectId,
+                                'displayName' => $displayName,
+                                'odataType' => $member->getOdataType()
+                            ]
+                        ];
+                    }
                 }
             }
+            
+            $this->logger->info('Retrieved calendars from group', [
+                'group_id' => $groupId,
+                'calendar_count' => count($calendars),
+                'bridge' => 'outlook'
+            ]);
             
             return $calendars;
         } catch (\Exception $e) {
             throw new \Exception("Failed to get calendars from group: " . $e->getMessage());
         }
-    }
-    
-    /**
-     * Determine the type of calendar based on member properties
-     */
-    private function determineCalendarType($member): string
-    {
-        // Check if it's a room mailbox
-        if (isset($member['@odata.type']) && strpos($member['@odata.type'], 'room') !== false) {
-            return 'room';
-        }
-        
-        // Check if it's a resource mailbox  
-        if (isset($member['@odata.type']) && strpos($member['@odata.type'], 'equipment') !== false) {
-            return 'equipment';
-        }
-        
-        // Check for room-like properties in the display name
-        $displayName = strtolower($member['displayName'] ?? '');
-        if (strpos($displayName, 'room') !== false || 
-            strpos($displayName, 'conference') !== false ||
-            strpos($displayName, 'meeting') !== false) {
-            return 'room';
-        }
-        
-        // Default to resource for mailbox-enabled group members
-        return 'resource';
     }
     
     public function subscribeToChanges($calendarId, $webhookUrl): string
@@ -258,7 +303,7 @@ class OutlookBridge extends AbstractCalendarBridge
             $subscription->setExpirationDateTime(new \DateTime('+1 day'));
             $subscription->setClientState('outlook-bridge-' . uniqid());
             
-            $createdSubscription = $this->graphServiceClient->subscriptions()->post($subscription);
+            $createdSubscription = $this->graphServiceClient->subscriptions()->post($subscription)->wait();
             
             // Store subscription info in database
             $this->storeSubscription($createdSubscription->getId(), $calendarId, $webhookUrl, $createdSubscription->getAdditionalData());
@@ -274,7 +319,7 @@ class OutlookBridge extends AbstractCalendarBridge
         $this->logOperation('unsubscribe_from_changes', ['subscription_id' => $subscriptionId]);
         
         try {
-            $this->graphServiceClient->subscriptions()->bySubscriptionId($subscriptionId)->delete();
+            $this->graphServiceClient->subscriptions()->bySubscriptionId($subscriptionId)->delete()->wait();
             
             // Remove subscription from database
             $this->removeSubscription($subscriptionId);
@@ -657,6 +702,62 @@ class OutlookBridge extends AbstractCalendarBridge
                 'user_id' => $userId
             ]);
             throw $e;
+        }
+    }
+    
+    /**
+     * Debug method: Get raw group information
+     */
+    public function debugGroupInfo($groupId = null): array
+    {
+        $targetGroupId = $groupId ?? $this->config['group_id'] ?? null;
+        
+        if (!$targetGroupId) {
+            return ['error' => 'No group ID provided'];
+        }
+        
+        try {
+            // Get group basic info
+            $group = $this->graphServiceClient->groups()->byGroupId($targetGroupId)->get()->wait();
+            
+            // Get group members
+            $membersResponse = $this->graphServiceClient->groups()->byGroupId($targetGroupId)->members()->get()->wait();
+            $members = $membersResponse->getValue() ?? [];
+            
+            $memberDetails = [];
+            foreach ($members as $member) {
+                $memberInfo = [
+                    'id' => $member->getId(),
+                    'displayName' => $member->getDisplayName(),
+                    'odataType' => $member->getOdataType(),
+                    'class' => get_class($member)
+                ];
+                
+                if ($member instanceof \Microsoft\Graph\Generated\Models\User) {
+                    $memberInfo['userPrincipalName'] = $member->getUserPrincipalName();
+                    $memberInfo['mail'] = $member->getMail();
+                    $memberInfo['jobTitle'] = $member->getJobTitle();
+                }
+                
+                $memberDetails[] = $memberInfo;
+            }
+            
+            return [
+                'group' => [
+                    'id' => $group->getId(),
+                    'displayName' => $group->getDisplayName(),
+                    'mail' => $group->getMail(),
+                    'description' => $group->getDescription()
+                ],
+                'members' => $memberDetails,
+                'member_count' => count($members)
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'error' => $e->getMessage(),
+                'group_id' => $targetGroupId
+            ];
         }
     }
 }
