@@ -355,13 +355,16 @@ $app->post('/mappings/resources', [\App\Controller\ResourceMappingController::cl
 $app->put('/mappings/resources/{id}', [\App\Controller\ResourceMappingController::class, 'updateResourceMapping']);
 
 // Delete resource mapping
-$app->delete('/mappings/resources/{id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMapping']);
+$app->delete('/mappings/resources/{bridge_from}/{resource_id}/{calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMapping']);
 
 // Get resource mapping by booking system resource ID
 $app->get('/mappings/resources/by-resource/{resourceId}', [\App\Controller\ResourceMappingController::class, 'getResourceMappingByResource']);
 
 // Trigger sync for specific resource mapping
 $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingController::class, 'syncResourceMapping']);
+
+// Add this route for deleting by composite key
+$app->delete('/mappings/resources/by-key/{bridge_from}/{resource_id}/{calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMappingByKey']);
 
 // Backwards compatibility routes (redirect to bridge endpoints)
 $app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)

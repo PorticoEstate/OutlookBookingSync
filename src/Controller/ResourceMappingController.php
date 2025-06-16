@@ -24,7 +24,8 @@ class ResourceMappingController
      */
     public function getResourceMappings(Request $request, Response $response): Response
     {
-        try {
+        try
+        {
             $queryParams = $request->getQueryParams();
             $bridgeFrom = $queryParams['bridge_from'] ?? null;
             $bridgeTo = $queryParams['bridge_to'] ?? null;
@@ -34,22 +35,26 @@ class ResourceMappingController
             $sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
             $params = [];
 
-            if ($bridgeFrom) {
+            if ($bridgeFrom)
+            {
                 $sql .= " AND bridge_from = :bridge_from";
                 $params['bridge_from'] = $bridgeFrom;
             }
 
-            if ($bridgeTo) {
+            if ($bridgeTo)
+            {
                 $sql .= " AND bridge_to = :bridge_to";
                 $params['bridge_to'] = $bridgeTo;
             }
 
-            if ($resourceId) {
+            if ($resourceId)
+            {
                 $sql .= " AND resource_id = :resource_id";
                 $params['resource_id'] = $resourceId;
             }
 
-            if ($activeOnly) {
+            if ($activeOnly)
+            {
                 $sql .= " AND is_active = true AND sync_enabled = true";
             }
 
@@ -66,8 +71,9 @@ class ResourceMappingController
             ]));
 
             return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Failed to retrieve resource mappings',
@@ -84,13 +90,16 @@ class ResourceMappingController
      */
     public function createResourceMapping(Request $request, Response $response): Response
     {
-        try {
+        try
+        {
             $data = json_decode($request->getBody()->getContents(), true);
 
             // Validate required fields
             $required = ['bridge_from', 'bridge_to', 'resource_id', 'calendar_id'];
-            foreach ($required as $field) {
-                if (empty($data[$field])) {
+            foreach ($required as $field)
+            {
+                if (empty($data[$field]))
+                {
                     $response->getBody()->write(json_encode([
                         'success' => false,
                         'error' => "Missing required field: {$field}"
@@ -105,7 +114,7 @@ class ResourceMappingController
                         AND bridge_to = :bridge_to 
                         AND resource_id = :resource_id 
                         AND calendar_id = :calendar_id";
-            
+
             $checkStmt = $this->db->prepare($checkSql);
             $checkStmt->execute([
                 'bridge_from' => $data['bridge_from'],
@@ -114,7 +123,8 @@ class ResourceMappingController
                 'calendar_id' => $data['calendar_id']
             ]);
 
-            if ($checkStmt->fetch()) {
+            if ($checkStmt->fetch())
+            {
                 $response->getBody()->write(json_encode([
                     'success' => false,
                     'error' => 'Resource mapping already exists'
@@ -151,8 +161,9 @@ class ResourceMappingController
             ]));
 
             return $response->withHeader('Content-Type', 'application/json')->withStatus(201);
-
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Failed to create resource mapping',
@@ -169,7 +180,8 @@ class ResourceMappingController
      */
     public function updateResourceMapping(Request $request, Response $response, array $args): Response
     {
-        try {
+        try
+        {
             $mappingId = $args['id'];
             $data = json_decode($request->getBody()->getContents(), true);
 
@@ -179,7 +191,8 @@ class ResourceMappingController
             $checkStmt->execute(['id' => $mappingId]);
             $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$existing) {
+            if (!$existing)
+            {
                 $response->getBody()->write(json_encode([
                     'success' => false,
                     'error' => 'Resource mapping not found'
@@ -192,14 +205,17 @@ class ResourceMappingController
             $params = ['id' => $mappingId];
 
             $allowedFields = ['calendar_name', 'sync_direction', 'is_active', 'sync_enabled'];
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
+            foreach ($allowedFields as $field)
+            {
+                if (isset($data[$field]))
+                {
                     $updateFields[] = "{$field} = :{$field}";
                     $params[$field] = $data[$field];
                 }
             }
 
-            if (empty($updateFields)) {
+            if (empty($updateFields))
+            {
                 $response->getBody()->write(json_encode([
                     'success' => false,
                     'error' => 'No valid fields to update'
@@ -208,7 +224,7 @@ class ResourceMappingController
             }
 
             $updateFields[] = "updated_at = CURRENT_TIMESTAMP";
-            
+
             $sql = "UPDATE bridge_resource_mappings SET " . implode(', ', $updateFields) . " WHERE id = :id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -220,8 +236,9 @@ class ResourceMappingController
             ]));
 
             return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Failed to update resource mapping',
@@ -232,48 +249,213 @@ class ResourceMappingController
         }
     }
 
+
     /**
-     * Delete resource mapping
-     * DELETE /mappings/resources/{id}
+     * Delete a specific resource mapping
+     * DELETE /mappings/resources/{bridge_from}/{resource_id}/{calendar_id}
      */
     public function deleteResourceMapping(Request $request, Response $response, array $args): Response
     {
-        try {
-            $mappingId = $args['id'];
+        try
+        {
+            $bridgeFrom = $args['bridge_from'] ?? null;
+            $resourceId = $args['resource_id'] ?? null;
+            $calendarId = $args['calendar_id'] ?? null;
 
-            // Check if mapping exists
-            $checkSql = "SELECT id FROM bridge_resource_mappings WHERE id = :id";
-            $checkStmt = $this->db->prepare($checkSql);
-            $checkStmt->execute(['id' => $mappingId]);
-
-            if (!$checkStmt->fetch()) {
+            // Validate required parameters
+            if (!$bridgeFrom || !$resourceId || !$calendarId)
+            {
                 $response->getBody()->write(json_encode([
                     'success' => false,
-                    'error' => 'Resource mapping not found'
+                    'error' => 'Missing required parameters: bridge_from, resource_id, calendar_id'
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+            }
+
+            // URL decode the parameters in case they contain special characters
+            $bridgeFrom = urldecode($bridgeFrom);
+            $resourceId = urldecode($resourceId);
+            $calendarId = urldecode($calendarId);
+
+            // Check if mapping exists before deletion
+            $checkSql = "SELECT id, calendar_name FROM bridge_resource_mappings 
+                        WHERE bridge_from = :bridge_from 
+                        AND resource_id = :resource_id 
+                        AND calendar_id = :calendar_id";
+
+            $checkStmt = $this->db->prepare($checkSql);
+            $checkStmt->execute([
+                'bridge_from' => $bridgeFrom,
+                'resource_id' => $resourceId,
+                'calendar_id' => $calendarId
+            ]);
+
+            $existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existingMapping)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Resource mapping not found',
+                    'searched_for' => [
+                        'bridge_from' => $bridgeFrom,
+                        'resource_id' => $resourceId,
+                        'calendar_id' => $calendarId
+                    ]
                 ]));
                 return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
             }
 
-            // Soft delete - set is_active to false
-            $sql = "UPDATE bridge_resource_mappings SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(['id' => $mappingId]);
+            // Delete the mapping
+            $deleteSql = "DELETE FROM bridge_resource_mappings 
+                         WHERE bridge_from = :bridge_from 
+                         AND resource_id = :resource_id 
+                         AND calendar_id = :calendar_id";
 
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'mapping_id' => $mappingId,
-                'message' => 'Resource mapping deleted successfully'
-            ]));
+            $deleteStmt = $this->db->prepare($deleteSql);
+            $result = $deleteStmt->execute([
+                'bridge_from' => $bridgeFrom,
+                'resource_id' => $resourceId,
+                'calendar_id' => $calendarId
+            ]);
 
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Exception $e) {
+            if ($result && $deleteStmt->rowCount() > 0)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Resource mapping deleted successfully',
+                    'deleted_mapping' => [
+                        'id' => $existingMapping['id'],
+                        'bridge_from' => $bridgeFrom,
+                        'resource_id' => $resourceId,
+                        'calendar_id' => $calendarId,
+                        'calendar_name' => $existingMapping['calendar_name']
+                    ]
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to delete resource mapping'
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+            }
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'error' => 'Failed to delete resource mapping',
+                'error' => 'Database error occurred',
                 'message' => $e->getMessage()
             ]));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+    }
 
+    /**
+     * Delete resource mapping by composite key (bridge_from, resource_id, calendar_id)
+     * DELETE /mappings/resources/by-key/{bridge_from}/{resource_id}/{calendar_id}
+     */
+    public function deleteResourceMappingByKey(Request $request, Response $response, array $args): Response
+    {
+        try
+        {
+            $bridgeFrom = $args['bridge_from'] ?? null;
+            $resourceId = $args['resource_id'] ?? null;
+            $calendarId = $args['calendar_id'] ?? null;
+
+            // Validate required parameters
+            if (!$bridgeFrom || !$resourceId || !$calendarId)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Missing required parameters: bridge_from, resource_id, calendar_id'
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+            }
+
+            // URL decode the parameters in case they contain special characters
+            $bridgeFrom = urldecode($bridgeFrom);
+            $resourceId = urldecode($resourceId);
+            $calendarId = urldecode($calendarId);
+
+            // Check if mapping exists before deletion
+            $checkSql = "SELECT id, resource_id, calendar_name FROM bridge_resource_mappings 
+                        WHERE bridge_from = :bridge_from 
+                        AND resource_id = :resource_id 
+                        AND calendar_id = :calendar_id
+                        AND is_active = true";
+
+            $checkStmt = $this->db->prepare($checkSql);
+            $checkStmt->execute([
+                'bridge_from' => $bridgeFrom,
+                'resource_id' => $resourceId,
+                'calendar_id' => $calendarId
+            ]);
+
+            $existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existingMapping)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Resource mapping not found or already inactive',
+                    'searched_for' => [
+                        'bridge_from' => $bridgeFrom,
+                        'resource_id' => $resourceId,
+                        'calendar_id' => $calendarId
+                    ]
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
+            }
+
+            // Soft delete - set is_active to false (consistent with existing delete method)
+            $deleteSql = "UPDATE bridge_resource_mappings 
+                         SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                         WHERE bridge_from = :bridge_from 
+                         AND resource_id = :resource_id 
+                         AND calendar_id = :calendar_id";
+
+            $deleteStmt = $this->db->prepare($deleteSql);
+            $result = $deleteStmt->execute([
+                'bridge_from' => $bridgeFrom,
+                'resource_id' => $resourceId,
+                'calendar_id' => $calendarId
+            ]);
+
+            if ($result && $deleteStmt->rowCount() > 0)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Resource mapping deleted successfully',
+                    'deleted_mapping' => [
+                        'id' => $existingMapping['id'],
+                        'bridge_from' => $bridgeFrom,
+                        'resource_id' => $resourceId,
+                        'calendar_id' => $calendarId,
+                        'calendar_name' => $existingMapping['calendar_name']
+                    ]
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to delete resource mapping'
+                ]));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+            }
+        }
+        catch (\Exception $e)
+        {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Database error occurred',
+                'message' => $e->getMessage()
+            ]));
             return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
         }
     }
@@ -284,7 +466,8 @@ class ResourceMappingController
      */
     public function getResourceMappingByResource(Request $request, Response $response, array $args): Response
     {
-        try {
+        try
+        {
             $resourceId = $args['resourceId'];
             $queryParams = $request->getQueryParams();
             $bridgeFrom = $queryParams['bridge_from'] ?? 'booking_system';
@@ -311,8 +494,9 @@ class ResourceMappingController
             ]));
 
             return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Failed to retrieve resource mapping',
@@ -329,7 +513,8 @@ class ResourceMappingController
      */
     public function syncResourceMapping(Request $request, Response $response, array $args): Response
     {
-        try {
+        try
+        {
             $mappingId = $args['id'];
 
             // Get mapping details
@@ -338,7 +523,8 @@ class ResourceMappingController
             $stmt->execute(['id' => $mappingId]);
             $mapping = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$mapping) {
+            if (!$mapping)
+            {
                 $response->getBody()->write(json_encode([
                     'success' => false,
                     'error' => 'Resource mapping not found or inactive'
@@ -349,7 +535,7 @@ class ResourceMappingController
             // Add sync job to queue
             $queueSql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority)
                         VALUES ('resource_sync', :source_bridge, :target_bridge, :payload, 1)";
-            
+
             $queueStmt = $this->db->prepare($queueSql);
             $queueStmt->execute([
                 'source_bridge' => $mapping['bridge_from'],
@@ -374,8 +560,9 @@ class ResourceMappingController
             ]));
 
             return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'error' => 'Failed to queue resource sync',

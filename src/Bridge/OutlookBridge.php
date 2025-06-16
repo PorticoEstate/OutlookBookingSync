@@ -499,7 +499,7 @@ class OutlookBridge extends AbstractCalendarBridge
      * Get available resources (rooms/equipment) from Outlook
      * Uses the same method as OutlookController::getAvailableRooms()
      */
-    public function getAvailableResources(): array
+    public function getAvailableResources($nameFilter = null): array
     {
         try {
             // Get group ID from configuration or use default
@@ -526,17 +526,42 @@ class OutlookBridge extends AbstractCalendarBridge
                 $members = $groupMembersResponse->getValue();
                 if ($members && !empty($members)) {
                     foreach ($members as $member) {
+                        $displayName = $member->getDisplayName() ?? 'N/A';
+                        $email = '';
+                        $userPrincipalName = '';
+                        
+                        // Get additional properties if it's a User object
+                        if ($member instanceof \Microsoft\Graph\Generated\Models\User) {
+                            $email = $member->getMail() ?? '';
+                            $userPrincipalName = $member->getUserPrincipalName() ?? '';
+                        }
+                        
+                        // Apply name filter if provided
+                        if ($nameFilter !== null) {
+                            $nameFilterLower = strtolower($nameFilter);
+                            $displayNameLower = strtolower($displayName);
+                            $emailLower = strtolower($email);
+                            $upnLower = strtolower($userPrincipalName);
+                            
+                            // Check if filter matches displayName, email, or userPrincipalName
+                            if (strpos($displayNameLower, $nameFilterLower) === false &&
+                                strpos($emailLower, $nameFilterLower) === false &&
+                                strpos($upnLower, $nameFilterLower) === false) {
+                                continue; // Skip this member if no match
+                            }
+                        }
+                        
                         $memberData = [
                             'id' => $member->getId(),
-                            'name' => $member->getDisplayName() ?? 'N/A',
+                            'name' => $displayName,
                             '@odata.type' => $member->getOdataType(),
                             'bridge_type' => 'outlook'
                         ];
 
                         // Add additional properties if it's a User object
                         if ($member instanceof \Microsoft\Graph\Generated\Models\User) {
-                            $memberData['userPrincipalName'] = $member->getUserPrincipalName();
-                            $memberData['email'] = $member->getMail();
+                            $memberData['userPrincipalName'] = $userPrincipalName;
+                            $memberData['email'] = $email;
                             $memberData['jobTitle'] = $member->getJobTitle();
                         }
 
@@ -545,11 +570,18 @@ class OutlookBridge extends AbstractCalendarBridge
                 }
             }
 
-            $this->logger->info('Retrieved available resources from Outlook', [
+            $logData = [
                 'bridge' => 'outlook',
                 'group_id' => $groupId,
                 'resource_count' => count($resources)
-            ]);
+            ];
+            
+            if ($nameFilter !== null) {
+                $logData['name_filter'] = $nameFilter;
+                $logData['filtered_results'] = count($resources);
+            }
+            
+            $this->logger->info('Retrieved available resources from Outlook', $logData);
 
             return $resources;
             

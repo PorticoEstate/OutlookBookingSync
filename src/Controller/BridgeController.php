@@ -565,9 +565,11 @@ class BridgeController
         try {
             $bridgeName = $args['bridgeName'];
             $bridge = $this->bridgeManager->getBridge($bridgeName);
-            
+
+            $queryParams = $request->getQueryParams();
+            $nameFilter = $queryParams['query'] ?? null;
             // Get available resources through the bridge
-            $resources = $bridge->getAvailableResources();
+            $resources = $bridge->getAvailableResources($nameFilter);
             
             $response->getBody()->write(json_encode([
                 'success' => true,
