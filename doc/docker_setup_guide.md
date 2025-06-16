@@ -60,9 +60,9 @@ DB_PASS=your_password
 
 # Microsoft Graph API
 OUTLOOK_CLIENT_ID=your_client_id
-GRAPH_CLIENT_SECRET=your_client_secret
-GRAPH_TENANT_ID=your_tenant_id
-GRAPH_USER_PRINCIPAL_NAME=user@domain.com
+OUTLOOK_CLIENT_SECRET=your_client_secret
+OUTLOOK_TENANT_ID=your_tenant_id
+OUTLOOK_USER_PRINCIPAL_NAME=user@domain.com
 
 # Optional Security
 API_KEY=your_api_key
