@@ -712,13 +712,13 @@ class BridgeController
     }
     
     /**
-     * Get calendar items for a specific user/resource on a bridge
+     * Get calendar items for a specific resource on a bridge
      */
-    public function getUserCalendarItems(Request $request, Response $response, $args)
+    public function getResourceCalendarItems(Request $request, Response $response, $args)
     {
         try {
             $bridgeName = $args['bridgeName'];
-            $userId = $args['userId'];
+            $resourceId = $args['resourceId'];
             $bridge = $this->bridgeManager->getBridge($bridgeName);
             
             // Get query parameters
@@ -727,12 +727,12 @@ class BridgeController
             $endDate = $queryParams['endDate'] ?? null;
             
             // Get calendar items through the bridge
-            $calendarItems = $bridge->getUserCalendarItems($userId, $startDate, $endDate);
+            $calendarItems = $bridge->getResourceCalendarItems($resourceId, $startDate, $endDate);
             
             $response->getBody()->write(json_encode([
                 'success' => true,
                 'bridge' => $bridgeName,
-                'user_id' => $userId,
+                'resource_id' => $resourceId,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'calendar_items' => $calendarItems,
@@ -742,9 +742,9 @@ class BridgeController
             return $response->withHeader('Content-Type', 'application/json');
             
         } catch (\Exception $e) {
-            $this->logger->error('Failed to get user calendar items', [
+            $this->logger->error('Failed to get resource calendar items', [
                 'bridge' => $args['bridgeName'] ?? 'unknown',
-                'user_id' => $args['userId'] ?? 'unknown',
+                'resource_id' => $args['resourceId'] ?? 'unknown',
                 'error' => $e->getMessage()
             ]);
             

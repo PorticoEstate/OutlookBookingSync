@@ -183,8 +183,8 @@ $app->get('/bridges/{bridgeName}/available-resources', [\App\Controller\BridgeCo
 // Get available groups/collections for a specific bridge  
 $app->get('/bridges/{bridgeName}/available-groups', [\App\Controller\BridgeController::class, 'getAvailableGroups']);
 
-// Get calendar items for a specific user/resource on a bridge
-$app->get('/bridges/{bridgeName}/users/{userId}/calendar-items', [\App\Controller\BridgeController::class, 'getUserCalendarItems']);
+// Get calendar items for a specific resource on a bridge
+$app->get('/bridges/{bridgeName}/resources/{resourceId}/calendar-items', [\App\Controller\BridgeController::class, 'getResourceCalendarItems']);
 
 // Bridge-compatible booking system integration routes (replaces legacy routes)
 

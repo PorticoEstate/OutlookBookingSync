@@ -760,22 +760,22 @@ class OutlookBridge extends AbstractCalendarBridge
     }
     
     /**
-     * Get calendar items for a specific user
-     * Uses the same method as OutlookController::getUserCalendarItems()
+     * Get calendar items for a specific resource
+     * Uses the same method as OutlookController for getting calendar events
      */
-    public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array
+    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array
     {
         try {
-            if (!$userId) {
-                throw new \InvalidArgumentException('User ID is required');
+            if (!$resourceId) {
+                throw new \InvalidArgumentException('Resource ID is required');
             }
 
             // Get the request adapter from the Graph service client
             $requestAdapter = $this->graphServiceClient->getRequestAdapter();
 
-            // Make a direct API call to get calendar items for the user (same as OutlookController)
+            // Make a direct API call to get calendar items for the resource (same as OutlookController)
             $calendarItemsRequest = new RequestInformation();
-            $calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$userId}/events";
+            $calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$resourceId}/events";
             $calendarItemsRequest->httpMethod = HttpMethod::GET;
             $calendarItemsRequest->addHeader("Accept", "application/json");
 
@@ -813,9 +813,9 @@ class OutlookBridge extends AbstractCalendarBridge
                 }
             }
 
-            $this->logger->info('Retrieved user calendar items from Outlook', [
+            $this->logger->info('Retrieved resource calendar items from Outlook', [
                 'bridge' => 'outlook',
-                'user_id' => $userId,
+                'resource_id' => $resourceId,
                 'event_count' => count($events),
                 'start_date' => $startDate,
                 'end_date' => $endDate
@@ -824,10 +824,10 @@ class OutlookBridge extends AbstractCalendarBridge
             return $events;
             
         } catch (\Exception $e) {
-            $this->logger->error('Failed to get user calendar items from Outlook', [
+            $this->logger->error('Failed to get resource calendar items from Outlook', [
                 'error' => $e->getMessage(),
                 'bridge' => 'outlook',
-                'user_id' => $userId
+                'resource_id' => $resourceId
             ]);
             throw $e;
         }

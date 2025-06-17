@@ -284,9 +284,21 @@ curl -X POST "http://your-bridge/mappings/resources" \
   }'
 ```
 
-#### Get Calendar Events
+#### Get Resource Calendar Events
 ```bash
-# Get events for specific calendar
+# Get calendar events for a specific resource through a bridge
+curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items"
+
+# With date filtering
+curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items?startDate=2025-06-16T00:00:00Z&endDate=2025-06-17T00:00:00Z"
+
+# For booking system bridge
+curl -X GET "http://your-bridge/bridges/booking_system/resources/room_123/calendar-items?startDate=2025-06-16&endDate=2025-06-17"
+```
+
+#### Get Calendar Events (Legacy)
+```bash
+# Get events for specific calendar (legacy endpoint)
 curl -X GET "http://your-bridge/events/mr.ok23.e4.475@svgdrift.no?start=2025-06-16T00:00:00Z&end=2025-06-17T00:00:00Z"
 ```
 

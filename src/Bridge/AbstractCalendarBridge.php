@@ -50,7 +50,15 @@ abstract class AbstractCalendarBridge
      * @return array
      */
     abstract public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array;
-    abstract public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array;
+    /**
+     * Get calendar items for a specific resource
+     * 
+     * @param string $resourceId The resource/calendar ID
+     * @param string|null $startDate Start date filter
+     * @param string|null $endDate End date filter
+     * @return array
+     */
+    abstract public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array;
     
     // Optional methods with default implementations
     public function validateEvent($event): bool

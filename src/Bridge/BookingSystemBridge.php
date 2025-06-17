@@ -809,20 +809,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
 
     /**
-     * Get calendar items for a specific user/resource
+     * Get calendar items for a specific resource
      */
-    public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array
+    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array
     {
         try
         {
-            $endpoint = $this->getEndpointConfig('list_user_events', [
+            $endpoint = $this->getEndpointConfig('list_resource_events', [
                 'method' => 'GET',
-                'url' => '/api/users/{user_id}/events',
+                'url' => '/api/resources/{resource_id}/events',
                 'params' => ['start_date', 'end_date']
             ]);
 
-            // Replace user ID in URL
-            $url = str_replace('{user_id}', urlencode($userId), $endpoint['url']);
+            // Replace resource ID in URL
+            $url = str_replace('{resource_id}', urlencode($resourceId), $endpoint['url']);
 
             // Add date parameters if provided
             $params = [];
@@ -852,20 +852,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
         catch (\Exception $e)
         {
-            $this->logger->error('Failed to get user calendar items from booking system', [
+            $this->logger->error('Failed to get resource calendar items from booking system', [
                 'error' => $e->getMessage(),
                 'bridge' => 'booking_system',
-                'user_id' => $userId
+                'resource_id' => $resourceId
             ]);
 
             // Check if we should throw exceptions or return empty results
             $throwOnApiFailure = $this->config['throw_on_api_failure'] ?? false;
             if ($throwOnApiFailure)
             {
-                throw new \Exception("Failed to get user calendar items: " . $e->getMessage());
+                throw new \Exception("Failed to get resource calendar items: " . $e->getMessage());
             }
 
-            // Return empty array if user events endpoint is not available (legacy behavior)
+            // Return empty array if resource events endpoint is not available (legacy behavior)
             return [];
         }
     }
