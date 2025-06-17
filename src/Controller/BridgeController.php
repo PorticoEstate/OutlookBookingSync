@@ -113,14 +113,33 @@ class BridgeController
                 'options' => $options
             ]);
 
-            // Get all active mappings between these bridges
+            // Get all active mappings between these bridges (handle bidirectional)
             $stmt = $this->db->prepare("
-                SELECT resource_id, calendar_id, sync_direction, id
+                SELECT 
+                    CASE 
+                        WHEN bridge_from = ? THEN resource_id 
+                        ELSE calendar_id 
+                    END as source_calendar_id,
+                    CASE 
+                        WHEN bridge_from = ? THEN calendar_id 
+                        ELSE resource_id 
+                    END as target_calendar_id,
+                    sync_direction, 
+                    id,
+                    bridge_from,
+                    bridge_to
                 FROM bridge_resource_mappings 
-                WHERE bridge_from = ? AND bridge_to = ?
+                WHERE (
+                    (bridge_from = ? AND bridge_to = ?) OR 
+                    (bridge_from = ? AND bridge_to = ? AND sync_direction IN ('bidirectional', 'target_to_source'))
+                )
                 AND is_active = TRUE AND sync_enabled = TRUE
             ");
-            $stmt->execute([$sourceBridge, $targetBridge]);
+            $stmt->execute([
+                $sourceBridge, $sourceBridge, // For CASE statements
+                $sourceBridge, $targetBridge, // Forward direction
+                $targetBridge, $sourceBridge  // Reverse direction (bidirectional)
+            ]);
             $mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (empty($mappings)) {
@@ -138,8 +157,8 @@ class BridgeController
             $totalErrors = 0;
 
             foreach ($mappings as $mapping) {
-                $sourceCalendarId = $mapping['resource_id'];
-                $targetCalendarId = $mapping['calendar_id'];
+                $sourceCalendarId = $mapping['source_calendar_id'];
+                $targetCalendarId = $mapping['target_calendar_id'];
                 $syncDirection = $mapping['sync_direction'];
 
                 try {
@@ -147,7 +166,9 @@ class BridgeController
                         'mapping_id' => $mapping['id'],
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
-                        'direction' => $syncDirection
+                        'direction' => $syncDirection,
+                        'original_bridge_from' => $mapping['bridge_from'],
+                        'original_bridge_to' => $mapping['bridge_to']
                     ]);
 
                     if ($options['dry_run']) {
