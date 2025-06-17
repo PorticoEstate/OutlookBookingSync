@@ -807,7 +807,12 @@
                 const response = await fetch(`/bridges/sync/${sourceBridge}/${targetBridge}`, { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
-                    setActionStatus(`✅ Sync ${sourceBridge} → ${targetBridge} completed successfully`, 'success');
+                    const summary = `✅ Sync completed: ${result.mappings_processed || 0} mappings processed, ${result.total_synced || 0} events synced`;
+                    if (result.total_errors > 0) {
+                        setActionStatus(summary + `, ${result.total_errors} errors`, 'warning');
+                    } else {
+                        setActionStatus(summary, 'success');
+                    }
                 } else {
                     setActionStatus('❌ Sync failed: ' + (result.error || 'Unknown error'), 'error');
                 }

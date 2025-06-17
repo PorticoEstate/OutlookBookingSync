@@ -93,23 +93,9 @@ class BridgeController
         $sourceBridge = $args['sourceBridge'];
         $targetBridge = $args['targetBridge'];
         
-        $body = json_decode($request->getBody()->getContents(), true);
+        $body = json_decode($request->getBody()->getContents(), true) ?? [];
         
-        // Validate required parameters
-        $required = ['source_calendar_id', 'target_calendar_id'];
-        foreach ($required as $param) {
-            if (!isset($body[$param]) || empty($body[$param])) {
-                $response->getBody()->write(json_encode([
-                    'success' => false,
-                    'error' => "Missing required parameter: {$param}"
-                ]));
-                
-                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-            }
-        }
-        
-        $sourceCalendarId = $body['source_calendar_id'];
-        $targetCalendarId = $body['target_calendar_id'];
+        // Optional parameters
         $startDate = $body['start_date'] ?? date('Y-m-d');
         $endDate = $body['end_date'] ?? date('Y-m-d', strtotime('+30 days'));
         
@@ -118,34 +104,99 @@ class BridgeController
             'skip_updates' => $body['skip_updates'] ?? false,
             'dry_run' => $body['dry_run'] ?? false
         ];
-        
+
         try {
             $this->logger->info('Bridge sync requested', [
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
-                'source_calendar' => $sourceCalendarId,
-                'target_calendar' => $targetCalendarId,
                 'date_range' => [$startDate, $endDate],
                 'options' => $options
             ]);
-            
-            if ($options['dry_run']) {
-                $results = $this->performDryRun($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
-            } else {
-                $results = $this->bridgeManager->syncBetweenBridges(
-                    $sourceBridge,
-                    $targetBridge,
-                    $sourceCalendarId,
-                    $targetCalendarId,
-                    $startDate,
-                    $endDate,
-                    $options
-                );
+
+            // Get all active mappings between these bridges
+            $stmt = $this->db->prepare("
+                SELECT resource_id, calendar_id, sync_direction, id
+                FROM bridge_resource_mappings 
+                WHERE bridge_from = ? AND bridge_to = ?
+                AND is_active = TRUE AND sync_enabled = TRUE
+            ");
+            $stmt->execute([$sourceBridge, $targetBridge]);
+            $mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($mappings)) {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => "No active mappings found between {$sourceBridge} and {$targetBridge}",
+                    'suggestion' => "Create resource mappings first using the /mappings/resources endpoint"
+                ]));
+                
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
-            
+
+            $allResults = [];
+            $totalSynced = 0;
+            $totalErrors = 0;
+
+            foreach ($mappings as $mapping) {
+                $sourceCalendarId = $mapping['resource_id'];
+                $targetCalendarId = $mapping['calendar_id'];
+                $syncDirection = $mapping['sync_direction'];
+
+                try {
+                    $this->logger->info('Syncing mapping', [
+                        'mapping_id' => $mapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'direction' => $syncDirection
+                    ]);
+
+                    if ($options['dry_run']) {
+                        $results = $this->performDryRun($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                    } else {
+                        $results = $this->bridgeManager->syncBetweenBridges(
+                            $sourceBridge,
+                            $targetBridge,
+                            $sourceCalendarId,
+                            $targetCalendarId,
+                            $startDate,
+                            $endDate,
+                            $options
+                        );
+                    }
+
+                    $allResults[] = [
+                        'mapping_id' => $mapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'results' => $results
+                    ];
+
+                    if (isset($results['synced_count'])) {
+                        $totalSynced += $results['synced_count'];
+                    }
+
+                } catch (\Exception $e) {
+                    $totalErrors++;
+                    $allResults[] = [
+                        'mapping_id' => $mapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'error' => $e->getMessage()
+                    ];
+                    
+                    $this->logger->error('Mapping sync failed', [
+                        'mapping_id' => $mapping['id'],
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             $response->getBody()->write(json_encode([
                 'success' => true,
-                'sync_results' => $results,
+                'mappings_processed' => count($mappings),
+                'total_synced' => $totalSynced,
+                'total_errors' => $totalErrors,
+                'sync_results' => $allResults,
                 'timestamp' => date('c')
             ]));
             

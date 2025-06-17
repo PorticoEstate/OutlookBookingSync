@@ -204,7 +204,7 @@ class ResourceMappingController
             $updateFields = [];
             $params = ['id' => $mappingId];
 
-            $allowedFields = ['calendar_name', 'sync_direction', 'is_active', 'sync_enabled'];
+            $allowedFields = ['calendar_name', 'sync_direction', 'is_active', 'sync_enabled', 'bridge_to', 'bridge_from', 'resource_id', 'calendar_id'];
             foreach ($allowedFields as $field)
             {
                 if (isset($data[$field]))
@@ -227,13 +227,24 @@ class ResourceMappingController
 
             $sql = "UPDATE bridge_resource_mappings SET " . implode(', ', $updateFields) . " WHERE id = :id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'mapping_id' => $mappingId,
-                'message' => 'Resource mapping updated successfully'
-            ]));
+            if ($stmt->execute($params))
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mapping_id' => $mappingId,
+                    'message' => 'Resource mapping updated successfully'
+                ]));
+            }
+            else
+            {
+                //write the actual error message to the response
+                $errorInfo = $stmt->errorInfo(); 
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to update resource mapping',
+                    'details' => $errorInfo
+                ]));
+            }
 
             return $response->withHeader('Content-Type', 'application/json');
         }
