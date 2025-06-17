@@ -448,6 +448,54 @@
             return html;
         }
 
+        function renderBridgeHealth(bridgeHealthData) {
+            if (!bridgeHealthData.success || !bridgeHealthData.bridges) {
+                return '<div class="card"><h3>🌉 Bridge Health</h3><p>Unable to retrieve bridge health data</p></div>';
+            }
+
+            const { overall_health, bridges, summary } = bridgeHealthData;
+            
+            let html = `
+                <div class="card">
+                    <h3>🌉 Bridge Health ${getStatusBadge(overall_health)}</h3>
+                    <div class="metric">
+                        <span class="metric-label">Total Bridges</span>
+                        <span class="metric-value">${summary.total_bridges}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Healthy Bridges</span>
+                        <span class="metric-value">${summary.healthy_bridges}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Unhealthy Bridges</span>
+                        <span class="metric-value">${summary.unhealthy_bridges}</span>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <h4>Bridge Details:</h4>
+            `;
+
+            Object.values(bridges).forEach(bridge => {
+                const status = bridge.health?.status || 'unknown';
+                const lastCheck = bridge.health?.last_check || 'Never';
+                html += `
+                    <div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid ${status === 'healthy' ? '#28a745' : '#dc3545'};">
+                        <strong>${bridge.name}</strong> ${getStatusBadge(status)}
+                        <div style="font-size: 0.85rem; color: #666; margin-top: 4px;">
+                            Type: ${bridge.type} | Last Check: ${lastCheck === 'Never' ? 'Never' : formatTimestamp(lastCheck)}
+                        </div>
+                        ${bridge.health?.error ? `<div style="color: #dc3545; font-size: 0.85rem; margin-top: 2px;">Error: ${bridge.health.error}</div>` : ''}
+                    </div>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+            return html;
+        }
+
         function renderSyncStatus(dashboardData) {
             if (!dashboardData.success || !dashboardData.dashboard) {
                 return '<div class="card"><h3>📊 Sync Status</h3><p>Unable to retrieve sync data</p></div>';
@@ -567,11 +615,18 @@
             html += `
                 <div class="card">
                     <h3>🎛️ Quick Actions</h3>
-                    <button class="action-button" onclick="triggerSync('outlook', 'booking_system')">🔄 Sync: Outlook → Booking</button>
-                    <button class="action-button" onclick="triggerSync('booking_system', 'outlook')">🔄 Sync: Booking → Outlook</button>
-                    <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
-                    <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
-                    <button class="action-button" onclick="refreshDashboard()">📊 Refresh Dashboard</button>
+                    <div style="margin-bottom: 10px;">
+                        <button class="action-button" onclick="triggerSync('outlook', 'booking_system')">🔄 Sync: Outlook → Booking</button>
+                        <button class="action-button" onclick="triggerSync('booking_system', 'outlook')">🔄 Sync: Booking → Outlook</button>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
+                        <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
+                        <button class="action-button" onclick="refreshDashboard()">📊 Refresh Dashboard</button>
+                    </div>
                     <div id="actionStatus" style="margin-top: 10px; font-size: 0.9rem;"></div>
                 </div>
             `;
@@ -579,14 +634,142 @@
             return html;
         }
 
+        function renderResourceManagement() {
+            return `
+                <div class="card">
+                    <h3>🔗 Resource Management</h3>
+                    <div style="margin-bottom: 15px;">
+                        <button class="action-button" onclick="viewResourceMappings()">📋 View Resource Mappings</button>
+                        <button class="action-button" onclick="viewAvailableResources()">🏢 View Available Resources</button>
+                        <button class="action-button" onclick="viewAvailableGroups()">👥 View Available Groups</button>
+                    </div>
+                    <div id="resourceContent" style="max-height: 300px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px; background: #f8f9fa;">
+                        <p style="text-align: center; color: #666; margin: 20px 0;">Select an option above to view resource information</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Resource management functions
+        async function viewResourceMappings() {
+            setResourceContent('Loading resource mappings...', 'info');
+            try {
+                const data = await fetchData('/mappings/resources');
+                if (data.success && data.mappings) {
+                    let html = '<h4>Current Resource Mappings:</h4>';
+                    if (data.mappings.length === 0) {
+                        html += '<p>No resource mappings found.</p>';
+                    } else {
+                        data.mappings.forEach(mapping => {
+                            html += `
+                                <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
+                                    <strong>ID:</strong> ${mapping.id}<br>
+                                    <strong>From:</strong> ${mapping.bridge_from} (${mapping.resource_id})<br>
+                                    <strong>To:</strong> ${mapping.bridge_to} (${mapping.calendar_id})<br>
+                                    <strong>Status:</strong> <span class="status-badge status-${mapping.sync_status}">${mapping.sync_status}</span><br>
+                                    <strong>Last Sync:</strong> ${mapping.last_sync_time ? formatTimestamp(mapping.last_sync_time) : 'Never'}
+                                </div>
+                            `;
+                        });
+                    }
+                    setResourceContent(html, 'success');
+                } else {
+                    setResourceContent('Failed to load resource mappings: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setResourceContent('Error loading resource mappings: ' + error.message, 'error');
+            }
+        }
+
+        async function viewAvailableResources() {
+            setResourceContent('Loading available resources...', 'info');
+            try {
+                const data = await fetchData('/bridges/outlook/available-resources?limit=20');
+                if (data.success && data.resources) {
+                    let html = '<h4>Available Outlook Resources:</h4>';
+                    if (data.resources.length === 0) {
+                        html += '<p>No resources found.</p>';
+                    } else {
+                        data.resources.forEach(resource => {
+                            html += `
+                                <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
+                                    <strong>${resource.displayName || resource.name}</strong><br>
+                                    <small>ID: ${resource.id}</small><br>
+                                    ${resource.emailAddress ? `<small>Email: ${resource.emailAddress}</small><br>` : ''}
+                                    ${resource.capacity ? `<small>Capacity: ${resource.capacity}</small>` : ''}
+                                </div>
+                            `;
+                        });
+                        if (data.metadata && data.metadata.total_records) {
+                            html += `<p><small>Showing ${data.resources.length} of ${data.metadata.total_records} total resources</small></p>`;
+                        }
+                    }
+                    setResourceContent(html, 'success');
+                } else {
+                    setResourceContent('Failed to load resources: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setResourceContent('Error loading resources: ' + error.message, 'error');
+            }
+        }
+
+        async function viewAvailableGroups() {
+            setResourceContent('Loading available groups...', 'info');
+            try {
+                const data = await fetchData('/bridges/outlook/available-groups?limit=20');
+                if (data.success && data.groups) {
+                    let html = '<h4>Available Outlook Groups:</h4>';
+                    if (data.groups.length === 0) {
+                        html += '<p>No groups found.</p>';
+                    } else {
+                        data.groups.forEach(group => {
+                            html += `
+                                <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
+                                    <strong>${group.displayName || group.name}</strong><br>
+                                    <small>ID: ${group.id}</small><br>
+                                    ${group.description ? `<small>Description: ${group.description}</small><br>` : ''}
+                                    ${group.memberCount ? `<small>Members: ${group.memberCount}</small>` : ''}
+                                </div>
+                            `;
+                        });
+                        if (data.metadata && data.metadata.total_records) {
+                            html += `<p><small>Showing ${data.groups.length} of ${data.metadata.total_records} total groups</small></p>`;
+                        }
+                    }
+                    setResourceContent(html, 'success');
+                } else {
+                    setResourceContent('Failed to load groups: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setResourceContent('Error loading groups: ' + error.message, 'error');
+            }
+        }
+
+        function setResourceContent(content, type) {
+            const element = document.getElementById('resourceContent');
+            if (element) {
+                const colors = {
+                    'info': '#0066cc',
+                    'success': '#28a745',
+                    'error': '#dc3545'
+                };
+                element.style.color = colors[type] || '#333';
+                element.innerHTML = content;
+            }
+        }
+
         async function loadDashboard() {
             try {
                 document.getElementById('lastUpdate').textContent = 'Loading...';
                 
-                // Fetch health and dashboard data in parallel
-                const [healthData, dashboardData] = await Promise.all([
+                // Fetch health, dashboard, and bridge data in parallel
+                const [healthData, dashboardData, bridgeHealthData] = await Promise.all([
                     fetchData('/health/system'),
-                    fetchData('/health/dashboard')
+                    fetchData('/health/dashboard'),
+                    fetchData('/bridges/health').catch(error => {
+                        console.warn('Bridge health endpoint not available:', error);
+                        return { success: false, error: 'Bridge health endpoint not available' };
+                    })
                 ]);
 
                 // Update system overview
@@ -594,7 +777,11 @@
 
                 // Update dashboard content
                 let dashboardHTML = renderHealthChecks(healthData);
+                dashboardHTML += renderBridgeHealth(bridgeHealthData);
                 dashboardHTML += renderSyncStatus(dashboardData);
+                
+                // Add resource management section
+                dashboardHTML += renderResourceManagement();
                 
                 document.getElementById('dashboardContent').innerHTML = dashboardHTML;
                 
@@ -676,6 +863,24 @@
                         statusDiv.textContent = '';
                     }, 5000);
                 }
+            }
+        }
+
+        async function viewBridgesList() {
+            setActionStatus('Loading bridges...', 'info');
+            try {
+                const data = await fetchData('/bridges');
+                if (data.success && data.bridges) {
+                    let message = `Found ${data.count} bridges:\n`;
+                    Object.entries(data.bridges).forEach(([key, bridge]) => {
+                        message += `\n• ${bridge.name} (${bridge.type}) - ${bridge.health?.status || 'unknown'}`;
+                    });
+                    setActionStatus(message, 'success');
+                } else {
+                    setActionStatus('Failed to load bridges: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('Error loading bridges: ' + error.message, 'error');
             }
         }
 
