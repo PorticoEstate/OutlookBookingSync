@@ -609,7 +609,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'bridge' => 'booking_system'
             ]);
             
-            // Return empty array if resources endpoint is not available
+            // Check if we should throw exceptions or return empty results
+            $throwOnApiFailure = $this->config['throw_on_api_failure'] ?? false;
+            if ($throwOnApiFailure) {
+                throw new \Exception("Failed to get available resources: " . $e->getMessage());
+            }
+            
+            // Return empty array if resources endpoint is not available (legacy behavior)
             return [];
         }
     }
@@ -655,7 +661,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'bridge' => 'booking_system'
             ]);
             
-            // Return empty array if groups endpoint is not available
+            // Check if we should throw exceptions or return empty results
+            $throwOnApiFailure = $this->config['throw_on_api_failure'] ?? false;
+            if ($throwOnApiFailure) {
+                throw new \Exception("Failed to get available groups: " . $e->getMessage());
+            }
+            
+            // Return empty array if groups endpoint is not available (legacy behavior)
             return [];
         }
     }
@@ -705,7 +717,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'user_id' => $userId
             ]);
             
-            // Return empty array if user events endpoint is not available
+            // Check if we should throw exceptions or return empty results
+            $throwOnApiFailure = $this->config['throw_on_api_failure'] ?? false;
+            if ($throwOnApiFailure) {
+                throw new \Exception("Failed to get user calendar items: " . $e->getMessage());
+            }
+            
+            // Return empty array if user events endpoint is not available (legacy behavior)
             return [];
         }
     }
