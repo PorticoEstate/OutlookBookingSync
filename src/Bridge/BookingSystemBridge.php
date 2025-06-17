@@ -84,7 +84,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ],
             'list_resources' => [
                 'method' => 'GET',
-                'url' => '/api/resources'
+                'url' => '/bookingfrontend/resources'
             ]
         ];
     }
@@ -128,24 +128,28 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
     
     /**
-     * Get endpoint configuration with defaults and custom overrides
+     * Get endpoint configuration with proper priority order:
+     * 1. Constructor input settings (HIGHEST PRIORITY - from $this->apiEndpoints)
+     * 2. Internal default endpoints (from getDefaultApiEndpoints())
+     * 3. Method parameter defaults (LOWEST PRIORITY - from $defaultConfig)
      * 
      * @param string $endpointName The name of the endpoint
-     * @param array $defaultConfig Default configuration for the endpoint
-     * @return array Merged endpoint configuration
+     * @param array $defaultConfig Basic default configuration (lowest priority)
+     * @return array Merged endpoint configuration with input settings taking precedence
      */
     private function getEndpointConfig(string $endpointName, array $defaultConfig = []): array
     {
-        // Start with the provided default configuration
+        // Start with basic defaults (lowest priority)
         $config = $defaultConfig;
         
-        // Merge with default endpoint configurations if available
+        // Override with internal default endpoints (medium priority)
         $defaultEndpoints = $this->getDefaultApiEndpoints();
         if (isset($defaultEndpoints[$endpointName])) {
             $config = array_merge($config, $defaultEndpoints[$endpointName]);
         }
         
-        // Merge with custom endpoint configurations from bridge config
+        // Final override with constructor input settings (HIGHEST PRIORITY)
+        // These are the settings passed to the bridge constructor
         if (isset($this->apiEndpoints[$endpointName])) {
             $config = array_merge($config, $this->apiEndpoints[$endpointName]);
         }
@@ -569,7 +573,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         try {
             $endpoint = $this->getEndpointConfig('list_resources', [
                 'method' => 'GET',
-                'url' => '/api/resources',
+                'url' => '/bookingfrontend/resources',
                 'response_mapping' => [
                     'id' => 'id',
                     'name' => 'name',

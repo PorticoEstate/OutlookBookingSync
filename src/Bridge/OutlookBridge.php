@@ -502,8 +502,14 @@ class OutlookBridge extends AbstractCalendarBridge
     public function getAvailableResources($nameFilter = null): array
     {
         try {
-            // Get group ID from configuration or use default
-            $groupId = $this->config['group_id'] ?? '90ba4505-3855-4739-81fa-6b0008ae9216';
+            // Get group ID from configuration - no default fallback
+            // If group_id is not configured, use the /places endpoint instead
+            $groupId = $this->config['group_id'] ?? null;
+            
+            if (!$groupId) {
+                // If no group_id configured, fall back to Microsoft Places API
+                return $this->getResourcesFromPlaces($nameFilter);
+            }
 
             // Get the request adapter from the Graph service client  
             $requestAdapter = $this->graphServiceClient->getRequestAdapter();
@@ -790,6 +796,84 @@ class OutlookBridge extends AbstractCalendarBridge
                 'error' => $e->getMessage(),
                 'group_id' => $targetGroupId
             ];
+        }
+    }
+    
+    /**
+     * Get resources from Microsoft Places API when no group_id is configured
+     */
+    private function getResourcesFromPlaces($nameFilter = null): array
+    {
+        try {
+            // Get the request adapter from the Graph service client  
+            $requestAdapter = $this->graphServiceClient->getRequestAdapter();
+
+            // Make a direct API call to get places (rooms/equipment)
+            $placesRequest = new RequestInformation();
+            $placesRequest->urlTemplate = "https://graph.microsoft.com/v1.0/places/microsoft.graph.room";
+            $placesRequest->httpMethod = HttpMethod::GET;
+            $placesRequest->addHeader("Accept", "application/json");
+
+            $placesResponse = $requestAdapter->sendAsync(
+                $placesRequest,
+                [\Microsoft\Graph\Generated\Models\RoomCollectionResponse::class, 'createFromDiscriminatorValue'],
+                [ODataError::class, 'createFromDiscriminatorValue']
+            )->wait();
+
+            $resources = [];
+
+            if ($placesResponse) {
+                $places = $placesResponse->getValue();
+                if ($places && !empty($places)) {
+                    foreach ($places as $place) {
+                        $displayName = $place->getDisplayName() ?? 'N/A';
+                        $email = $place->getAdditionalData()['emailAddress'] ?? '';
+                        
+                        // Apply name filter if provided
+                        if ($nameFilter !== null) {
+                            $nameFilterLower = strtolower($nameFilter);
+                            $displayNameLower = strtolower($displayName);
+                            $emailLower = strtolower($email);
+                            
+                            // Check if filter matches displayName or email
+                            if (strpos($displayNameLower, $nameFilterLower) === false &&
+                                strpos($emailLower, $nameFilterLower) === false) {
+                                continue; // Skip this place if no match
+                            }
+                        }
+                        
+                        $resources[] = [
+                            'id' => $place->getId(),
+                            'name' => $displayName,
+                            'email' => $email,
+                            '@odata.type' => $place->getOdataType(),
+                            'bridge_type' => 'outlook'
+                        ];
+                    }
+                }
+            }
+
+            $logData = [
+                'bridge' => 'outlook',
+                'source' => 'places_api',
+                'resource_count' => count($resources)
+            ];
+            
+            if ($nameFilter !== null) {
+                $logData['name_filter'] = $nameFilter;
+                $logData['filtered_results'] = count($resources);
+            }
+            
+            $this->logger->info('Retrieved available resources from Outlook Places API', $logData);
+
+            return $resources;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get available resources from Outlook Places API', [
+                'error' => $e->getMessage(),
+                'bridge' => 'outlook'
+            ]);
+            throw $e;
         }
     }
 }
