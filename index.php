@@ -188,16 +188,16 @@ $app->get('/bridges/{bridgeName}/resources/{resourceId}/calendar-items', [\App\C
 
 // Bridge-compatible booking system integration routes (replaces legacy routes)
 
-// Process pending bridge sync operations (replaces /booking/process-imports)
+// Process pending bridge sync operations 
 $app->post('/bridge/process-pending', [\App\Controller\BridgeBookingController::class, 'processPendingSyncs']);
 
-// Get bridge processing statistics (replaces /booking/processing-stats)  
+// Get bridge processing statistics 
 $app->get('/bridge/stats', [\App\Controller\BridgeBookingController::class, 'getBridgeStats']);
 
-// Get pending bridge operations (replaces /booking/pending-imports)
+// Get pending bridge operations
 $app->get('/bridge/pending', [\App\Controller\BridgeBookingController::class, 'getPendingOperations']);
 
-// Get completed bridge operations (replaces /booking/processed-imports)
+// Get completed bridge operations
 $app->get('/bridge/completed', [\App\Controller\BridgeBookingController::class, 'getCompletedOperations']);
 
 // Legacy cancellation routes moved to obsolete
@@ -386,7 +386,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge',
                 'GET /bridges/{bridge}/available-resources' => 'Get available resources (rooms/equipment) for bridge',
                 'GET /bridges/{bridge}/available-groups' => 'Get available groups/collections for bridge',
-                'GET /bridges/{bridge}/users/{userId}/calendar-items' => 'Get calendar items for specific user on bridge',
+                'GET /bridges/{bridge}/resources/{resourceId}/calendar-items' => 'Get calendar items for specific resource on bridge',
                 'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges',
                 'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue',
@@ -406,11 +406,6 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             'alerts' => [
                 'POST /alerts/check' => 'Check system alerts',
                 'GET /alerts' => 'Get active alerts'
-            ],
-            'backward_compatibility' => [
-                'GET /outlook/available-rooms' => 'Get Outlook rooms (redirects to /bridges/outlook/available-resources)',
-                'GET /outlook/available-groups' => 'Get Outlook groups (redirects to /bridges/outlook/available-groups)',
-                'GET /outlook/users/{userId}/calendar-items' => 'Get user calendar (redirects to bridge endpoint)'
             ]
         ],
         'documentation' => 'See README_BRIDGE.md for complete API documentation'
