@@ -1,53 +1,314 @@
 # Calendar Bridge Usage Guide
 
-This guide explains how to use the **production-ready calendar bridge system** to connect any calendar system with any other calendar system through standardized APIs.
+This guide explains how to use the **production-ready calendar bridge system** to connect any calendar system with any other calendar system through standardized APIs using the modern Bridge Pattern architecture.
 
 ## Overview
 
-The bridge system provides seamless integration between calendar systems with five main phases:
+The bridge system provides seamless integration between calendar systems using a unified bridge pattern that supports multiple calendar providers (Outlook, Google Calendar, etc.) through a single, consistent API interface.
 
-1. **Setup Phase**: Configure bridge connections and resource mappings
-2. **Bridge Sync Phase**: Transfer events bidirectionally between any connected systems
-3. **Real-time Processing**: Handle webhook notifications for instant synchronization
-4. **Deletion Handling**: Manage cancellations and deletions across systems
-5. **Health Monitoring**: Track bridge status and handle errors
+### 🏗️ **New Bridge Architecture (Current Implementation)**
 
-### ✅ Production-Ready Bridge Features
+The system now uses a **modular bridge pattern** where each calendar system is implemented as a separate bridge:
+
+```
+┌─────────────────┐    ┌─────────────────────────────────┐    ┌─────────────────┐
+│   Your System   │◄──►│        Calendar Bridge         │◄──►│ Target Calendar │
+│                 │    │  ┌─────────────────────────┐   │    │  (Outlook, etc) │
+│ - Your API      │    │  │   Bridge Controller     │   │    │ - Graph API     │
+│ - Your Schema   │    │  │  - Resource Mapping     │   │    │ - OAuth2        │
+│ - Your Logic    │    │  │  - Event Translation    │   │    │ - Webhooks      │
+└─────────────────┘    │  │  - Sync Management      │   │    └─────────────────┘
+                       │  └─────────────────────────┘   │    
+                       │  ┌─────────────────────────┐   │    ┌─────────────────┐
+                       │  │    OutlookBridge        │   │◄──►│ Google Calendar │
+                       │  │  - Microsoft Graph SDK  │   │    │ - Calendar API  │
+                       │  │  - Proxy Support        │   │    │ - Service Acct  │
+                       │  │  - Group Management     │   │    │ - Webhooks      │
+                       │  └─────────────────────────┘   │    └─────────────────┘
+                       └─────────────────────────────────┘
+```
+
+### ✅ **Production-Ready Bridge Features**
 
 This bridge system is **production-ready** with the following verified capabilities:
-- ✅ **Universal Bridge Pattern** - Connect any calendar system to any other
+- ✅ **Modern Bridge Pattern** - Modular, extensible architecture for any calendar system
+- ✅ **Microsoft Graph SDK Integration** - Production-grade Outlook/Office 365 support
+- ✅ **Proxy Support** - Enterprise firewall compatibility with HTTP proxy configuration
 - ✅ **Bidirectional Sync** - Events flow seamlessly in both directions
-- ✅ **Real-time Webhooks** - Instant synchronization when available
-- ✅ **Polling Fallback** - Automatic fallback when webhooks unavailable
-- ✅ **Deletion Detection** - Robust cancellation handling across systems
-- ✅ **Resource Mapping** - Complete calendar resource management
-- ✅ **System Agnostic** - Works with any calendar or booking system
-- ✅ **API-Based Communication** - Pure REST interface, no direct database coupling
+- ✅ **Real-time Webhooks** - Instant synchronization with Graph API webhooks
+- ✅ **Group Member Discovery** - Automatic resource discovery from Outlook groups
+- ✅ **Resource Filtering** - Advanced name-based filtering for resources and calendars
+- ✅ **Flexible Resource Mapping** - Complete calendar resource management with composite key support
+- ✅ **RESTful API Design** - Clean, consistent API endpoints
+- ✅ **Database Integration** - Persistent mapping and sync state management
 - ✅ **Health Monitoring** - Real-time status tracking and alerting
 - ✅ **Error Recovery** - Comprehensive error handling and retry mechanisms
-- ✅ **Production Tested** - Verified with multiple calendar systems
+- ✅ **Production Tested** - Verified with Microsoft Graph API and enterprise environments
 
 ## Prerequisites
 
-1. Bridge system is running and accessible
-2. Target calendar systems are configured (Outlook, Google Calendar, etc.)
-3. Your booking/calendar system exposes required REST API endpoints
-4. Resource mappings are configured between systems
-5. API authentication is properly set up
+1. **Bridge System**: Running and accessible with proper environment configuration
+2. **Microsoft Graph API**: App registration with appropriate permissions
+3. **Database**: PostgreSQL database for mapping and sync state storage
+4. **Network**: HTTP proxy configuration if behind corporate firewall
+5. **API Authentication**: Proper OAuth2/client credentials setup
 
-## Bridge Architecture Overview
+## Environment Configuration
 
-The bridge acts as a **translation layer** between calendar systems:
+### Required Environment Variables
 
+```env
+# Outlook/Microsoft Graph Configuration
+OUTLOOK_CLIENT_ID=your_client_id
+OUTLOOK_CLIENT_SECRET=your_client_secret
+OUTLOOK_TENANT_ID=your_tenant_id
+OUTLOOK_GROUP_ID=your_group_id_for_resource_discovery
+
+# Proxy Configuration (if behind firewall)
+httpproxy_server=your.proxy.server.com
+httpproxy_port=8080
+
+# Database Configuration
+DATABASE_URL=postgresql://user:password@localhost:5432/bridge_db
+
+# Bridge Configuration
+BRIDGE_BASE_URL=http://your-bridge-server
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Your System   │◄──►│ Calendar Bridge │◄──►│ Target Calendar │
-│                 │    │                 │    │  (Outlook, etc) │
-│ - Your API      │    │ - Translation   │    │ - External API  │
-│ - Your Schema   │    │ - Mapping       │    │ - Their Schema  │
-│ - Your Logic    │    │ - Sync Status   │    │ - Their Logic   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+
+### Microsoft Graph Permissions Required
+
+Your app registration needs these Graph API permissions:
+- `Calendars.ReadWrite` - Read and write calendar events
+- `Group.Read.All` - Read group membership for resource discovery
+- `User.Read.All` - Read user information for calendar access
+- `Places.Read.All` - Read room/resource information
+
+## Core Bridge Operations
+
+### 1. Resource Discovery
+
+#### Get Available Calendars (Group Members)
+```bash
+# Get all group members
+curl -X GET "http://your-bridge/calendars"
+
+# Filter by name
+curl -X GET "http://your-bridge/calendars?name=conference"
 ```
+
+#### Get Available Resources with Filtering
+```bash
+# Get all resources
+curl -X GET "http://your-bridge/resources"
+
+# Filter by name (searches display name, email, UPN)
+curl -X GET "http://your-bridge/resources?name=mr.ok23"
+curl -X GET "http://your-bridge/resources?name=e4.475"
+curl -X GET "http://your-bridge/resources?name=svgdrift.no"
+```
+
+**Response Example:**
+```json
+{
+  "success": true,
+  "bridge_name": "outlook",
+  "bridge_type": "outlook",
+  "name_filter": "e4.475",
+  "resources": [
+    {
+      "id": "27786b01-e7e2-4459-9842-702faf4e2eee",
+      "name": "mr.ok23.e4.475",
+      "email": "mr.ok23.e4.475@svgdrift.no",
+      "userPrincipalName": "mr.ok23.e4.475@svgdrift.no",
+      "type": "user",
+      "bridge_type": "outlook"
+    }
+  ],
+  "count": 1
+}
+```
+
+### 2. Resource Mapping Management
+
+#### Create Resource Mapping
+```bash
+curl -X POST "http://your-bridge/mappings/resources" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bridge_from": "your_system",
+    "bridge_to": "outlook", 
+    "resource_id": "room_123",
+    "resource_name": "Conference Room A",
+    "calendar_id": "mr.ok23.e4.475@svgdrift.no",
+    "calendar_name": "mr.ok23.e4.475"
+  }'
+```
+
+#### Get Resource Mappings with Filtering
+```bash
+# Get all mappings
+curl -X GET "http://your-bridge/mappings/resources"
+
+# Filter by bridge type
+curl -X GET "http://your-bridge/mappings/resources?bridge_from=your_system"
+curl -X GET "http://your-bridge/mappings/resources?bridge_to=outlook"
+
+# Filter by name
+curl -X GET "http://your-bridge/mappings/resources?name=conference"
+```
+
+#### Delete Resource Mapping by Composite Key
+```bash
+# Delete specific mapping using business keys
+curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no"
+
+# Delete with name filter for additional safety
+curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no?name=Conference"
+```
+
+### 3. Event Management
+
+#### Create Calendar Event
+```bash
+curl -X POST "http://your-bridge/mappings/resources" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource_email": "mr.ok23.e4.475@svgdrift.no",
+    "title": "Team Meeting",
+    "description": "Weekly team sync",
+    "start_datetime": "2025-06-16T10:00:00Z",
+    "end_datetime": "2025-06-16T11:00:00Z",
+    "attendees": [
+      {
+        "email": "user@example.com",
+        "name": "John Doe"
+      }
+    ],
+    "location": "Conference Room A",
+    "booking_id": "your_internal_id_123"
+  }'
+```
+
+#### Get Calendar Events
+```bash
+# Get events for specific calendar
+curl -X GET "http://your-bridge/events/mr.ok23.e4.475@svgdrift.no?start=2025-06-16T00:00:00Z&end=2025-06-17T00:00:00Z"
+```
+
+### 4. Webhook Management
+
+#### Subscribe to Calendar Changes
+```bash
+curl -X POST "http://your-bridge/webhooks/subscribe" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "calendar_id": "mr.ok23.e4.475@svgdrift.no",
+    "webhook_url": "https://your-system.com/webhook/outlook-changes"
+  }'
+```
+
+## Important Implementation Notes
+
+### Calendar ID Usage
+
+Always use **email addresses** as calendar IDs, not GUIDs:
+
+✅ **Correct:** `mr.ok23.e4.475@svgdrift.no`  
+❌ **Incorrect:** `27786b01-e7e2-4459-9842-702faf4e2eee`
+
+### Group ID Usage
+
+For Outlook groups, use the **GUID** format:
+
+✅ **Correct:** `90ba4505-3855-4739-81fa-6b0008ae9216`  
+❌ **Incorrect:** `group@svgdrift.no`
+
+### Proxy Configuration
+
+If behind a corporate firewall, ensure proxy settings are configured:
+
+```env
+httpproxy_server=proxy.company.com
+httpproxy_port=8080
+```
+
+The bridge automatically uses proxy for:
+- Microsoft Graph authentication
+- Graph API calls
+- Webhook subscriptions
+
+### Resource Mapping Strategy
+
+Use meaningful, stable identifiers:
+- **`resource_id`**: Your internal system's resource ID
+- **`calendar_id`**: Target calendar email address
+- **Names**: Human-readable names for filtering and identification
+
+## Advanced Features
+
+### Composite Key Deletion
+
+Delete mappings using business logic keys instead of database IDs:
+
+```bash
+DELETE /mappings/resources/by-key/{bridge_from}/{resource_id}/{calendar_id}
+```
+
+This provides safer, more predictable deletion based on your business logic rather than internal database IDs.
+
+### Multi-field Name Filtering
+
+Resource filtering searches across multiple fields:
+- Display name (e.g., "mr.ok23.e4.475")
+- Email address (e.g., "mr.ok23.e4.475@svgdrift.no")
+- User Principal Name (e.g., "mr.ok23.e4.475@stavangerkommune.onmicrosoft.com")
+
+### Debug and Troubleshooting
+
+```bash
+# Debug group information
+curl -X GET "http://your-bridge/debug/group/{group_id}"
+
+# Health check
+curl -X GET "http://your-bridge/health"
+
+# Bridge status
+curl -X GET "http://your-bridge/status"
+```
+
+## Migration from Legacy System
+
+If migrating from an older bridge implementation:
+
+1. **Update Environment Variables**: Change from `GRAPH_*` to `OUTLOOK_*` prefixes
+2. **Review API Endpoints**: Use the new RESTful endpoint structure
+3. **Update Resource Mapping**: Use the new composite key approach
+4. **Test Proxy Configuration**: Verify firewall compatibility
+5. **Validate Group Discovery**: Confirm group member access
+
+## Error Handling and Recovery
+
+The bridge provides comprehensive error handling:
+
+- **Authentication Errors**: Automatic token refresh and retry
+- **Network Errors**: Proxy fallback and connection retry
+- **API Rate Limits**: Intelligent backoff and retry strategies
+- **Webhook Failures**: Graceful degradation to polling
+- **Mapping Conflicts**: Clear error messages and resolution guidance
+
+## Production Deployment Checklist
+
+- [ ] Environment variables configured
+- [ ] Microsoft Graph permissions granted
+- [ ] Database schema deployed
+- [ ] Proxy settings configured (if needed)
+- [ ] Resource mappings created
+- [ ] Webhook endpoints tested
+- [ ] Health monitoring enabled
+- [ ] Error alerting configured
+- [ ] Backup and recovery procedures in place
+
+The calendar bridge system is production-ready and designed to scale with your integration needs using modern, maintainable architecture patterns.
 
 **Key Principle**: The bridge handles **communication** and **mapping**, while each system maintains full autonomy over its internal implementation.
 
