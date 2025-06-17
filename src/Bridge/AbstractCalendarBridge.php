@@ -32,7 +32,15 @@ abstract class AbstractCalendarBridge
     abstract public function getBridgeType(): string;
     
     // Resource discovery methods (added for generic bridge pattern)
-    abstract public function getAvailableResources(): array;
+    /**
+     * Get available resources/calendars
+     * 
+     * @param string|null $nameFilter Filter resources by name
+     * @param int $limit Maximum number of resources to return (0 = no limit)
+     * @param int $offset Number of resources to skip
+     * @return array
+     */
+    abstract public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array;
     abstract public function getAvailableGroups(): array;
     abstract public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array;
     

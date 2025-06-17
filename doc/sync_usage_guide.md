@@ -38,6 +38,7 @@ This bridge system is **production-ready** with the following verified capabilit
 - ✅ **Real-time Webhooks** - Instant synchronization with Graph API webhooks
 - ✅ **Group Member Discovery** - Automatic resource discovery from Outlook groups
 - ✅ **Resource Filtering** - Advanced name-based filtering for resources and calendars
+- ✅ **Pagination Support** - Efficient resource discovery with limit and offset parameters
 - ✅ **Flexible Resource Mapping** - Complete calendar resource management with composite key support
 - ✅ **RESTful API Design** - Clean, consistent API endpoints
 - ✅ **Database Integration** - Persistent mapping and sync state management
@@ -107,6 +108,26 @@ curl -X GET "http://your-bridge/resources?name=e4.475"
 curl -X GET "http://your-bridge/resources?name=svgdrift.no"
 ```
 
+#### Pagination Support
+```bash
+# Get first 10 resources
+curl -X GET "http://your-bridge/resources?limit=10"
+
+# Get resources 11-20 (skip first 10, return next 10)
+curl -X GET "http://your-bridge/resources?limit=10&offset=10"
+
+# Skip first 20 resources, return all remaining
+curl -X GET "http://your-bridge/resources?offset=20"
+
+# Combine filtering and pagination
+curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
+```
+
+**Pagination Parameters:**
+- `limit` - Maximum number of resources to return (0 = no limit)
+- `offset` - Number of resources to skip (0 = start from beginning)
+- `query` - Name filter (same as `name` parameter)
+
 **Response Example:**
 ```json
 {
@@ -125,6 +146,23 @@ curl -X GET "http://your-bridge/resources?name=svgdrift.no"
     }
   ],
   "count": 1
+}
+```
+
+**Pagination Response Example:**
+```json
+{
+  "success": true,
+  "bridge": "outlook",
+  "resources": [
+    // ... resource objects ...
+  ],
+  "count": 5,
+  "pagination": {
+    "limit": 5,
+    "offset": 10,
+    "returned_count": 5
+  }
 }
 ```
 

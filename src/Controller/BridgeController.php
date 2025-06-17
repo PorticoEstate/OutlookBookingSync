@@ -568,15 +568,33 @@ class BridgeController
 
             $queryParams = $request->getQueryParams();
             $nameFilter = $queryParams['query'] ?? null;
-            // Get available resources through the bridge
-            $resources = $bridge->getAvailableResources($nameFilter);
+            $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 0;
+            $offset = isset($queryParams['offset']) ? (int)$queryParams['offset'] : 0;
             
-            $response->getBody()->write(json_encode([
+            // Validate pagination parameters
+            if ($limit < 0) $limit = 0;
+            if ($offset < 0) $offset = 0;
+            
+            // Get available resources through the bridge
+            $resources = $bridge->getAvailableResources($nameFilter, $limit, $offset);
+            
+            $responseData = [
                 'success' => true,
                 'bridge' => $bridgeName,
                 'resources' => $resources,
                 'count' => count($resources)
-            ]));
+            ];
+            
+            // Add pagination info if pagination was requested
+            if ($limit > 0 || $offset > 0) {
+                $responseData['pagination'] = [
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'returned_count' => count($resources)
+                ];
+            }
+            
+            $response->getBody()->write(json_encode($responseData));
             
             return $response->withHeader('Content-Type', 'application/json');
             

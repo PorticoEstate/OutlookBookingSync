@@ -499,7 +499,7 @@ class OutlookBridge extends AbstractCalendarBridge
      * Get available resources (rooms/equipment) from Outlook
      * Uses the same method as OutlookController::getAvailableRooms()
      */
-    public function getAvailableResources($nameFilter = null): array
+    public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array
     {
         try {
             // Get group ID from configuration - no default fallback
@@ -576,10 +576,19 @@ class OutlookBridge extends AbstractCalendarBridge
                 }
             }
 
+            // Apply pagination if specified
+            $totalCount = count($resources);
+            if ($limit > 0) {
+                $resources = array_slice($resources, $offset, $limit);
+            } elseif ($offset > 0) {
+                $resources = array_slice($resources, $offset);
+            }
+
             $logData = [
                 'bridge' => 'outlook',
                 'group_id' => $groupId,
-                'resource_count' => count($resources)
+                'total_resource_count' => $totalCount,
+                'returned_resource_count' => count($resources)
             ];
             
             if ($nameFilter !== null) {
