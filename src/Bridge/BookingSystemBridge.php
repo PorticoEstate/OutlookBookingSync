@@ -372,6 +372,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function makeConfigurableApiRequest($method, $url, $params = [], $data = [])
     {
+        // Ensure URL includes the base URL if it's a relative path
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($url, '/');
+        }
+        
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json'
@@ -429,6 +434,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function makeApiRequest($method, $url, $params = [], $data = [])
     {
+        // Ensure URL includes the base URL if it's a relative path
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($url, '/');
+        }
+        
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json'
