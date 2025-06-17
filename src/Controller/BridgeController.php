@@ -576,7 +576,17 @@ class BridgeController
             if ($offset < 0) $offset = 0;
             
             // Get available resources through the bridge
-            $resources = $bridge->getAvailableResources($nameFilter, $limit, $offset);
+            $result = $bridge->getAvailableResources($nameFilter, $limit, $offset);
+            
+            // Handle both old array format and new format with metadata
+            if (isset($result['resources']) && isset($result['metadata'])) {
+                $resources = $result['resources'];
+                $metadata = $result['metadata'];
+            } else {
+                // Backward compatibility: assume it's just an array of resources
+                $resources = $result;
+                $metadata = [];
+            }
             
             $responseData = [
                 'success' => true,
@@ -585,6 +595,11 @@ class BridgeController
                 'count' => count($resources)
             ];
             
+            // Add total_records from API response if available
+            if (isset($metadata['total_records'])) {
+                $responseData['total_records'] = $metadata['total_records'];
+            }
+            
             // Add pagination info if pagination was requested
             if ($limit > 0 || $offset > 0) {
                 $responseData['pagination'] = [
@@ -592,6 +607,11 @@ class BridgeController
                     'offset' => $offset,
                     'returned_count' => count($resources)
                 ];
+                
+                // Add total_records to pagination if available
+                if (isset($metadata['total_records'])) {
+                    $responseData['pagination']['total_records'] = $metadata['total_records'];
+                }
             }
             
             $response->getBody()->write(json_encode($responseData));

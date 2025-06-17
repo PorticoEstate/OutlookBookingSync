@@ -679,7 +679,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 }
             }
 
-            return $resources;
+            // Extract total_records from response if available
+            $totalRecords = $response['total_records'] ?? null;
+            
+            // Return resources with metadata
+            $result = [
+                'resources' => $resources,
+                'metadata' => []
+            ];
+            
+            // Add total_records to metadata if available
+            if ($totalRecords !== null) {
+                $result['metadata']['total_records'] = $totalRecords;
+            }
+            
+            return $result;
         }
         catch (\Exception $e)
         {

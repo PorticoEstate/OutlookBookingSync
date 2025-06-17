@@ -598,7 +598,14 @@ class OutlookBridge extends AbstractCalendarBridge
             
             $this->logger->info('Retrieved available resources from Outlook', $logData);
 
-            return $resources;
+            // Return resources with metadata for consistency with BookingSystemBridge
+            return [
+                'resources' => $resources,
+                'metadata' => [
+                    'total_records' => $totalCount,
+                    'filtered_count' => count($resources)
+                ]
+            ];
             
         } catch (\Exception $e) {
             $this->logger->error('Failed to get available resources from Outlook', [

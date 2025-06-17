@@ -153,18 +153,26 @@ curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
 ```json
 {
   "success": true,
-  "bridge": "outlook",
+  "bridge": "booking_system",
   "resources": [
     // ... resource objects ...
   ],
   "count": 5,
+  "total_records": 127,
   "pagination": {
     "limit": 5,
     "offset": 10,
-    "returned_count": 5
+    "returned_count": 5,
+    "total_records": 127
   }
 }
 ```
+
+**Response Fields:**
+- `count` - Number of resources returned in this response
+- `total_records` - Total number of resources available from the API (when supported)
+- `pagination.returned_count` - Same as `count` 
+- `pagination.total_records` - Total records available for pagination calculations
 
 ### 2. Resource Mapping Management
 
