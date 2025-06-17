@@ -165,8 +165,8 @@ abstract class AbstractCalendarBridge
         try {
             $start = microtime(true);
             
-            // Basic connectivity test - try to get calendars
-            $calendars = $this->getCalendars();
+            // Basic connectivity test - try to get available resources
+            $resources = $this->getAvailableResources();
             
             $responseTime = round((microtime(true) - $start) * 1000, 2);
             
@@ -174,7 +174,7 @@ abstract class AbstractCalendarBridge
                 'status' => 'healthy',
                 'bridge_type' => $this->getBridgeType(),
                 'response_time_ms' => $responseTime,
-                'calendars_count' => count($calendars),
+                'calendars_count' => is_array($resources) ? count($resources) : (isset($resources['count']) ? $resources['count'] : 0),
                 'capabilities' => $this->getCapabilities(),
                 'timestamp' => date('c')
             ];
