@@ -514,9 +514,24 @@ class OutlookBridge extends AbstractCalendarBridge
             // Get the request adapter from the Graph service client  
             $requestAdapter = $this->graphServiceClient->getRequestAdapter();
 
-            // Make a direct API call to get group members (same as OutlookController)
+            // Build URL with pagination parameters for group members
+            $queryParams = [];
+            
+            // Apply pagination parameters to Graph API query
+            if ($limit > 0) {
+                $queryParams[] = '$top=' . $limit;
+            }
+            
+            if ($offset > 0) {
+                $queryParams[] = '$skip=' . $offset;
+            }
+            
+            $queryString = !empty($queryParams) ? '?' . implode('&', $queryParams) : '';
+            $membersUrl = "https://graph.microsoft.com/v1.0/groups/{$groupId}/members" . $queryString;
+
+            // Make a direct API call to get group members with server-side pagination
             $groupMembersRequest = new RequestInformation();
-            $groupMembersRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups/{$groupId}/members";
+            $groupMembersRequest->urlTemplate = $membersUrl;
             $groupMembersRequest->httpMethod = HttpMethod::GET;
             $groupMembersRequest->addHeader("Accept", "application/json");
 
@@ -576,19 +591,31 @@ class OutlookBridge extends AbstractCalendarBridge
                 }
             }
 
-            // Apply pagination if specified
-            $totalCount = count($resources);
-            if ($limit > 0) {
-                $resources = array_slice($resources, $offset, $limit);
-            } elseif ($offset > 0) {
-                $resources = array_slice($resources, $offset);
+            // Client-side filtering is still needed since Graph API has limited filtering for group members
+            if ($nameFilter !== null) {
+                $originalCount = count($resources);
+                $resources = array_filter($resources, function($resource) use ($nameFilter) {
+                    $nameFilterLower = strtolower($nameFilter);
+                    $displayNameLower = strtolower($resource['name'] ?? '');
+                    $emailLower = strtolower($resource['email'] ?? '');
+                    $upnLower = strtolower($resource['userPrincipalName'] ?? '');
+                    
+                    return strpos($displayNameLower, $nameFilterLower) !== false ||
+                           strpos($emailLower, $nameFilterLower) !== false ||
+                           strpos($upnLower, $nameFilterLower) !== false;
+                });
+                $resources = array_values($resources); // Re-index array
             }
+
+            $totalCount = count($resources);
 
             $logData = [
                 'bridge' => 'outlook',
                 'group_id' => $groupId,
-                'total_resource_count' => $totalCount,
-                'returned_resource_count' => count($resources)
+                'returned_resource_count' => count($resources),
+                'api_limit' => $limit,
+                'api_offset' => $offset,
+                'server_side_pagination' => true
             ];
             
             if ($nameFilter !== null) {
@@ -596,14 +623,15 @@ class OutlookBridge extends AbstractCalendarBridge
                 $logData['filtered_results'] = count($resources);
             }
             
-            $this->logger->info('Retrieved available resources from Outlook', $logData);
+            $this->logger->info('Retrieved available resources from Outlook with server-side pagination', $logData);
 
             // Return resources with metadata for consistency with BookingSystemBridge
             return [
                 'resources' => $resources,
                 'metadata' => [
                     'total_records' => $totalCount,
-                    'filtered_count' => count($resources)
+                    'filtered_count' => count($resources),
+                    'server_side_pagination' => true
                 ]
             ];
             
@@ -626,95 +654,100 @@ class OutlookBridge extends AbstractCalendarBridge
             // Get the request adapter from the Graph service client
             $requestAdapter = $this->graphServiceClient->getRequestAdapter();
 
-            // Make a direct API call to get groups (same as OutlookController)
+            // Build URL with pagination parameters
+            $queryParams = [];
+            
+            // Apply pagination parameters to Graph API query
+            if ($limit > 0) {
+                $queryParams[] = '$top=' . $limit;
+            } else {
+                $queryParams[] = '$top=9999'; // Default large number if no limit specified
+            }
+            
+            if ($offset > 0) {
+                $queryParams[] = '$skip=' . $offset;
+            }
+            
+            // Add name filter if provided (using Graph API $filter)
+            if ($nameFilter !== null) {
+                $escapedFilter = str_replace("'", "''", $nameFilter); // Escape single quotes for OData
+                $filterQuery = "startswith(displayName,'{$escapedFilter}') or " .
+                              "startswith(description,'{$escapedFilter}') or " .
+                              "startswith(mail,'{$escapedFilter}')";
+                $queryParams[] = '$filter=' . urlencode($filterQuery);
+            }
+            
+            $queryString = implode('&', $queryParams);
+            $url = "https://graph.microsoft.com/v1.0/groups?" . $queryString;
+
+            // Make a direct API call to get groups with server-side pagination
             $groupsRequest = new RequestInformation();
-            $groupsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/groups?\$top=999";
+            $groupsRequest->urlTemplate = $url;
             $groupsRequest->httpMethod = HttpMethod::GET;
             $groupsRequest->addHeader("Accept", "application/json");
 
+            $groupsResponse = $requestAdapter->sendAsync(
+                $groupsRequest,
+                [\Microsoft\Graph\Generated\Models\GroupCollectionResponse::class, 'createFromDiscriminatorValue'],
+                [ODataError::class, 'createFromDiscriminatorValue']
+            )->wait();
+
             $allGroups = [];
-            $nextLink = null;
+            $totalCount = null;
 
-            do {
-                // Update URL for pagination if we have a next link
-                if ($nextLink) {
-                    $groupsRequest->urlTemplate = $nextLink;
+            if (method_exists($groupsResponse, 'getValue') && !empty($groupsResponse->getValue())) {
+                $groups = $groupsResponse->getValue();
+
+                foreach ($groups as $group) {
+                    $groupData = [
+                        'id' => $group->getId(),
+                        'name' => $group->getDisplayName() ?? 'N/A',
+                        'description' => $group->getDescription() ?? 'N/A',
+                        'email' => $group->getMail() ?? 'N/A',
+                        'group_types' => $group->getGroupTypes() ?? [],
+                        'bridge_type' => 'outlook'
+                    ];
+
+                    $allGroups[] = $groupData;
                 }
-
-                $groupsResponse = $requestAdapter->sendAsync(
-                    $groupsRequest,
-                    [\Microsoft\Graph\Generated\Models\GroupCollectionResponse::class, 'createFromDiscriminatorValue'],
-                    [ODataError::class, 'createFromDiscriminatorValue']
-                )->wait();
-
-                if (method_exists($groupsResponse, 'getValue') && !empty($groupsResponse->getValue())) {
-                    $groups = $groupsResponse->getValue();
-
-                    foreach ($groups as $group) {
-                        $displayName = $group->getDisplayName() ?? 'N/A';
-                        $description = $group->getDescription() ?? 'N/A';
-                        $email = $group->getMail() ?? 'N/A';
-                        
-                        // Apply name filter if provided
-                        if ($nameFilter !== null) {
-                            $nameFilterLower = strtolower($nameFilter);
-                            $displayNameLower = strtolower($displayName);
-                            $descriptionLower = strtolower($description);
-                            $emailLower = strtolower($email);
-                            
-                            // Check if filter matches displayName, description, or email
-                            if (strpos($displayNameLower, $nameFilterLower) === false &&
-                                strpos($descriptionLower, $nameFilterLower) === false &&
-                                strpos($emailLower, $nameFilterLower) === false) {
-                                continue; // Skip this group if no match
-                            }
-                        }
-
-                        $groupData = [
-                            'id' => $group->getId(),
-                            'name' => $displayName,
-                            'description' => $description,
-                            'email' => $email,
-                            'group_types' => $group->getGroupTypes() ?? [],
-                            'bridge_type' => 'outlook'
-                        ];
-
-                        $allGroups[] = $groupData;
-                    }
+                
+                // Try to get total count from the response (if available)
+                // Note: Microsoft Graph doesn't always provide total count for security reasons
+                if (method_exists($groupsResponse, 'getOdataCount')) {
+                    $totalCount = $groupsResponse->getOdataCount();
                 }
-
-                // Check for next page
-                $nextLink = $groupsResponse ? $groupsResponse->getOdataNextLink() : null;
-
-            } while ($nextLink);
-
-            // Apply pagination if specified
-            $totalCount = count($allGroups);
-            if ($limit > 0) {
-                $allGroups = array_slice($allGroups, $offset, $limit);
-            } elseif ($offset > 0) {
-                $allGroups = array_slice($allGroups, $offset);
             }
 
             $logData = [
                 'bridge' => 'outlook',
-                'total_group_count' => $totalCount,
-                'returned_group_count' => count($allGroups)
+                'returned_group_count' => count($allGroups),
+                'api_limit' => $limit,
+                'api_offset' => $offset
             ];
             
             if ($nameFilter !== null) {
                 $logData['name_filter'] = $nameFilter;
             }
             
-            $this->logger->info('Retrieved available groups from Outlook', $logData);
+            if ($totalCount !== null) {
+                $logData['total_count_from_api'] = $totalCount;
+            }
+            
+            $this->logger->info('Retrieved available groups from Outlook with server-side pagination', $logData);
 
             // Return groups with metadata for consistency
+            $metadata = [
+                'filtered_count' => count($allGroups)
+            ];
+            
+            // Include total count if available from API
+            if ($totalCount !== null) {
+                $metadata['total_records'] = $totalCount;
+            }
+            
             return [
                 'resources' => $allGroups,
-                'metadata' => [
-                    'total_records' => $totalCount,
-                    'filtered_count' => count($allGroups)
-                ]
+                'metadata' => $metadata
             ];
             
         } catch (\Exception $e) {

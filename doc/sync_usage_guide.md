@@ -38,7 +38,7 @@ This bridge system is **production-ready** with the following verified capabilit
 - ✅ **Real-time Webhooks** - Instant synchronization with Graph API webhooks
 - ✅ **Group Member Discovery** - Automatic resource discovery from Outlook groups
 - ✅ **Resource Filtering** - Advanced name-based filtering for resources and calendars
-- ✅ **Pagination Support** - Efficient resource discovery with limit and offset parameters
+- ✅ **Server-Side Pagination** - Efficient pagination using Microsoft Graph native parameters (`$top`, `$skip`)
 - ✅ **Flexible Resource Mapping** - Complete calendar resource management with composite key support
 - ✅ **RESTful API Design** - Clean, consistent API endpoints
 - ✅ **Database Integration** - Persistent mapping and sync state management
@@ -125,8 +125,13 @@ curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
 
 **Pagination Parameters:**
 - `limit` - Maximum number of resources to return (0 = no limit)
-- `offset` - Number of resources to skip (0 = start from beginning)
+- `offset` - Number of resources to skip (0 = start from beginning)  
 - `query` - Name filter (same as `name` parameter)
+
+**Performance Note:** 
+- **OutlookBridge**: Uses Microsoft Graph's server-side pagination (`$top`, `$skip`) for optimal performance
+- **BookingSystemBridge**: Passes pagination parameters directly to your booking system API
+- Server-side pagination significantly reduces data transfer and improves response times for large datasets
 
 **Response Example:**
 ```json
