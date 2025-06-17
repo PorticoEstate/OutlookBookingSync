@@ -210,8 +210,9 @@ class HealthController
             // Check recent sync activity as proxy for connectivity
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as recent_syncs 
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '1 hour'
+                FROM bridge_sync_logs 
+                WHERE created_at > NOW() - INTERVAL '1 hour'
+                AND (source_bridge = 'outlook' OR target_bridge = 'outlook')
             ");
             $stmt->execute();
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -253,10 +254,10 @@ class HealthController
             $stmt = $this->db->prepare("
                 SELECT 
                     COUNT(*) as recent_automated_syncs,
-                    MAX(updated_at) as last_automated_sync
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '1 hour'
-                AND sync_direction IN ('polling', 'automated')
+                    MAX(created_at) as last_automated_sync
+                FROM bridge_sync_logs 
+                WHERE created_at > NOW() - INTERVAL '1 hour'
+                AND operation IN ('sync', 'update')
             ");
             $stmt->execute();
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -414,9 +415,9 @@ class HealthController
         try {
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as error_count
-                FROM bridge_mappings 
-                WHERE sync_status = 'error' 
-                AND updated_at > NOW() - INTERVAL '24 hours'
+                FROM bridge_sync_logs 
+                WHERE status = 'error' 
+                AND created_at > NOW() - INTERVAL '24 hours'
             ");
             $stmt->execute();
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -465,17 +466,76 @@ class HealthController
     private function getSystemOverview()
     {
         try {
+            // Get total mappings
+            $stmt = $this->db->prepare("SELECT COUNT(*) as total_mappings FROM bridge_mappings");
+            $stmt->execute();
+            $totalResult = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Get synced count (mappings with last_synced_at and recent successful sync)
             $stmt = $this->db->prepare("
-                SELECT 
-                    COUNT(*) as total_mappings,
-                    COUNT(CASE WHEN sync_status = 'synced' THEN 1 END) as synced_count,
-                    COUNT(CASE WHEN sync_status = 'pending' THEN 1 END) as pending_count,
-                    COUNT(CASE WHEN sync_status = 'error' THEN 1 END) as error_count
-                FROM bridge_mappings
+                SELECT COUNT(DISTINCT bm.id) as synced_count
+                FROM bridge_mappings bm
+                WHERE bm.last_synced_at IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM bridge_sync_logs bsl 
+                    WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
+                    AND bsl.status = 'success' 
+                    AND bsl.created_at > NOW() - INTERVAL '24 hours'
+                )
             ");
             $stmt->execute();
+            $syncedResult = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            // Get error count (mappings with recent error status)
+            $stmt = $this->db->prepare("
+                SELECT COUNT(DISTINCT bm.id) as error_count
+                FROM bridge_mappings bm
+                WHERE EXISTS (
+                    SELECT 1 FROM bridge_sync_logs bsl 
+                    WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
+                    AND bsl.status = 'error' 
+                    AND bsl.created_at > NOW() - INTERVAL '24 hours'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM bridge_sync_logs bsl2 
+                        WHERE (bsl2.source_bridge = bm.source_bridge AND bsl2.target_bridge = bm.target_bridge)
+                        AND bsl2.status = 'success' 
+                        AND bsl2.created_at > bsl.created_at
+                    )
+                )
+            ");
+            $stmt->execute();
+            $errorResult = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Get pending count (mappings with recent pending status or never synced)
+            $stmt = $this->db->prepare("
+                SELECT COUNT(DISTINCT bm.id) as pending_count
+                FROM bridge_mappings bm
+                WHERE (
+                    bm.last_synced_at IS NULL
+                    OR EXISTS (
+                        SELECT 1 FROM bridge_sync_logs bsl 
+                        WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
+                        AND bsl.status = 'pending' 
+                        AND bsl.created_at > NOW() - INTERVAL '1 hour'
+                    )
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM bridge_sync_logs bsl 
+                    WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
+                    AND bsl.status = 'error' 
+                    AND bsl.created_at > NOW() - INTERVAL '24 hours'
+                )
+            ");
+            $stmt->execute();
+            $pendingResult = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return [
+                'total_mappings' => $totalResult['total_mappings'],
+                'synced_count' => $syncedResult['synced_count'],
+                'pending_count' => $pendingResult['pending_count'],
+                'error_count' => $errorResult['error_count']
+            ];
+            
         } catch (Exception $e) {
             return ['error' => $e->getMessage()];
         }
@@ -487,16 +547,18 @@ class HealthController
     private function getAllSyncStatistics()
     {
         try {
-            // Get stats from the last 24 hours
+            // Get stats from the last 24 hours from sync logs
             $stmt = $this->db->prepare("
                 SELECT 
-                    sync_direction,
-                    sync_status,
+                    source_bridge,
+                    target_bridge,
+                    operation,
+                    status,
                     COUNT(*) as count,
-                    DATE_TRUNC('hour', updated_at) as hour
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '24 hours'
-                GROUP BY sync_direction, sync_status, DATE_TRUNC('hour', updated_at)
+                    DATE_TRUNC('hour', created_at) as hour
+                FROM bridge_sync_logs 
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                GROUP BY source_bridge, target_bridge, operation, status, DATE_TRUNC('hour', created_at)
                 ORDER BY hour DESC
             ");
             $stmt->execute();
@@ -515,14 +577,14 @@ class HealthController
         try {
             $stmt = $this->db->prepare("
                 SELECT 
-                    reservation_type,
-                    sync_direction,
-                    sync_status,
-                    updated_at,
+                    operation as reservation_type,
+                    CONCAT(source_bridge, ' → ', target_bridge) as sync_direction,
+                    status as sync_status,
+                    created_at as updated_at,
                     error_message
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '2 hours'
-                ORDER BY updated_at DESC
+                FROM bridge_sync_logs 
+                WHERE created_at > NOW() - INTERVAL '2 hours'
+                ORDER BY created_at DESC
                 LIMIT 20
             ");
             $stmt->execute();
@@ -562,10 +624,10 @@ class HealthController
                 SELECT 
                     error_message,
                     COUNT(*) as error_count,
-                    MAX(updated_at) as last_occurrence
-                FROM bridge_mappings 
-                WHERE sync_status = 'error' 
-                AND updated_at > NOW() - INTERVAL '24 hours'
+                    MAX(created_at) as last_occurrence
+                FROM bridge_sync_logs 
+                WHERE status = 'error' 
+                AND created_at > NOW() - INTERVAL '24 hours'
                 AND error_message IS NOT NULL
                 GROUP BY error_message
                 ORDER BY error_count DESC
@@ -633,8 +695,8 @@ class HealthController
                 SELECT 
                     COUNT(*) as syncs_last_hour,
                     COUNT(*) / 60.0 as syncs_per_minute
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '1 hour'
+                FROM bridge_sync_logs 
+                WHERE created_at > NOW() - INTERVAL '1 hour'
             ");
             $stmt->execute();
             
