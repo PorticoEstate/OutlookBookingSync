@@ -587,15 +587,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'response_mapping' => [
                     'id' => 'id',
                     'name' => 'name',
-                    'type' => 'type',
-                    'capacity' => 'capacity'
+                    'active' => 'active'
                 ]
             ]);
             
             $response = $this->makeApiRequest($endpoint['method'], $endpoint['url']);
             
             $resources = [];
-            $dataKey = $endpoint['response_data_key'] ?? 'data';
+            $dataKey = $endpoint['response_data_key'] ?? 'results';
             $responseData = isset($response[$dataKey]) ? $response[$dataKey] : $response;
             
             if (is_array($responseData)) {
@@ -604,8 +603,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
                         'id' => $resource['id'] ?? $resource['resource_id'] ?? null,
                         'name' => $resource['name'] ?? $resource['title'] ?? 'N/A',
                         'type' => $resource['type'] ?? 'resource',
-                        'capacity' => $resource['capacity'] ?? null,
-                        'description' => $resource['description'] ?? null,
+                        'active' => $resource['active'] ?? null,
+                        'description' => $resource['description_json'] ? array_map('html_entity_decode', json_decode($resource['description_json'], true)) : null,
                         'bridge_type' => 'booking_system'
                     ];
                 }
