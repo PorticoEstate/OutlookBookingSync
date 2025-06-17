@@ -186,25 +186,6 @@ $app->get('/bridges/{bridgeName}/available-groups', [\App\Controller\BridgeContr
 // Get calendar items for a specific user/resource on a bridge
 $app->get('/bridges/{bridgeName}/users/{userId}/calendar-items', [\App\Controller\BridgeController::class, 'getUserCalendarItems']);
 
-// Backward compatibility routes (redirect to bridge endpoints)
-$app->get('/outlook/available-rooms', function (Request $request, Response $response, $args) use ($container) {
-    // Redirect to generic bridge endpoint
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    return $bridgeController->getAvailableResources($request, $response, ['bridgeName' => 'outlook']);
-});
-
-$app->get('/outlook/available-groups', function (Request $request, Response $response, $args) use ($container) {
-    // Redirect to generic bridge endpoint
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    return $bridgeController->getAvailableGroups($request, $response, ['bridgeName' => 'outlook']);
-});
-
-$app->get('/outlook/users/{userId}/calendar-items', function (Request $request, Response $response, $args) use ($container) {
-    // Redirect to generic bridge endpoint
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    return $bridgeController->getUserCalendarItems($request, $response, $args + ['bridgeName' => 'outlook']);
-});
-
 // Bridge-compatible booking system integration routes (replaces legacy routes)
 
 // Process pending bridge sync operations (replaces /booking/process-imports)
