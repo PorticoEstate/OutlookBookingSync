@@ -717,7 +717,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Get available groups/collections from the booking system
      */
-    public function getAvailableGroups(): array
+    public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array
     {
         try
         {
@@ -731,7 +731,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 ]
             ]);
 
-            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url']);
+            $params = [];
+            if ($offset) {
+                $params['start'] = $offset;
+            }
+            if ($limit) {
+                $params['results'] = $limit;
+            }
+            
+            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url'], $params);
 
             $groups = [];
             $dataKey = $endpoint['response_data_key'] ?? 'data';
@@ -741,16 +749,45 @@ class BookingSystemBridge extends AbstractCalendarBridge
             {
                 foreach ($responseData as $group)
                 {
-                    $groups[] = [
+                    $groupData = [
                         'id' => $group['id'] ?? $group['group_id'] ?? null,
                         'name' => $group['name'] ?? $group['title'] ?? 'N/A',
                         'description' => $group['description'] ?? null,
                         'bridge_type' => 'booking_system'
                     ];
+                    
+                    // Apply name filter if provided
+                    if ($nameFilter !== null) {
+                        $nameFilterLower = strtolower($nameFilter);
+                        $groupNameLower = strtolower($groupData['name'] ?? '');
+                        $groupDescLower = strtolower($groupData['description'] ?? '');
+                        
+                        // Check if filter matches name or description
+                        if (strpos($groupNameLower, $nameFilterLower) === false &&
+                            strpos($groupDescLower, $nameFilterLower) === false) {
+                            continue; // Skip this group if no match
+                        }
+                    }
+                    
+                    $groups[] = $groupData;
                 }
             }
 
-            return $groups;
+            // Extract total_records from response if available
+            $totalRecords = $response['total_records'] ?? null;
+            
+            // Return groups with metadata
+            $result = [
+                'resources' => $groups,
+                'metadata' => []
+            ];
+            
+            // Add total_records to metadata if available
+            if ($totalRecords !== null) {
+                $result['metadata']['total_records'] = $totalRecords;
+            }
+            
+            return $result;
         }
         catch (\Exception $e)
         {

@@ -643,15 +643,55 @@ class BridgeController
             $bridgeName = $args['bridgeName'];
             $bridge = $this->bridgeManager->getBridge($bridgeName);
             
-            // Get available groups through the bridge
-            $groups = $bridge->getAvailableGroups();
+            $queryParams = $request->getQueryParams();
+            $nameFilter = $queryParams['query'] ?? null;
+            $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 0;
+            $offset = isset($queryParams['offset']) ? (int)$queryParams['offset'] : 0;
             
-            $response->getBody()->write(json_encode([
+            // Validate pagination parameters
+            if ($limit < 0) $limit = 0;
+            if ($offset < 0) $offset = 0;
+            
+            // Get available groups through the bridge
+            $result = $bridge->getAvailableGroups($nameFilter, $limit, $offset);
+            
+            // Handle both old array format and new format with metadata
+            if (isset($result['resources']) && isset($result['metadata'])) {
+                $groups = $result['resources'];
+                $metadata = $result['metadata'];
+            } else {
+                // Backward compatibility: assume it's just an array of groups
+                $groups = $result;
+                $metadata = [];
+            }
+            
+            $responseData = [
                 'success' => true,
                 'bridge' => $bridgeName,
                 'groups' => $groups,
                 'count' => count($groups)
-            ]));
+            ];
+            
+            // Add total_records from API response if available
+            if (isset($metadata['total_records'])) {
+                $responseData['total_records'] = $metadata['total_records'];
+            }
+            
+            // Add pagination info if pagination was requested
+            if ($limit > 0 || $offset > 0) {
+                $responseData['pagination'] = [
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'returned_count' => count($groups)
+                ];
+                
+                // Add total_records to pagination if available
+                if (isset($metadata['total_records'])) {
+                    $responseData['pagination']['total_records'] = $metadata['total_records'];
+                }
+            }
+            
+            $response->getBody()->write(json_encode($responseData));
             
             return $response->withHeader('Content-Type', 'application/json');
             

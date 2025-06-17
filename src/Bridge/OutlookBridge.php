@@ -620,7 +620,7 @@ class OutlookBridge extends AbstractCalendarBridge
      * Get available groups/collections from Outlook
      * Uses the same method as OutlookController::getAvailableGroups()
      */
-    public function getAvailableGroups(): array
+    public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array
     {
         try {
             // Get the request adapter from the Graph service client
@@ -651,11 +651,30 @@ class OutlookBridge extends AbstractCalendarBridge
                     $groups = $groupsResponse->getValue();
 
                     foreach ($groups as $group) {
+                        $displayName = $group->getDisplayName() ?? 'N/A';
+                        $description = $group->getDescription() ?? 'N/A';
+                        $email = $group->getMail() ?? 'N/A';
+                        
+                        // Apply name filter if provided
+                        if ($nameFilter !== null) {
+                            $nameFilterLower = strtolower($nameFilter);
+                            $displayNameLower = strtolower($displayName);
+                            $descriptionLower = strtolower($description);
+                            $emailLower = strtolower($email);
+                            
+                            // Check if filter matches displayName, description, or email
+                            if (strpos($displayNameLower, $nameFilterLower) === false &&
+                                strpos($descriptionLower, $nameFilterLower) === false &&
+                                strpos($emailLower, $nameFilterLower) === false) {
+                                continue; // Skip this group if no match
+                            }
+                        }
+
                         $groupData = [
                             'id' => $group->getId(),
-                            'name' => $group->getDisplayName() ?? 'N/A',
-                            'description' => $group->getDescription() ?? 'N/A',
-                            'email' => $group->getMail() ?? 'N/A',
+                            'name' => $displayName,
+                            'description' => $description,
+                            'email' => $email,
                             'group_types' => $group->getGroupTypes() ?? [],
                             'bridge_type' => 'outlook'
                         ];
@@ -669,12 +688,34 @@ class OutlookBridge extends AbstractCalendarBridge
 
             } while ($nextLink);
 
-            $this->logger->info('Retrieved available groups from Outlook', [
-                'bridge' => 'outlook',
-                'group_count' => count($allGroups)
-            ]);
+            // Apply pagination if specified
+            $totalCount = count($allGroups);
+            if ($limit > 0) {
+                $allGroups = array_slice($allGroups, $offset, $limit);
+            } elseif ($offset > 0) {
+                $allGroups = array_slice($allGroups, $offset);
+            }
 
-            return $allGroups;
+            $logData = [
+                'bridge' => 'outlook',
+                'total_group_count' => $totalCount,
+                'returned_group_count' => count($allGroups)
+            ];
+            
+            if ($nameFilter !== null) {
+                $logData['name_filter'] = $nameFilter;
+            }
+            
+            $this->logger->info('Retrieved available groups from Outlook', $logData);
+
+            // Return groups with metadata for consistency
+            return [
+                'resources' => $allGroups,
+                'metadata' => [
+                    'total_records' => $totalCount,
+                    'filtered_count' => count($allGroups)
+                ]
+            ];
             
         } catch (\Exception $e) {
             $this->logger->error('Failed to get available groups from Outlook', [

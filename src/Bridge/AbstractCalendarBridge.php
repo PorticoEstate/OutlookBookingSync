@@ -41,7 +41,15 @@ abstract class AbstractCalendarBridge
      * @return array
      */
     abstract public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array;
-    abstract public function getAvailableGroups(): array;
+    /**
+     * Get available groups/collections
+     * 
+     * @param string|null $nameFilter Filter groups by name
+     * @param int $limit Maximum number of groups to return (0 = no limit)
+     * @param int $offset Number of groups to skip
+     * @return array
+     */
+    abstract public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array;
     abstract public function getUserCalendarItems($userId, $startDate = null, $endDate = null): array;
     
     // Optional methods with default implementations

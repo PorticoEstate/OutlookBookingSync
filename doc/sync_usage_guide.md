@@ -174,6 +174,50 @@ curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
 - `pagination.returned_count` - Same as `count` 
 - `pagination.total_records` - Total records available for pagination calculations
 
+#### Get Available Groups with Filtering and Pagination
+```bash
+# Get all groups
+curl -X GET "http://your-bridge/bridges/outlook/available-groups"
+
+# Filter groups by name (searches display name, description, email)
+curl -X GET "http://your-bridge/bridges/outlook/available-groups?query=meeting"
+
+# Get first 5 groups
+curl -X GET "http://your-bridge/bridges/outlook/available-groups?limit=5"
+
+# Get groups 6-10 (skip first 5, return next 5)
+curl -X GET "http://your-bridge/bridges/outlook/available-groups?limit=5&offset=5"
+
+# Combine filtering and pagination
+curl -X GET "http://your-bridge/bridges/outlook/available-groups?query=team&limit=10&offset=0"
+```
+
+**Groups Response Example:**
+```json
+{
+  "success": true,
+  "bridge": "outlook",
+  "groups": [
+    {
+      "id": "12345678-1234-1234-1234-123456789abc",
+      "name": "Meeting Rooms Team",
+      "description": "Group for managing meeting rooms",
+      "email": "meetingrooms@company.com",
+      "group_types": ["Unified"],
+      "bridge_type": "outlook"
+    }
+  ],
+  "count": 1,
+  "total_records": 25,
+  "pagination": {
+    "limit": 5,
+    "offset": 0,
+    "returned_count": 1,
+    "total_records": 25
+  }
+}
+```
+
 ### 2. Resource Mapping Management
 
 #### Create Resource Mapping
