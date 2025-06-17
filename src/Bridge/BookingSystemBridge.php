@@ -583,15 +583,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
         try {
             $endpoint = $this->getEndpointConfig('list_resources', [
                 'method' => 'GET',
-                'url' => '/bookingfrontend/resources',
-                'response_mapping' => [
-                    'id' => 'id',
-                    'name' => 'name',
-                    'active' => 'active'
-                ]
+                'url' => '/bookingfrontend/resources'
             ]);
-            
-            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url']);
+
+            $params = ['results' => -1]; // Default to 100 resources
+            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url'], $params);
             
             $resources = [];
             $dataKey = $endpoint['response_data_key'] ?? 'results';
