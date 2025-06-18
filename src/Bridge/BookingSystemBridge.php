@@ -35,14 +35,16 @@ use App\Bridge\AbstractCalendarBridge;
 class BookingSystemBridge extends AbstractCalendarBridge
 {
     private $apiBaseUrl;
-    private $apiKey;
+    private $systemLogin;
+    private $systemPassword;
+    private $systemDomain;
     private $apiEndpoints;
     private $fieldMappings;
     private $authConfig;
 
     protected function validateConfig()
     {
-        $required = ['api_base_url'];
+        $required = ['api_base_url', 'system_login', 'system_password', 'system_domain'];
 
         foreach ($required as $key)
         {
@@ -53,7 +55,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
 
         $this->apiBaseUrl = rtrim($this->config['api_base_url'], '/');
-        $this->apiKey = $this->config['api_key'] ?? null;
+        $this->systemLogin = $this->config['system_login'] ?? null;
+        $this->systemPassword = $this->config['system_password'] ?? null;
+        $this->systemDomain = $this->config['system_domain'] ?? null;
 
         // Load configurable API mappings or use defaults
         $this->apiEndpoints = $this->config['api_endpoints'] ?? $this->getDefaultApiEndpoints();

@@ -267,7 +267,9 @@ $container->set('bridgeManager', function () use ($container)
     // Register Booking System bridge
     $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
         'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
-        'api_key' => $_ENV['BOOKING_SYSTEM_API_KEY'] ?? null,
+        'system_login' => $_ENV['BOOKING_SYSTEM_LOGIN'] ?? null,
+        'system_password' => $_ENV['BOOKING_SYSTEM_PASSWORD'] ?? null,
+        'system_domain' => $_ENV['BOOKING_SYSTEM_DOMAIN'] ?? null,
         'throw_on_api_failure' => $_ENV['BOOKING_SYSTEM_THROW_ON_FAILURE'] ?? true
     ]);
 
