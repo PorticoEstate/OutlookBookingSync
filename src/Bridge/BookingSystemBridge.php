@@ -41,6 +41,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private $apiEndpoints;
     private $fieldMappings;
     private $authConfig;
+    private $sessionInfo = [];
+    private $sessionTimeout = 1800; // 30 minutes
+    private $debug = false;
 
     protected function validateConfig()
     {
@@ -58,11 +61,169 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->systemLogin = $this->config['system_login'] ?? null;
         $this->systemPassword = $this->config['system_password'] ?? null;
         $this->systemDomain = $this->config['system_domain'] ?? null;
+        $this->debug = $this->config['debug'] ?? false;
 
         // Load configurable API mappings or use defaults
         $this->apiEndpoints = $this->config['api_endpoints'] ?? $this->getDefaultApiEndpoints();
         $this->fieldMappings = $this->config['field_mappings'] ?? $this->getDefaultFieldMappings();
         $this->authConfig = $this->config['auth'] ?? $this->getDefaultAuthConfig();
+
+        // Initialize session
+        $this->initializeSession();
+    }
+
+    /**
+     * Initialize session - login or refresh existing session
+     */
+    private function initializeSession()
+    {
+        try
+        {
+            // Check if we have cached session info and if it's still valid
+            if ($this->isSessionValid())
+            {
+                if ($this->debug ?? false)
+                {
+                    error_log("BookingSystemBridge: Using existing valid session");
+                }
+                return;
+            }
+
+            // Try to refresh session first, if that fails, perform login
+            if (!$this->refreshSession())
+            {
+                if ($this->debug ?? false)
+                {
+                    error_log("BookingSystemBridge: Session refresh failed, performing new login");
+                }
+                $this->performLogin();
+            }
+            else if ($this->debug ?? false)
+            {
+                error_log("BookingSystemBridge: Session refreshed successfully");
+            }
+        }
+        catch (\Exception $e)
+        {
+            throw new \Exception("Failed to initialize session: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Check if current session is valid (not expired)
+     */
+    private function isSessionValid(): bool
+    {
+        if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
+        {
+            return false;
+        }
+
+        // Check if session has expired
+        $lastActivity = $this->sessionInfo['last_activity'] ?? 0;
+        $isValid = (time() - $lastActivity) < $this->sessionTimeout;
+        
+        if ($this->debug ?? false)
+        {
+            error_log("BookingSystemBridge: Session valid check: " . ($isValid ? 'valid' : 'expired'));
+        }
+        
+        return $isValid;
+    }
+
+    /**
+     * Perform login to get session information
+     */
+    private function performLogin()
+    {
+        if ($this->debug ?? false)
+        {
+            error_log("BookingSystemBridge: Attempting login for user: " . $this->systemLogin);
+        }
+
+        $url = $this->apiBaseUrl . '/login';
+        $postData = [
+            'logindomain' => $this->systemDomain,
+            'login' => $this->systemLogin,
+            'passwd' => $this->systemPassword
+        ];
+
+        $response = $this->makeHttpRequest('POST', $url, [], $postData);
+        
+        if (!$response)
+        {
+            throw new \Exception("Login to booking system failed - empty response");
+        }
+
+        $this->sessionInfo = is_array($response) ? $response : json_decode($response, true);
+        if (!$this->sessionInfo || !isset($this->sessionInfo['session_id']))
+        {
+            throw new \Exception("Invalid login response from booking system: " . print_r($response, true));
+        }
+
+        $this->sessionInfo['last_activity'] = time();
+        
+        if ($this->debug ?? false)
+        {
+            error_log("BookingSystemBridge: Login successful, session ID: " . substr($this->sessionInfo['session_id'], 0, 8) . "...");
+        }
+    }
+
+    /**
+     * Refresh existing session
+     */
+    private function refreshSession(): bool
+    {
+        if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_name']) || !isset($this->sessionInfo['session_id']))
+        {
+            return false;
+        }
+
+        $url = $this->apiBaseUrl . '/refreshsession/?' . http_build_query([
+            $this->sessionInfo['session_name'] => $this->sessionInfo['session_id'],
+            'domain' => $this->systemDomain,
+            'api_mode' => true,
+        ]);
+
+        try
+        {
+            $response = $this->makeHttpRequest('GET', $url);
+            $this->sessionInfo['last_activity'] = time();
+            
+            if ($this->debug ?? false)
+            {
+                error_log("BookingSystemBridge: Session refresh successful");
+            }
+            
+            return true;
+        }
+        catch (\Exception $e)
+        {
+            // Refresh failed, will need to login again
+            if ($this->debug ?? false)
+            {
+                error_log("BookingSystemBridge: Session refresh failed: " . $e->getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Get session parameters to include in API requests
+     */
+    private function getSessionParams(): array
+    {
+        if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
+        {
+            return [];
+        }
+
+        return [
+            $this->sessionInfo['session_name'] => $this->sessionInfo['session_id'],
+            'domain' => $this->systemDomain,
+            'phpgw_return_as' => 'json',
+            'api_mode' => true
+        ];
     }
 
     /**
@@ -122,14 +283,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
 
     /**
-     * Default authentication configuration
+     * Default authentication configuration - now session-based
      */
     private function getDefaultAuthConfig(): array
     {
         return [
-            'type' => 'bearer',  // 'bearer', 'basic', 'api_key', 'header'
-            'header' => 'Authorization',
-            'prefix' => 'Bearer '
+            'type' => 'session',  // session-based authentication
+            'session_timeout' => 1800  // 30 minutes
         ];
     }
 
@@ -297,7 +457,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             }
         }
 
-        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, $params);
+        $response = $this->makeApiRequest($endpoint['method'], $url, $params);
 
         $events = $response['events'] ?? $response['data'] ?? $response;
         if (!is_array($events))
@@ -315,7 +475,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $mappedEvent = $this->mapGenericEventToBooking($event);
 
-        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, [], $mappedEvent);
+        $response = $this->makeApiRequest($endpoint['method'], $url, [], $mappedEvent);
 
         return $response['event_id'] ?? $response['id'] ?? uniqid('event_');
     }
@@ -330,7 +490,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $mappedEvent = $this->mapGenericEventToBooking($event);
 
-        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url, [], $mappedEvent);
+        $response = $this->makeApiRequest($endpoint['method'], $url, [], $mappedEvent);
 
         return $response['success'] ?? true;
     }
@@ -343,7 +503,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'event_id' => $eventId
         ]);
 
-        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url);
+        $response = $this->makeApiRequest($endpoint['method'], $url);
 
         return $response['success'] ?? true;
     }
@@ -353,7 +513,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $endpoint = $this->apiEndpoints['list_resources'];
         $url = $this->buildUrl($endpoint['url']);
 
-        $response = $this->makeConfigurableApiRequest($endpoint['method'], $url);
+        $response = $this->makeApiRequest($endpoint['method'], $url);
 
         $resources = $response['resources'] ?? $response['data'] ?? $response;
         if (!is_array($resources))
@@ -390,75 +550,91 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
 
     /**
-     * Make API request with configurable authentication
+     * Make HTTP request using cURL (similar to ApiClient.php)
      */
-    private function makeConfigurableApiRequest($method, $url, $params = [], $data = [])
+    private function makeHttpRequest($method, $url, $params = [], $data = [])
     {
-        // Ensure URL includes the base URL if it's a relative path
-        if (!filter_var($url, FILTER_VALIDATE_URL))
+        // Ensure we have valid session before making requests (except for login)
+        if (!str_contains($url, '/login') && !str_contains($url, '/refreshsession'))
         {
-            $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($url, '/');
+            if (!$this->isSessionValid() && !$this->refreshSession())
+            {
+                $this->performLogin();
+            }
         }
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json'
         ];
 
-        // Add authentication based on configuration
-        if ($this->apiKey)
+        // For non-login requests, add session parameters
+        if (!str_contains($url, '/login') && !str_contains($url, '/refreshsession'))
         {
-            switch ($this->authConfig['type'])
-            {
-                case 'bearer':
-                    $headers[] = $this->authConfig['header'] . ': ' . $this->authConfig['prefix'] . $this->apiKey;
-                    break;
-                case 'api_key':
-                    $headers[] = 'X-API-Key: ' . $this->apiKey;
-                    break;
-                case 'header':
-                    $headerName = $this->authConfig['header'] ?? 'Authorization';
-                    $headers[] = $headerName . ': ' . $this->apiKey;
-                    break;
-                case 'basic':
-                    $headers[] = 'Authorization: Basic ' . base64_encode($this->apiKey);
-                    break;
-            }
+            $sessionParams = $this->getSessionParams();
+            $params = array_merge($params, $sessionParams);
         }
 
         if ($method === 'GET' && !empty($params))
         {
-            $url .= '?' . http_build_query($params);
+            $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($params);
+            curl_setopt($ch, CURLOPT_URL, $url);
         }
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => $method,
-                'header' => implode("\r\n", $headers),
-                'content' => !empty($data) ? json_encode($data) : null,
-                'timeout' => 30
-            ]
-        ]);
-
-        $response = file_get_contents($url, false, $context);
-
-        if ($response === false)
+        else if ($method === 'POST')
         {
-            throw new \Exception("API request failed: {$method} {$url}");
+            curl_setopt($ch, CURLOPT_POST, true);
+            if (!empty($data))
+            {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            }
+            else if (!empty($params))
+            {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+            }
         }
-
-        $decoded = json_decode($response, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE)
+        else if (in_array($method, ['PUT', 'DELETE', 'PATCH']))
         {
-            throw new \Exception("Invalid JSON response from booking system API");
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+            if (!empty($data))
+            {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            }
         }
 
-        return $decoded;
+        if (!empty($headers))
+        {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+
+        $result = curl_exec($ch);
+
+        if (curl_errno($ch))
+        {
+            $error = curl_error($ch);
+            curl_close($ch);
+            throw new \Exception('HTTP request failed: ' . $error);
+        }
+
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode >= 400)
+        {
+            throw new \Exception("HTTP request failed with status {$httpCode}: " . $result);
+        }
+
+        return $result;
     }
 
     /**
-     * Make API request to booking system
+     * Make API request to booking system with session authentication
      */
     private function makeApiRequest($method, $url, $params = [], $data = [])
     {
@@ -468,42 +644,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($url, '/');
         }
 
-        $headers = [
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ];
-
-        if ($this->apiKey)
-        {
-            $headers[] = 'Authorization: Bearer ' . $this->apiKey;
-        }
-
-        if ($method === 'GET' && !empty($params))
-        {
-            $url .= '?' . http_build_query($params);
-        }
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => $method,
-                'header' => implode("\r\n", $headers),
-                'content' => !empty($data) ? json_encode($data) : null,
-                'timeout' => 30
-            ]
-        ]);
-
-        $response = file_get_contents($url, false, $context);
+        $response = $this->makeHttpRequest($method, $url, $params, $data);
 
         if ($response === false)
         {
             throw new \Exception("API request failed: {$method} {$url}");
         }
 
+        // For login/refresh, return raw response
+        if (str_contains($url, '/login') || str_contains($url, '/refreshsession'))
+        {
+            return $response;
+        }
+
+        // For other requests, decode JSON
         $decoded = json_decode($response, true);
 
         if (json_last_error() !== JSON_ERROR_NONE)
         {
-            throw new \Exception("Invalid JSON response from booking system API");
+            throw new \Exception("Invalid JSON response from booking system API: " . $response);
         }
 
         return $decoded;

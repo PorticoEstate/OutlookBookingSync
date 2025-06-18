@@ -141,9 +141,12 @@ OUTLOOK_CLIENT_SECRET=your_client_secret
 OUTLOOK_TENANT_ID=your_tenant_id
 OUTLOOK_GROUP_ID=your_group_id
 
-# Booking System API
+# Booking System API (Session-based authentication)
 BOOKING_SYSTEM_API_URL=http://your-booking-system/api
-BOOKING_SYSTEM_API_KEY=your_api_key
+BOOKING_SYSTEM_LOGIN=your_username
+BOOKING_SYSTEM_PASSWORD=your_password
+BOOKING_SYSTEM_DOMAIN=your_domain
+BOOKING_SYSTEM_THROW_ON_FAILURE=true
 ```
 
 The bridges will be automatically available once the service starts.
