@@ -465,7 +465,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
             return [];
         }
 
-        return array_map([$this, 'mapBookingEventToGeneric'], $events);
+        // Filter overlapping reservations by priority (Event > Booking > Allocation)
+        $filteredEvents = $this->filterReservationsByPriority($events);
+        
+        return array_map([$this, 'mapBookingEventToGeneric'], $filteredEvents);
     }
 
     private function createEventViaApi($resourceId, $event): string
@@ -709,6 +712,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function mapBookingEventToGeneric($bookingEvent): array
     {
+
+
+
         $mappings = $this->fieldMappings['from_booking_system'];
         $genericEvent = [];
 
@@ -1113,6 +1119,158 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'last_modified' => $mappedEvent['last_modified'] ?? $event['modified_at'] ?? $event['updated_at'] ?? date('c'),
             'created' => $mappedEvent['created'] ?? $event['created_at'] ?? date('c'),
             'raw_data' => $event
+        ];
+    }
+
+    /**
+     * Filter overlapping reservations by priority (Event > Booking > Allocation)
+     * Only the highest priority reservation remains for each time slot
+     */
+    private function filterReservationsByPriority($reservations): array
+    {
+        if (empty($reservations) || !is_array($reservations)) {
+            return [];
+        }
+
+        // Define priority levels (lower number = higher priority)
+        $priorities = [
+            'event' => 1,
+            'booking' => 2, 
+            'allocation' => 3
+        ];
+
+        // Parse and prepare reservations with normalized data
+        $parsed = [];
+        foreach ($reservations as $reservation) {
+            $type = strtolower($reservation['type'] ?? 'unknown');
+            $resourceId = $this->getReservationResourceId($reservation);
+            $timeData = $this->getReservationTimeData($reservation);
+            
+            if (!$resourceId || !$timeData) {
+                continue; // Skip invalid reservations
+            }
+            
+            $parsed[] = [
+                'reservation' => $reservation,
+                'type' => $type,
+                'priority' => $priorities[$type] ?? 99,
+                'resource_id' => $resourceId,
+                'start_timestamp' => $timeData['start_timestamp'],
+                'end_timestamp' => $timeData['end_timestamp']
+            ];
+        }
+
+        // Group by resource
+        $byResource = [];
+        foreach ($parsed as $item) {
+            $byResource[$item['resource_id']][] = $item;
+        }
+
+        $filtered = [];
+        
+        // Process each resource separately
+        foreach ($byResource as $resourceReservations) {
+            $filtered = array_merge($filtered, $this->filterOverlappingReservations($resourceReservations));
+        }
+
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Filtered " . count($reservations) . " reservations down to " . count($filtered) . " after priority filtering");
+        }
+
+        return array_map(function($item) { return $item['reservation']; }, $filtered);
+    }
+
+    /**
+     * Filter overlapping reservations for a single resource
+     */
+    private function filterOverlappingReservations($reservations): array
+    {
+        // Sort by start time, then by priority
+        usort($reservations, function($a, $b) {
+            $timeCompare = $a['start_timestamp'] <=> $b['start_timestamp'];
+            return $timeCompare !== 0 ? $timeCompare : $a['priority'] <=> $b['priority'];
+        });
+
+        $result = [];
+        
+        foreach ($reservations as $current) {
+            $shouldAdd = true;
+            
+            // Check if this reservation overlaps with any higher priority reservation already added
+            foreach ($result as $existing) {
+                if ($this->reservationsOverlap($current, $existing)) {
+                    if ($current['priority'] > $existing['priority']) {
+                        // Current has lower priority, skip it
+                        $shouldAdd = false;
+                        break;
+                    } else if ($current['priority'] < $existing['priority']) {
+                        // Current has higher priority, remove the existing one
+                        $result = array_filter($result, function($item) use ($existing) {
+                            return $item !== $existing;
+                        });
+                    }
+                    // If same priority, keep the first one (already sorted by time)
+                }
+            }
+            
+            if ($shouldAdd) {
+                $result[] = $current;
+            }
+        }
+
+        return array_values($result);
+    }
+
+    /**
+     * Check if two reservations overlap in time
+     */
+    private function reservationsOverlap($res1, $res2): bool
+    {
+        return $res1['start_timestamp'] < $res2['end_timestamp'] && 
+               $res2['start_timestamp'] < $res1['end_timestamp'];
+    }
+
+    /**
+     * Extract resource ID from reservation for grouping
+     */
+    private function getReservationResourceId($reservation): ?string
+    {
+        // Try multiple possible fields for resource identification
+        if (isset($reservation['resources']) && is_array($reservation['resources']) && !empty($reservation['resources'])) {
+            return (string)$reservation['resources'][0]['id'];
+        }
+        
+        if (isset($reservation['resource_id'])) {
+            return (string)$reservation['resource_id'];
+        }
+        
+        return null;
+    }
+
+    /**
+     * Get reservation time data with timestamps for overlap detection
+     */
+    private function getReservationTimeData($reservation): ?array
+    {
+        $start = $reservation['from_'] ?? $reservation['start_time'] ?? $reservation['start'] ?? null;
+        $end = $reservation['to_'] ?? $reservation['end_time'] ?? $reservation['end'] ?? null;
+        
+        if (!$start || !$end) {
+            return null;
+        }
+
+        $startTimestamp = strtotime($start);
+        $endTimestamp = strtotime($end);
+        
+        if ($startTimestamp === false || $endTimestamp === false) {
+            return null;
+        }
+
+        return [
+            'start_timestamp' => $startTimestamp,
+            'end_timestamp' => $endTimestamp,
+            'start_iso' => date('Y-m-d\TH:i:s', $startTimestamp),
+            'end_iso' => date('Y-m-d\TH:i:s', $endTimestamp)
         ];
     }
 }
