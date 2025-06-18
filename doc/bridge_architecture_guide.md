@@ -37,10 +37,41 @@ The Generic Calendar Bridge Service is a production-ready, extensible platform t
 ### **Database Schema**
 
 The bridge system uses these core tables:
-- `bridge_mappings`: Event synchronization relationships
+- `bridge_mappings`: Event synchronization relationships with composite ID support
 - `bridge_resource_mappings`: Calendar resource mappings
 - `bridge_sync_logs`: Audit trail and monitoring
 - `bridge_queue`: Asynchronous operation processing
+
+### **Composite ID System**
+
+The bridge system implements a **composite ID system** for universal event identification:
+
+- **Format**: `{type}_{original_id}` (e.g., `event_78269`, `booking_123`, `allocation_456`)
+- **Purpose**: Enables correct mapping and addressing across different calendar systems
+- **Bidirectional Support**: Works seamlessly in both sync directions
+- **Type Safety**: Preserves original event type and ID for accurate API calls
+
+**Supported Event Types:**
+- `event_` - Standard calendar events
+- `booking_` - Booking system reservations
+- `allocation_` - Resource allocation entries
+- `meeting_` - Meeting room bookings
+- `appointment_` - Appointment entries
+
+### **Priority Filtering System**
+
+The bridge implements **intelligent priority filtering** for overlapping reservations:
+
+**Priority Hierarchy (Highest to Lowest):**
+1. **Event** - Standard calendar events (highest priority)
+2. **Booking** - Booking system reservations
+3. **Allocation** - Resource allocation entries (lowest priority)
+
+**Conflict Resolution:**
+- When multiple reservations overlap the same time slot and resource
+- System automatically selects the highest priority event for synchronization
+- Lower priority events are logged but not synced to prevent conflicts
+- Detailed conflict resolution logging for audit purposes
 
 ---
 
@@ -49,27 +80,63 @@ The bridge system uses these core tables:
 ### **Booking System → Outlook Flow**
 
 1. **Detection**: Booking system events detected via API polling or webhooks
-2. **Bridge Processing**: `BookingSystemBridge` fetches events via REST API
-3. **Event Mapping**: Generic event format converted to Outlook format
-4. **Sync Operation**: `OutlookBridge` creates/updates events via Microsoft Graph
-5. **Mapping Storage**: Relationship stored in `bridge_mappings` table
+2. **Composite ID Processing**: Events assigned composite IDs (e.g., `event_78269`, `booking_123`)
+3. **Priority Filtering**: Overlapping events filtered by priority hierarchy
+4. **Bridge Processing**: `BookingSystemBridge` fetches filtered events via REST API
+5. **Event Mapping**: Generic event format converted to Outlook format
+6. **Sync Operation**: `OutlookBridge` creates/updates events via Microsoft Graph
+7. **Mapping Storage**: Relationship stored in `bridge_mappings` with composite IDs
 
 ### **Outlook → Booking System Flow**
 
 1. **Detection**: Outlook changes detected via webhooks or polling
 2. **Bridge Processing**: `OutlookBridge` fetches events via Microsoft Graph
 3. **Event Mapping**: Outlook format converted to generic event format
-4. **Sync Operation**: `BookingSystemBridge` creates/updates events via REST API
-5. **Mapping Storage**: Relationship stored in `bridge_mappings` table
+4. **Composite ID Resolution**: Target composite ID extracted for proper addressing
+5. **Sync Operation**: `BookingSystemBridge` creates/updates events using original ID and type
+6. **Mapping Storage**: Relationship stored in `bridge_mappings` with composite IDs
+
+### **Composite ID Sync Examples**
+
+**Example 1: Event Creation**
+```
+Booking System Event: ID=78269, Type=event
+Composite ID: event_78269
+Outlook Event: Created with bridge mapping
+Bridge Mapping: source_id="event_78269", target_id="AAMkAGU..."
+```
+
+**Example 2: Bidirectional Update**
+```
+Outlook Update: Event "AAMkAGU..." modified
+Mapping Lookup: target_id="AAMkAGU..." → source_id="event_78269"
+ID Resolution: "event_78269" → type="event", id="78269"
+Booking System Update: Updates event ID 78269 using correct API endpoint
+```
+
+### **Priority Filtering in Action**
+
+**Scenario: Overlapping Reservations**
+```
+Resource: Conference Room A
+Time Slot: 2024-06-18 14:00-15:00
+
+Available Events:
+- allocation_456 (Priority: 3)
+- booking_123 (Priority: 2)  
+- event_78269 (Priority: 1) ← Selected for sync
+
+Result: Only event_78269 synced to Outlook, others logged as conflicts
+```
 
 ### **Deletion/Cancellation Sync**
 
-The system provides robust deletion handling in both directions:
+The system provides robust deletion handling in both directions with composite ID tracking:
 
-- **Outlook Deletions**: Detected via webhooks, synced to booking system as inactive events
-- **Booking System Cancellations**: Detected via polling, synced to Outlook as deletions
+- **Outlook Deletions**: Detected via webhooks, mapped back to original composite ID
+- **Booking System Cancellations**: Detected via polling, composite ID used for Outlook cleanup
 - **Queue Processing**: `DeletionSyncService` handles asynchronous deletion operations
-- **Cleanup**: Bridge mappings removed after successful deletion sync
+- **Mapping Cleanup**: Bridge mappings removed using composite ID relationships
 
 ---
 

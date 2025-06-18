@@ -122,6 +122,94 @@ curl -X POST http://localhost:8082/bridges/sync-deletions
 # and automatically mark the corresponding booking system event as inactive
 ```
 
+## 🆕 Advanced Features
+
+### **Composite ID System**
+Universal event identification across different calendar systems:
+- **Format**: `{type}_{original_id}` (e.g., `event_78269`, `booking_123`)
+- **Bidirectional Support**: Works seamlessly in both sync directions
+- **Type Safety**: Preserves original event type and ID for accurate API calls
+- **Universal Mapping**: Enables correct addressing across any calendar system
+
+**Supported Event Types:**
+- `event_` - Standard calendar events (Priority: 1 - Highest)
+- `booking_` - Booking system reservations (Priority: 2)
+- `allocation_` - Resource allocation entries (Priority: 3 - Lowest)
+- `meeting_` - Meeting room bookings (Priority: 2)
+- `appointment_` - Appointment entries (Priority: 2)
+
+### **Priority Filtering System**
+Intelligent conflict resolution for overlapping reservations:
+- **Automatic Priority Resolution**: Handles multiple events in the same time slot
+- **Configurable Hierarchy**: Event > Booking > Allocation priority levels
+- **Conflict Logging**: Detailed audit trail of all filtering decisions
+- **Performance Optimized**: Minimal overhead with efficient filtering algorithms
+
+### **Session-Based Authentication**
+Enterprise-grade authentication for booking system integrations:
+- **Login Flow**: Secure session establishment with username/password
+- **Session Management**: Automatic token refresh and session maintenance
+- **API Security**: Session tokens used for all API communications
+- **Fallback Support**: Graceful handling of session expiration
+
+## 🔧 Core Bridge Operations
+
+### **Resource Discovery**
+```bash
+# Discover available calendar resources
+curl -X GET "http://localhost:8082/bridges/outlook/available-resources?query=conference&limit=10"
+
+# Get calendar groups
+curl -X GET "http://localhost:8082/bridges/outlook/available-groups?query=meeting&limit=5"
+```
+
+### **Event Synchronization with Composite IDs**
+```bash
+# Sync events between systems (automatic composite ID handling)
+curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_calendar_id": "room_123",
+    "target_calendar_id": "conference-room-a@company.com",
+    "apply_priority_filter": true
+  }'
+
+# Response includes composite ID information
+{
+  "success": true,
+  "synced_events": [
+    {
+      "composite_id": "event_78269",
+      "priority": 1,
+      "status": "synced"
+    }
+  ],
+  "filtered_events": [
+    {
+      "composite_id": "booking_123",
+      "priority": 2,
+      "status": "filtered_due_to_priority"
+    }
+  ]
+}
+```
+
+### **Resource Mapping Management**
+```bash
+# Create resource mapping
+curl -X POST "http://localhost:8082/mappings/resources" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bridge_from": "booking_system",
+    "bridge_to": "outlook",
+    "resource_id": "room_123", 
+    "calendar_id": "conference-room-a@company.com"
+  }'
+
+# Delete mapping by composite key
+curl -X DELETE "http://localhost:8082/mappings/resources/by-key/booking_system/room_123/conference-room-a@company.com"
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables

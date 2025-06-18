@@ -228,3 +228,192 @@ services:
 - Alerts: Configurable retention (default 7 days)
 - Health data: Real-time only, not stored
 - Dashboard: No persistent storage
+
+## Composite ID System Monitoring
+
+The monitoring system provides comprehensive tracking of the composite ID system and priority filtering operations.
+
+### Composite ID Metrics
+
+#### Database Schema Monitoring
+The bridge system maintains detailed tracking of composite ID usage:
+
+```sql
+-- Bridge mappings with composite ID information
+SELECT 
+    source_bridge,
+    target_bridge,
+    COUNT(*) as total_mappings,
+    COUNT(CASE WHEN source_id LIKE '%\_[0-9]%' THEN 1 END) as composite_id_mappings,
+    COUNT(CASE WHEN source_id LIKE 'event\_%' THEN 1 END) as event_mappings,
+    COUNT(CASE WHEN source_id LIKE 'booking\_%' THEN 1 END) as booking_mappings,
+    COUNT(CASE WHEN source_id LIKE 'allocation\_%' THEN 1 END) as allocation_mappings
+FROM bridge_mappings 
+GROUP BY source_bridge, target_bridge;
+
+-- Priority filtering statistics
+SELECT 
+    DATE(created_at) as sync_date,
+    COUNT(*) as total_sync_operations,
+    COUNT(CASE WHEN operation_data->>'priority_filtered' = 'true' THEN 1 END) as priority_filtered_operations,
+    AVG((operation_data->>'conflicts_resolved')::int) as avg_conflicts_per_sync
+FROM bridge_sync_logs 
+WHERE operation = 'sync' 
+AND created_at >= NOW() - INTERVAL '7 days'
+GROUP BY DATE(created_at)
+ORDER BY sync_date DESC;
+```
+
+#### Composite ID Health Endpoints
+
+```bash
+# Get composite ID system statistics
+curl -X GET "http://your-bridge/health/composite-ids"
+
+# Response includes detailed breakdown
+{
+  "success": true,
+  "composite_id_stats": {
+    "total_mappings": 1245,
+    "composite_id_mappings": 1198,
+    "breakdown_by_type": {
+      "event": 789,
+      "booking": 312,
+      "allocation": 97,
+      "meeting": 43,
+      "appointment": 4
+    },
+    "health_status": "healthy",
+    "malformed_ids": 0,
+    "last_updated": "2025-06-18T14:30:00Z"
+  }
+}
+
+# Get priority filtering statistics
+curl -X GET "http://your-bridge/health/priority-filtering"
+
+# Response includes filtering effectiveness
+{
+  "success": true,
+  "priority_filtering_stats": {
+    "total_sync_operations_24h": 48,
+    "operations_with_conflicts": 12,
+    "conflicts_resolved": 37,
+    "filtering_effectiveness": "92.5%",
+    "priority_breakdown": {
+      "priority_1_selected": 25,
+      "priority_2_selected": 8,
+      "priority_3_selected": 3
+    },
+    "most_common_conflicts": [
+      {
+        "conflict_type": "event_vs_booking",
+        "occurrences": 15,
+        "resolution": "event_selected"
+      },
+      {
+        "conflict_type": "booking_vs_allocation", 
+        "occurrences": 8,
+        "resolution": "booking_selected"
+      }
+    ]
+  }
+}
+```
+
+### Priority Filtering Monitoring
+
+#### Real-time Conflict Tracking
+The monitoring system tracks priority filtering operations in real-time:
+
+```bash
+# Get current priority conflicts
+curl -X GET "http://your-bridge/monitoring/priority-conflicts"
+
+# Response shows active conflicts
+{
+  "success": true,
+  "active_conflicts": [
+    {
+      "resource_id": "room_123",
+      "time_slot": "2025-06-18T14:00:00Z to 2025-06-18T15:00:00Z",
+      "conflicting_events": [
+        {
+          "composite_id": "event_78269",
+          "priority": 1,
+          "status": "selected_for_sync"
+        },
+        {
+          "composite_id": "booking_456",
+          "priority": 2,
+          "status": "filtered_out"
+        }
+      ],
+      "resolution_time": "2025-06-18T13:45:22Z"
+    }
+  ],
+  "conflict_summary": {
+    "total_conflicts_today": 5,
+    "resolved_conflicts": 5,
+    "pending_conflicts": 0
+  }
+}
+
+# Get priority filtering performance metrics
+curl -X GET "http://your-bridge/monitoring/filtering-performance"
+
+# Response includes performance data
+{
+  "success": true,
+  "performance_metrics": {
+    "avg_filtering_time_ms": 12.3,
+    "max_filtering_time_ms": 45.6,
+    "filtering_operations_per_hour": 127,
+    "efficiency_rating": "excellent",
+    "resource_usage": {
+      "cpu_overhead": "0.2%",
+      "memory_overhead": "1.1MB"
+    }
+  }
+}
+```
+
+#### Alert System Integration
+The monitoring system includes specialized alerts for composite ID and priority filtering issues:
+
+##### Composite ID Alerts
+- **malformed_composite_ids**: Detects invalid composite ID formats (Critical)
+- **composite_id_mapping_failures**: ID resolution failures (Warning)
+- **orphaned_composite_mappings**: Mappings without valid composite IDs (Warning)
+
+##### Priority Filtering Alerts  
+- **excessive_conflicts**: >50% of sync operations have conflicts (Warning)
+- **priority_filtering_failures**: Filter logic errors (Critical)
+- **unresolved_conflicts**: Conflicts pending >1 hour (Warning)
+
+```bash
+# Trigger composite ID health check
+curl -X POST "http://your-bridge/alerts/check-composite-ids"
+
+# Trigger priority filtering health check  
+curl -X POST "http://your-bridge/alerts/check-priority-filtering"
+
+# Response includes alert details
+{
+  "success": true,
+  "alerts_generated": [
+    {
+      "alert_type": "excessive_conflicts",
+      "severity": "warning", 
+      "message": "High conflict rate detected: 65% of sync operations had priority conflicts",
+      "data": {
+        "conflict_rate": 65.2,
+        "operations_checked": 46,
+        "conflicts_found": 30
+      }
+    }
+  ]
+}
+```
+
+## Database Tables

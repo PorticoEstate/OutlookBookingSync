@@ -84,6 +84,206 @@ Your app registration needs these Graph API permissions:
 - `User.Read.All` - Read user information for calendar access
 - `Places.Read.All` - Read room/resource information
 
+## Composite ID System
+
+The bridge system implements a **composite ID system** for universal event identification and mapping across different calendar systems.
+
+### **Composite ID Format**
+
+All events in the bridge system use composite IDs in the format: `{type}_{original_id}`
+
+**Supported Event Types:**
+- `event_` - Standard calendar events (Priority: 1 - Highest)
+- `booking_` - Booking system reservations (Priority: 2)
+- `allocation_` - Resource allocation entries (Priority: 3 - Lowest)
+- `meeting_` - Meeting room bookings (Priority: 2)
+- `appointment_` - Appointment entries (Priority: 2)
+
+### **Composite ID Examples**
+
+```bash
+# Original booking system events
+Event ID: 78269, Type: event → Composite ID: event_78269
+Booking ID: 123, Type: booking → Composite ID: booking_123
+Allocation ID: 456, Type: allocation → Composite ID: allocation_456
+```
+
+### **Bridge Mapping with Composite IDs**
+
+The `bridge_mappings` table stores relationships using composite IDs:
+
+```sql
+-- Example mapping record
+source_bridge: "booking_system"
+source_id: "event_78269"
+target_bridge: "outlook"
+target_id: "AAMkAGU4NzE5ZGZjLTBhNzUtNDY0OS1iMzMwLTY3..."
+```
+
+### **Bidirectional Sync with Composite IDs**
+
+#### **Booking System → Outlook Sync**
+1. **Event Detection**: Booking system event detected (ID: 78269, Type: event)
+2. **Composite ID Creation**: System creates composite ID `event_78269`
+3. **Outlook Sync**: Event synced to Outlook, gets Graph API ID
+4. **Mapping Storage**: Relationship stored with composite ID
+
+```bash
+# Sync booking system events to Outlook
+curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_calendar_id": "room_123",
+    "target_calendar_id": "conference-room-a@company.com"
+  }'
+```
+
+#### **Outlook → Booking System Sync**
+1. **Outlook Event**: Modified in Outlook (Graph ID: AAMkAGU...)
+2. **Mapping Lookup**: System finds `source_id: "event_78269"`
+3. **ID Resolution**: Extracts type `event` and original ID `78269`
+4. **Booking System Update**: Updates event 78269 using correct API endpoint
+
+```bash
+# Sync Outlook changes back to booking system
+curl -X POST "http://your-bridge/bridges/sync/outlook/booking_system" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_calendar_id": "conference-room-a@company.com",
+    "target_calendar_id": "room_123"
+  }'
+```
+
+## Priority Filtering Implementation
+
+The bridge system implements **intelligent priority filtering** to handle overlapping reservations across different calendar systems.
+
+### **Priority Hierarchy**
+
+When multiple events overlap the same resource and time slot, the system applies this priority order:
+
+1. **Event** (Priority 1) - Standard calendar events - **HIGHEST PRIORITY**
+2. **Booking** (Priority 2) - Booking system reservations
+3. **Meeting** (Priority 2) - Meeting room bookings  
+4. **Appointment** (Priority 2) - Appointment entries
+5. **Allocation** (Priority 3) - Resource allocation entries - **LOWEST PRIORITY**
+
+### **Priority Filtering Logic**
+
+#### **Scenario: Multiple Overlapping Reservations**
+
+```
+Resource: Conference Room A
+Time Slot: 2024-06-18 14:00-15:00
+
+Available Events:
+- allocation_456 (Type: allocation, Priority: 3)
+- booking_123 (Type: booking, Priority: 2)
+- event_78269 (Type: event, Priority: 1) ← SELECTED FOR SYNC
+
+System Action:
+✅ event_78269 → Synced to Outlook
+⚠️ booking_123 → Logged as lower priority conflict
+⚠️ allocation_456 → Logged as lower priority conflict
+```
+
+#### **Priority Filtering API**
+
+The system automatically applies priority filtering during sync operations:
+
+```bash
+# Automatic priority filtering during sync
+curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_calendar_id": "room_123",
+    "target_calendar_id": "conference-room-a@company.com",
+    "apply_priority_filter": true
+  }'
+
+# Response includes priority filtering details
+{
+  "success": true,
+  "synced_events": [
+    {
+      "composite_id": "event_78269",
+      "priority": 1,
+      "status": "synced"
+    }
+  ],
+  "filtered_events": [
+    {
+      "composite_id": "booking_123",
+      "priority": 2,
+      "status": "filtered_due_to_priority",
+      "reason": "Lower priority than event_78269"
+    },
+    {
+      "composite_id": "allocation_456", 
+      "priority": 3,
+      "status": "filtered_due_to_priority",
+      "reason": "Lower priority than event_78269"
+    }
+  ]
+}
+```
+
+### **Conflict Resolution Logging**
+
+All priority filtering decisions are logged for audit purposes:
+
+```bash
+# View priority filtering logs
+curl -X GET "http://your-bridge/bridges/sync-logs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter_type": "priority_conflict",
+    "date_from": "2024-06-18",
+    "date_to": "2024-06-19"
+  }'
+
+# Response includes detailed conflict resolution
+{
+  "success": true,
+  "conflicts": [
+    {
+      "resource_id": "room_123",
+      "time_slot": "2024-06-18T14:00:00Z - 2024-06-18T15:00:00Z",
+      "selected_event": {
+        "composite_id": "event_78269",
+        "priority": 1,
+        "reason": "Highest priority event"
+      },
+      "filtered_events": [
+        {
+          "composite_id": "booking_123",
+          "priority": 2,
+          "reason": "Lower priority than selected event"
+        }
+      ],
+      "timestamp": "2024-06-18T10:30:00Z"
+    }
+  ]
+}
+```
+
+### **Custom Priority Configuration**
+
+Priority levels can be configured per bridge deployment:
+
+```env
+# Environment configuration for priority levels
+PRIORITY_EVENT=1
+PRIORITY_BOOKING=2
+PRIORITY_MEETING=2
+PRIORITY_APPOINTMENT=2
+PRIORITY_ALLOCATION=3
+
+# Enable/disable priority filtering
+ENABLE_PRIORITY_FILTERING=true
+LOG_PRIORITY_CONFLICTS=true
+```
+
 ## Core Bridge Operations
 
 ### 1. Resource Discovery
@@ -261,11 +461,12 @@ curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_12
 curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no?name=Conference"
 ```
 
-### 3. Event Management
+### 3. Event Management with Composite ID Support
 
-#### Create Calendar Event
+#### Create Calendar Event with Composite ID
 ```bash
-curl -X POST "http://your-bridge/mappings/resources" \
+# Create event in booking system, gets composite ID automatically
+curl -X POST "http://your-bridge/events" \
   -H "Content-Type: application/json" \
   -d '{
     "resource_email": "mr.ok23.e4.475@svgdrift.no",
@@ -280,23 +481,127 @@ curl -X POST "http://your-bridge/mappings/resources" \
       }
     ],
     "location": "Conference Room A",
-    "booking_id": "your_internal_id_123"
+    "event_type": "event",
+    "booking_id": "78269"
   }'
+
+# Response includes composite ID
+{
+  "success": true,
+  "composite_id": "event_78269",
+  "outlook_event_id": "AAMkAGU4NzE5ZGZjLT...",
+  "sync_status": "synced"
+}
 ```
 
-#### Get Resource Calendar Events
+#### Get Resource Calendar Events with Composite ID Information
 ```bash
 # Get calendar events for a specific resource through a bridge
 curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items"
 
+# Response includes composite ID information
+{
+  "success": true,
+  "events": [
+    {
+      "id": "AAMkAGU4NzE5ZGZjLT...",
+      "composite_id": "event_78269",
+      "event_type": "event",
+      "original_id": "78269",
+      "subject": "Team Meeting",
+      "start": "2025-06-16T10:00:00Z",
+      "end": "2025-06-16T11:00:00Z",
+      "priority": 1,
+      "sync_source": "booking_system"
+    }
+  ]
+}
+
 # With date filtering
 curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items?startDate=2025-06-16T00:00:00Z&endDate=2025-06-17T00:00:00Z"
 
-# For booking system bridge
-curl -X GET "http://your-bridge/bridges/booking_system/resources/room_123/calendar-items?startDate=2025-06-16&endDate=2025-06-17"
+# For booking system bridge with priority filtering
+curl -X GET "http://your-bridge/bridges/booking_system/resources/room_123/calendar-items?startDate=2025-06-16&endDate=2025-06-17&apply_priority_filter=true"
 ```
 
-#### Get Calendar Events (Legacy)
+#### Update Event Using Composite ID
+```bash
+# Update event using composite ID for proper addressing
+curl -X PUT "http://your-bridge/events/event_78269" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Updated Team Meeting",
+    "description": "Weekly team sync - Updated agenda",
+    "start_datetime": "2025-06-16T10:30:00Z",
+    "end_datetime": "2025-06-16T11:30:00Z"
+  }'
+
+# System automatically resolves composite ID to:
+# - Type: "event"
+# - Original ID: "78269"
+# - Updates both booking system and Outlook
+```
+
+#### Delete Event Using Composite ID
+```bash
+# Delete event using composite ID
+curl -X DELETE "http://your-bridge/events/event_78269"
+
+# System handles:
+# 1. Resolves composite ID (event_78269 → type=event, id=78269)
+# 2. Deletes from booking system using original ID and type
+# 3. Removes from Outlook using mapped Graph API ID
+# 4. Cleans up bridge mapping
+```
+
+#### Sync Operations with Priority Filtering
+```bash
+# Sync with automatic priority filtering
+curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_calendar_id": "room_123",
+    "target_calendar_id": "mr.ok23.e4.475@svgdrift.no",
+    "apply_priority_filter": true
+  }'
+
+# Response includes priority filtering results
+{
+  "success": true,
+  "synced_events": [
+    {
+      "composite_id": "event_78269",
+      "priority": 1,
+      "status": "synced",
+      "outlook_event_id": "AAMkAGU4NzE5ZGZjLT..."
+    }
+  ],
+  "filtered_events": [
+    {
+      "composite_id": "booking_123",
+      "priority": 2,
+      "status": "filtered_due_to_priority",
+      "reason": "Lower priority than event_78269",
+      "conflict_with": "event_78269"
+    },
+    {
+      "composite_id": "allocation_456",
+      "priority": 3,
+      "status": "filtered_due_to_priority", 
+      "reason": "Lower priority than event_78269",
+      "conflict_with": "event_78269"
+    }
+  ],
+  "summary": {
+    "total_events": 3,
+    "synced_events": 1,
+    "filtered_events": 2,
+    "conflicts_resolved": 1
+  }
+}
+```
+
+#### Get Calendar Events (Legacy - Still Supported)
 ```bash
 # Get events for specific calendar (legacy endpoint)
 curl -X GET "http://your-bridge/events/mr.ok23.e4.475@svgdrift.no?start=2025-06-16T00:00:00Z&end=2025-06-17T00:00:00Z"
@@ -1198,31 +1503,23 @@ After running the complete workflow, you should see:
     "detected": 4,
     "processed": 4,
     "success_rate": "100%",
-    "cancelled_events": [
+    "systems_affected": ["outlook", "booking_system"],
+    "bridge_operations": [
       {
-        "id": 78265,
-        "active": 0,
-        "resource_id": 431,
-        "mapping_id": 8
+        "bridge_mapping_id": 1234,
+        "source_system": "outlook",
+        "target_system": "booking_system", 
+        "external_id": "AAMkAGUxZWM3YWY2...",
+        "internal_id": "78265",
+        "operation": "delete",
+        "status": "completed"
       }
     ],
-    "reenabled_events": [
-      {
-        "id": 78266,
-        "active": 1,
-        "resource_id": 431,
-        "mapping_id": 9
-      },
-      {
-        "id": 78267,
-        "active": 1,
-        "resource_id": 431,
-        "mapping_id": 10
-      }
-    ],
-    "outlook_deletions": 1,
-    "pending_resets": 2,
-    "errors": 0
+    "summary": {
+      "outlook_deletions": 2,
+      "booking_system_deletions": 2,
+      "errors": 0
+    }
   }
 }
 ```
