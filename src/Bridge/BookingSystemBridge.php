@@ -570,6 +570,16 @@ class BookingSystemBridge extends AbstractCalendarBridge
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 
+        if($_ENV['BOOKING_SYSTEM_PROXY'] == "none")
+        {
+            // No proxy configured, use direct connection
+            curl_setopt($ch, CURLOPT_PROXY, '');
+        }
+        else if (!empty($_ENV['BOOKING_SYSTEM_PROXY']))
+        {
+            curl_setopt($ch, CURLOPT_PROXY, $_ENV['BOOKING_SYSTEM_PROXY']);
+        }
+ 
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json'
