@@ -252,6 +252,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'list_resources' => [
                 'method' => 'GET',
                 'url' => '/booking/resources'
+            ],
+            // Optional webhook endpoints (if booking system supports them)
+            'subscribe_webhook' => [
+                'method' => 'POST',
+                'url' => '/booking/webhooks/subscribe'
+            ],
+            'unsubscribe_webhook' => [
+                'method' => 'DELETE',
+                'url' => '/booking/webhooks/{subscription_id}'
             ]
         ];
     }
@@ -350,82 +359,67 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return $this->getEventsViaApi($resourceId, $startDate, $endDate);
     }
 
-    public function createEvent($resourceId, $event): string
+    /**
+     * Create event in booking system (when BookingSystemBridge is target)
+     */
+    public function createEvent($calendarId, $event): string
     {
-        $this->logOperation('create_event', ['resource_id' => $resourceId]);
-
-        return $this->createEventViaApi($resourceId, $event);
+        // When we're the target, we receive events from other bridges
+        // We need to create a new reservation in our booking system
+        $createdId = $this->createEventViaApi($calendarId, $event);
+        
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Created event with composite ID: {$createdId}");
+        }
+        
+        return $createdId; // Returns composite ID (e.g., "event_12345")
     }
 
-    public function updateEvent($resourceId, $eventId, $event): bool
+    /**
+     * Update event in booking system (when BookingSystemBridge is target)
+     */
+    public function updateEvent($calendarId, $eventId, $event): bool
     {
-        $this->logOperation('update_event', ['resource_id' => $resourceId, 'event_id' => $eventId]);
-
-        return $this->updateEventViaApi($resourceId, $eventId, $event);
+        // Extract original ID from composite ID for API call
+        $originalId = $this->extractOriginalId($eventId);
+        
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Updating event - composite ID: {$eventId}, original ID: {$originalId}");
+        }
+        
+        return $this->updateEventViaApi($calendarId, $eventId, $event);
     }
 
-    public function deleteEvent($resourceId, $eventId): bool
+    /**
+     * Delete event in booking system (when BookingSystemBridge is target)
+     */
+    public function deleteEvent($calendarId, $eventId): bool
     {
-        $this->logOperation('delete_event', ['resource_id' => $resourceId, 'event_id' => $eventId]);
-
-        return $this->deleteEventViaApi($resourceId, $eventId);
+        // Extract original ID from composite ID for API call
+        $originalId = $this->extractOriginalId($eventId);
+        
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Deleting event - composite ID: {$eventId}, original ID: {$originalId}");
+        }
+        
+        return $this->deleteEventViaApi($calendarId, $eventId);
     }
 
-    public function getCalendars(): array
+    /**
+     * Handle composite ID mapping for bidirectional sync
+     * This method helps resolve composite IDs when they come from bridge mappings
+     */
+    public function resolveEventId($eventId, $context = 'unknown'): array
     {
-        $this->logOperation('get_calendars');
-
-        return $this->getCalendarsViaApi();
-    }
-
-    public function subscribeToChanges($resourceId, $webhookUrl): string
-    {
-        $this->logOperation('subscribe_to_changes', ['resource_id' => $resourceId, 'webhook_url' => $webhookUrl]);
-
-        try
-        {
-            $url = "{$this->apiBaseUrl}/api/webhooks/subscribe";
-
-            $subscription = [
-                'resource_id' => $resourceId,
-                'callback_url' => $webhookUrl,
-                'events' => ['created', 'updated', 'deleted']
-            ];
-
-            $response = $this->makeApiRequest('POST', $url, [], $subscription);
-
-            return $response['subscription_id'] ?? uniqid('booking_system_');
-        }
-        catch (\Exception $e)
-        {
-            // For direct database access, we can't create webhooks
-            // Return a pseudo subscription ID for tracking
-            $this->logger->info('Webhook subscription not available, using polling mode');
-            return 'polling_' . $resourceId . '_' . uniqid();
-        }
-    }
-
-    public function unsubscribeFromChanges($subscriptionId): bool
-    {
-        $this->logOperation('unsubscribe_from_changes', ['subscription_id' => $subscriptionId]);
-
-        if (strpos($subscriptionId, 'polling_') === 0)
-        {
-            // Pseudo subscription for polling mode
-            return true;
-        }
-
-        try
-        {
-            $url = "{$this->apiBaseUrl}/api/webhooks/{$subscriptionId}";
-            $this->makeApiRequest('DELETE', $url);
-            return true;
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->warning('Failed to unsubscribe webhook', ['error' => $e->getMessage()]);
-            return false;
-        }
+        $originalId = $this->extractOriginalId($eventId);
+        $reservationType = $this->extractReservationType($eventId);
+        
+        return [
+            'composite_id' => $eventId,
+            'original_id' => $originalId,
+            'reservation_type' => $reservationType,
+            'context' => $context
+        ];
     }
 
     // Configurable API Methods
@@ -480,15 +474,24 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $response = $this->makeApiRequest($endpoint['method'], $url, [], $mappedEvent);
 
-        return $response['event_id'] ?? $response['id'] ?? uniqid('event_');
+        $originalId = $response['event_id'] ?? $response['id'] ?? uniqid('event_');
+        
+        // Determine reservation type (default to 'event' for new creations)
+        $reservationType = $mappedEvent['type'] ?? 'event';
+        
+        // Return composite ID for consistent tracking
+        return $this->createCompositeId($reservationType, $originalId);
     }
 
     private function updateEventViaApi($resourceId, $eventId, $event): bool
     {
+        // Extract original ID from composite ID if needed
+        $originalEventId = $this->extractOriginalId($eventId);
+        
         $endpoint = $this->apiEndpoints['update_event'];
         $url = $this->buildUrl($endpoint['url'], [
             'resource_id' => $resourceId,
-            'event_id' => $eventId
+            'event_id' => $originalEventId
         ]);
 
         $mappedEvent = $this->mapGenericEventToBooking($event);
@@ -500,10 +503,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     private function deleteEventViaApi($resourceId, $eventId): bool
     {
+        // Extract original ID from composite ID if needed
+        $originalEventId = $this->extractOriginalId($eventId);
+        
         $endpoint = $this->apiEndpoints['delete_event'];
         $url = $this->buildUrl($endpoint['url'], [
             'resource_id' => $resourceId,
-            'event_id' => $eventId
+            'event_id' => $originalEventId
         ]);
 
         $response = $this->makeApiRequest($endpoint['method'], $url);
@@ -712,14 +718,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function mapBookingEventToGeneric($bookingEvent): array
     {
-
-
-
         $mappings = $this->fieldMappings['from_booking_system'];
         $genericEvent = [];
 
-        // Always include ID
-        $genericEvent['id'] = $bookingEvent['id'];
+        // Create composite ID including reservation type and ID for unique identification
+        $reservationType = strtolower($bookingEvent['type'] ?? 'unknown');
+        $reservationId = $bookingEvent['id'] ?? 'unknown';
+        $compositeId = $reservationType . '_' . $reservationId;
+        
+        // Use composite ID for internal tracking
+        $genericEvent['id'] = $compositeId;
+        
+        // Store original ID and type for reference
+        $genericEvent['original_id'] = $reservationId;
+        $genericEvent['reservation_type'] = $reservationType;
 
         // Apply field mappings
         foreach ($mappings as $bookingField => $genericField)
@@ -774,6 +786,23 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $mappings = $this->fieldMappings['to_booking_system'];
         $bookingEvent = [];
+
+        // Extract original ID and type from composite ID if present
+        if (isset($event['id']) && strpos($event['id'], '_') !== false) {
+            // Composite ID format: "type_id"
+            $parts = explode('_', $event['id'], 2);
+            $bookingEvent['type'] = $parts[0];
+            $bookingEvent['id'] = $parts[1];
+        } elseif (isset($event['original_id'])) {
+            // Use stored original ID if available
+            $bookingEvent['id'] = $event['original_id'];
+            if (isset($event['reservation_type'])) {
+                $bookingEvent['type'] = $event['reservation_type'];
+            }
+        } else {
+            // Fallback to direct ID
+            $bookingEvent['id'] = $event['id'] ?? null;
+        }
 
         // Apply field mappings
         foreach ($mappings as $genericField => $bookingField)
@@ -1272,5 +1301,132 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'start_iso' => date('Y-m-d\TH:i:s', $startTimestamp),
             'end_iso' => date('Y-m-d\TH:i:s', $endTimestamp)
         ];
+    }
+
+    /**
+     * Extract original reservation ID from composite ID
+     * Composite format: "type_id" (e.g., "event_78269", "booking_25634", "allocation_800395")
+     */
+    private function extractOriginalId($compositeId): ?string
+    {
+        if (empty($compositeId)) {
+            return null;
+        }
+
+        // If it's already a simple ID (no underscore), return as-is
+        if (strpos($compositeId, '_') === false) {
+            return $compositeId;
+        }
+
+        // Extract ID from composite format
+        $parts = explode('_', $compositeId, 2);
+        return count($parts) >= 2 ? $parts[1] : $compositeId;
+    }
+
+    /**
+     * Extract reservation type from composite ID
+     */
+    private function extractReservationType($compositeId): ?string
+    {
+        if (empty($compositeId) || strpos($compositeId, '_') === false) {
+            return null;
+        }
+
+        $parts = explode('_', $compositeId, 2);
+        return $parts[0] ?? null;
+    }
+
+    /**
+     * Create composite ID from type and original ID
+     */
+    private function createCompositeId($type, $originalId): string
+    {
+        return strtolower($type) . '_' . $originalId;
+    }
+
+    /**
+     * Get calendars/resources from booking system
+     */
+    public function getCalendars(): array
+    {
+        return $this->getCalendarsViaApi();
+    }
+
+    /**
+     * Subscribe to changes in booking system (webhook support)
+     */
+    public function subscribeToChanges($calendarId, $webhookUrl): string
+    {
+        // Most booking systems don't support webhooks, but we can implement if needed
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Webhook subscription requested for calendar {$calendarId} to {$webhookUrl}");
+        }
+
+        // Check if the booking system supports webhook subscriptions
+        if (isset($this->apiEndpoints['subscribe_webhook'])) {
+            $endpoint = $this->apiEndpoints['subscribe_webhook'];
+            $url = $this->buildUrl($endpoint['url']);
+            
+            $subscriptionData = [
+                'calendar_id' => $calendarId,
+                'webhook_url' => $webhookUrl,
+                'events' => ['created', 'updated', 'deleted']
+            ];
+
+            try {
+                $response = $this->makeApiRequest($endpoint['method'], $url, [], $subscriptionData);
+                return $response['subscription_id'] ?? uniqid('booking_webhook_');
+            } catch (\Exception $e) {
+                if ($this->debug) {
+                    error_log("BookingSystemBridge: Webhook subscription failed: " . $e->getMessage());
+                }
+                throw new \Exception("Booking system does not support webhook subscriptions: " . $e->getMessage());
+            }
+        } else {
+            // Fallback: Return a fake subscription ID and log that polling should be used
+            $fakeSubscriptionId = 'polling_' . $calendarId . '_' . uniqid();
+            
+            if ($this->debug) {
+                error_log("BookingSystemBridge: No webhook support, using polling. Fake subscription ID: {$fakeSubscriptionId}");
+            }
+            
+            return $fakeSubscriptionId;
+        }
+    }
+
+    /**
+     * Unsubscribe from changes in booking system
+     */
+    public function unsubscribeFromChanges($subscriptionId): bool
+    {
+        if ($this->debug) {
+            error_log("BookingSystemBridge: Unsubscribe requested for subscription {$subscriptionId}");
+        }
+
+        // If it's a polling subscription (fake), just return true
+        if (strpos($subscriptionId, 'polling_') === 0) {
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Polling subscription removed: {$subscriptionId}");
+            }
+            return true;
+        }
+
+        // Real webhook unsubscription
+        if (isset($this->apiEndpoints['unsubscribe_webhook'])) {
+            $endpoint = $this->apiEndpoints['unsubscribe_webhook'];
+            $url = $this->buildUrl($endpoint['url'], ['subscription_id' => $subscriptionId]);
+
+            try {
+                $response = $this->makeApiRequest($endpoint['method'], $url);
+                return $response['success'] ?? true;
+            } catch (\Exception $e) {
+                if ($this->debug) {
+                    error_log("BookingSystemBridge: Webhook unsubscription failed: " . $e->getMessage());
+                }
+                return false;
+            }
+        }
+
+        return true; // Assume success if no webhook support
     }
 }
