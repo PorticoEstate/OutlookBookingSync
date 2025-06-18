@@ -122,12 +122,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
         // Check if session has expired
         $lastActivity = $this->sessionInfo['last_activity'] ?? 0;
         $isValid = (time() - $lastActivity) < $this->sessionTimeout;
-        
+
         if ($this->debug ?? false)
         {
             error_log("BookingSystemBridge: Session valid check: " . ($isValid ? 'valid' : 'expired'));
         }
-        
+
         return $isValid;
     }
 
@@ -149,7 +149,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         ];
 
         $response = $this->makeHttpRequest('POST', $url, [], $postData);
-        
+
         if (!$response)
         {
             throw new \Exception("Login to booking system failed - empty response");
@@ -162,7 +162,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
 
         $this->sessionInfo['last_activity'] = time();
-        
+
         if ($this->debug ?? false)
         {
             error_log("BookingSystemBridge: Login successful, session ID: " . substr($this->sessionInfo['session_id'], 0, 8) . "...");
@@ -189,12 +189,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             $response = $this->makeHttpRequest('GET', $url);
             $this->sessionInfo['last_activity'] = time();
-            
+
             if ($this->debug ?? false)
             {
                 error_log("BookingSystemBridge: Session refresh successful");
             }
-            
+
             return true;
         }
         catch (\Exception $e)
@@ -570,7 +570,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 
-        if($_ENV['BOOKING_SYSTEM_PROXY'] == "none")
+        if ($_ENV['BOOKING_SYSTEM_PROXY'] == "none")
         {
             // No proxy configured, use direct connection
             curl_setopt($ch, CURLOPT_PROXY, '');
@@ -579,14 +579,18 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             curl_setopt($ch, CURLOPT_PROXY, $_ENV['BOOKING_SYSTEM_PROXY']);
         }
- 
+
+        // Determine if this is a login/refresh request (should use form data)
+        $isLoginRequest = str_contains($url, '/login') || str_contains($url, '/refreshsession');
+
+        // Use form-encoded data for all requests (traditional PHP applications expect $_GET/$_POST)
         $headers = [
-            'Content-Type: application/json',
+            'Content-Type: application/x-www-form-urlencoded',
             'Accept: application/json'
         ];
 
         // For non-login requests, add session parameters
-        if (!str_contains($url, '/login') && !str_contains($url, '/refreshsession'))
+        if (!$isLoginRequest)
         {
             $sessionParams = $this->getSessionParams();
             $params = array_merge($params, $sessionParams);
@@ -600,6 +604,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
         else if ($method === 'POST')
         {
             curl_setopt($ch, CURLOPT_POST, true);
+            
+            // Always send as form data (for $_POST to work on receiving end)
             if (!empty($data))
             {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
@@ -614,13 +620,27 @@ class BookingSystemBridge extends AbstractCalendarBridge
             curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
             if (!empty($data))
             {
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+                // Use form data for traditional PHP applications
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
             }
         }
 
         if (!empty($headers))
         {
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+
+        if ($this->debug)
+        {
+            error_log("BookingSystemBridge HTTP Request: {$method} {$url}");
+            if (!empty($data))
+            {
+                error_log("BookingSystemBridge Data: " . print_r($data, true));
+            }
+            if (!empty($params))
+            {
+                error_log("BookingSystemBridge Params: " . print_r($params, true));
+            }
         }
 
         $result = curl_exec($ch);
@@ -634,6 +654,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
+        if ($this->debug)
+        {
+            error_log("BookingSystemBridge HTTP Response: {$httpCode}");
+            error_log("BookingSystemBridge Response body: " . substr($result, 0, 500));
+        }
 
         if ($httpCode >= 400)
         {
@@ -854,18 +880,19 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
             // Extract total_records from response if available
             $totalRecords = $response['total_records'] ?? null;
-            
+
             // Return resources with metadata
             $result = [
                 'resources' => $resources,
                 'metadata' => []
             ];
-            
+
             // Add total_records to metadata if available
-            if ($totalRecords !== null) {
+            if ($totalRecords !== null)
+            {
                 $result['metadata']['total_records'] = $totalRecords;
             }
-            
+
             return $result;
         }
         catch (\Exception $e)
@@ -905,13 +932,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ]);
 
             $params = [];
-            if ($offset) {
+            if ($offset)
+            {
                 $params['start'] = $offset;
             }
-            if ($limit) {
+            if ($limit)
+            {
                 $params['results'] = $limit;
             }
-            
+
             $response = $this->makeApiRequest($endpoint['method'], $endpoint['url'], $params);
 
             $groups = [];
@@ -928,38 +957,43 @@ class BookingSystemBridge extends AbstractCalendarBridge
                         'description' => $group['description'] ?? null,
                         'bridge_type' => 'booking_system'
                     ];
-                    
+
                     // Apply name filter if provided
-                    if ($nameFilter !== null) {
+                    if ($nameFilter !== null)
+                    {
                         $nameFilterLower = strtolower($nameFilter);
                         $groupNameLower = strtolower($groupData['name'] ?? '');
                         $groupDescLower = strtolower($groupData['description'] ?? '');
-                        
+
                         // Check if filter matches name or description
-                        if (strpos($groupNameLower, $nameFilterLower) === false &&
-                            strpos($groupDescLower, $nameFilterLower) === false) {
+                        if (
+                            strpos($groupNameLower, $nameFilterLower) === false &&
+                            strpos($groupDescLower, $nameFilterLower) === false
+                        )
+                        {
                             continue; // Skip this group if no match
                         }
                     }
-                    
+
                     $groups[] = $groupData;
                 }
             }
 
             // Extract total_records from response if available
             $totalRecords = $response['total_records'] ?? null;
-            
+
             // Return groups with metadata
             $result = [
                 'resources' => $groups,
                 'metadata' => []
             ];
-            
+
             // Add total_records to metadata if available
-            if ($totalRecords !== null) {
+            if ($totalRecords !== null)
+            {
                 $result['metadata']['total_records'] = $totalRecords;
             }
-            
+
             return $result;
         }
         catch (\Exception $e)
