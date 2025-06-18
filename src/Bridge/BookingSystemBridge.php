@@ -21,12 +21,12 @@ use App\Bridge\AbstractCalendarBridge;
  * 'api_endpoints' => [
  *     'list_events' => [
  *         'method' => 'GET',
- *         'url' => '/api/resources/{resource_id}/events',
+ *         'url' => '/booking/resources/{resource_id}/schedule',
  *         'params' => ['start_date', 'end_date', 'format' => 'json']
  *     ],
  *     'create_event' => [
  *         'method' => 'POST', 
- *         'url' => '/api/events',
+ *         'url' => '/booking/events',
  *         'field_mapping' => ['subject' => 'title', 'start' => 'start_time']
  *     ]
  * ]
@@ -234,24 +234,24 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return [
             'list_events' => [
                 'method' => 'GET',
-                'url' => '/api/resources/{resource_id}/events',
+                'url' => '/booking/resources/{resource_id}/schedule',
                 'params' => ['start_date', 'end_date', 'format' => 'json']
             ],
             'create_event' => [
                 'method' => 'POST',
-                'url' => '/api/resources/{resource_id}/events'
+                'url' => '/booking/resources/{resource_id}/events'
             ],
             'update_event' => [
                 'method' => 'PUT',
-                'url' => '/api/resources/{resource_id}/events/{event_id}'
+                'url' => '/booking/resources/{resource_id}/events/{event_id}'
             ],
             'delete_event' => [
                 'method' => 'DELETE',
-                'url' => '/api/resources/{resource_id}/events/{event_id}'
+                'url' => '/booking/resources/{resource_id}/events/{event_id}'
             ],
             'list_resources' => [
                 'method' => 'GET',
-                'url' => '/bookingfrontend/resources'
+                'url' => '/booking/resources'
             ]
         ];
     }
@@ -830,7 +830,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             $endpoint = $this->getEndpointConfig('list_resources', [
                 'method' => 'GET',
-                'url' => '/bookingfrontend/resources'
+                'url' => '/booking/resources'
             ]);
 
             $params = ['results' => -1];
@@ -1022,9 +1022,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         try
         {
-            $endpoint = $this->getEndpointConfig('list_resource_events', [
+            $endpoint = $this->getEndpointConfig('list_events', [
                 'method' => 'GET',
-                'url' => '/api/resources/{resource_id}/events',
+                'url' => '/booking/resources/{resource_id}/schedule',
                 'params' => ['start_date', 'end_date']
             ]);
 
