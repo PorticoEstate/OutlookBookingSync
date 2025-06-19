@@ -831,4 +831,51 @@ class BridgeController
         }
     }
 
+    /**
+     * Get session diagnostics for debugging
+     */
+    public function getSessionDiagnostics(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'];
+            
+            // Get bridge instance
+            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            
+            // Get session diagnostics if the bridge supports it
+            $diagnostics = [];
+            if (method_exists($bridge, 'getSessionDiagnostics')) {
+                $diagnostics = $bridge->getSessionDiagnostics();
+            } else {
+                $diagnostics = [
+                    'error' => 'Bridge does not support session diagnostics',
+                    'bridge_type' => $bridgeName,
+                    'available_methods' => get_class_methods($bridge)
+                ];
+            }
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge' => $bridgeName,
+                'session_diagnostics' => $diagnostics
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get session diagnostics', [
+                'bridge' => $args['bridgeName'] ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'bridge' => $args['bridgeName'] ?? 'unknown'
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
 }

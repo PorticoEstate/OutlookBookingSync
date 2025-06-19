@@ -10,6 +10,7 @@ abstract class AbstractCalendarBridge
     protected $config;
     protected $logger;
     protected $db;
+
     
     public function __construct($config, LoggerInterface $logger, PDO $db)
     {
@@ -214,13 +215,243 @@ abstract class AbstractCalendarBridge
     // Global Session Management System
     // =================================
     
+    /** @var array Session data cache for CLI mode */
+    protected $sessionData = null;
+    
+    /** @var string Session file path for CLI mode */
+    protected $sessionFile = null;
+    
+    /** @var bool Whether we're in CLI mode */
+    protected $isCliMode = null;
+    
     /**
-     * Initialize session if not already started
+     * Check if we're running in CLI mode or should use file-based sessions
+     */
+    protected function isCliMode(): bool
+    {
+        if ($this->isCliMode === null) {
+            // Check if explicitly configured to use file-based sessions
+            $forceFileSession = $this->config['force_file_session'] ?? false;
+            
+            // Use file-based sessions if:
+            // 1. Running in actual CLI mode
+            // 2. Running as CLI server (php -S)
+            // 3. Explicitly configured to use file-based sessions
+            // 4. API requests (detected by certain headers or paths)
+            $isApiRequest = $this->isApiRequest();
+            
+            $this->isCliMode = (
+                php_sapi_name() === 'cli' || 
+                php_sapi_name() === 'cli-server' ||
+                $forceFileSession ||
+                $isApiRequest
+            );
+        }
+        return $this->isCliMode;
+    }
+    
+    /**
+     * Detect if this is an API request that should use file-based sessions
+     */
+    protected function isApiRequest(): bool
+    {
+        // Check for API request indicators
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $uri = $_SERVER['REQUEST_URI'];
+            
+            // API endpoints that should use file-based sessions
+            $apiPatterns = [
+                '/api/',
+                '/bridges/',
+                '/webhook/',
+                '/sync/'
+            ];
+            
+            foreach ($apiPatterns as $pattern) {
+                if (strpos($uri, $pattern) !== false) {
+                    return true;
+                }
+            }
+        }
+        
+        // Check for API-style headers
+        $apiHeaders = [
+            'HTTP_X_API_KEY',
+            'HTTP_AUTHORIZATION',
+            'HTTP_X_REQUESTED_WITH'
+        ];
+        
+        foreach ($apiHeaders as $header) {
+            if (isset($_SERVER[$header])) {
+                return true;
+            }
+        }
+        
+        // Check Content-Type for API requests
+        if (isset($_SERVER['CONTENT_TYPE'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'];
+            if (strpos($contentType, 'application/json') !== false) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Initialize session storage based on environment
      */
     protected function initializeSessionStorage(): void
     {
+        if ($this->isCliMode()) {
+            $this->initializeFileBasedSession();
+        } else {
+            $this->initializeWebSession();
+        }
+    }
+
+    /**
+     * Initialize file-based session storage for CLI/API usage
+     */
+    protected function initializeFileBasedSession(): void
+    {
+        if ($this->sessionData !== null) {
+            return; // Already initialized
+        }
+        
+        // Create session directory in the project root (persistent across container restarts)
+        $projectRoot = dirname(dirname(__DIR__)); // Go up from src/Bridge to project root
+        $sessionDir = $projectRoot . '/storage/sessions';
+        if (!is_dir($sessionDir)) {
+            mkdir($sessionDir, 0755, true);
+        }
+
+        // Generate session file path
+        $sessionId = $this->generateConsistentSessionId();
+        $this->sessionFile = $sessionDir . '/session_' . $sessionId . '.json';
+
+        // Load existing session data from file
+        $this->sessionData = [];
+        if (file_exists($this->sessionFile)) {
+            $sessionContent = file_get_contents($this->sessionFile);
+            $loadedData = json_decode($sessionContent, true);
+            
+            if ($loadedData && is_array($loadedData)) {
+                $this->sessionData = $loadedData;
+            }
+        }
+
+        $this->logOperation('file_session_initialized', [
+            'session_file' => basename($this->sessionFile),
+            'session_dir' => $sessionDir,
+            'session_exists' => file_exists($this->sessionFile),
+            'session_data_count' => count($this->sessionData),
+            'sapi' => php_sapi_name()
+        ]);
+    }
+
+    /**
+     * Save session data to file (CLI mode only)
+     */
+    protected function saveSessionToFile(): void
+    {
+        if (!$this->isCliMode() || $this->sessionFile === null || $this->sessionData === null) {
+            return;
+        }
+        
+        // Clean expired sessions before saving
+        $this->cleanExpiredSessions();
+        
+        $jsonData = json_encode($this->sessionData, JSON_PRETTY_PRINT);
+        file_put_contents($this->sessionFile, $jsonData);
+        
+        $this->logOperation('session_saved_to_file', [
+            'session_file' => basename($this->sessionFile),
+            'data_count' => count($this->sessionData)
+        ]);
+    }
+
+    /**
+     * Initialize web-based session storage
+     */
+    protected function initializeWebSession(): void
+    {
         if (session_status() === PHP_SESSION_NONE) {
+            // Set session configuration before starting
+            $sessionName = $this->config['session_name'] ?? 'BRIDGE_SESSION';
+            $sessionLifetime = $this->config['session_lifetime'] ?? 3600; // 1 hour default
+            
+            // Configure session settings
+            ini_set('session.name', $sessionName);
+            ini_set('session.gc_maxlifetime', $sessionLifetime);
+            ini_set('session.cookie_lifetime', $sessionLifetime);
+            
             session_start();
+            
+            // Log session initialization for debugging
+            $this->logOperation('web_session_initialized', [
+                'session_name' => $sessionName,
+                'session_id' => substr(session_id(), 0, 8) . '...',
+                'sapi' => php_sapi_name(),
+                'lifetime' => $sessionLifetime
+            ]);
+        }
+    }
+    
+    /**
+     * Generate a consistent session ID based on bridge configuration
+     * This ensures the same session is used across API calls for the same bridge
+     */
+    protected function generateConsistentSessionId(): string
+    {
+        // Create session ID based on bridge type and configuration
+        $identifier = $this->getBridgeType() . '_' . 
+                     ($this->config['api_base_url'] ?? 'default') . '_' .
+                     ($this->config['system_login'] ?? 'anonymous');
+        
+        // Generate a consistent hash that will be the same across requests
+        return 'bridge_' . substr(md5($identifier), 0, 24);
+    }
+    /**
+     * Clean expired sessions from storage
+     */
+    protected function cleanExpiredSessions(): void
+    {
+        if ($this->isCliMode()) {
+            if ($this->sessionData === null) {
+                return;
+            }
+            
+            $cleaned = [];
+            foreach ($this->sessionData as $key => $sessionData) {
+                if (isset($sessionData['expires_at']) && $sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
+                    unset($this->sessionData[$key]);
+                    $cleaned[] = $key;
+                }
+            }
+            
+            if (!empty($cleaned)) {
+                $this->logOperation('expired_sessions_cleaned', ['keys' => $cleaned]);
+            }
+        } else {
+            // For web mode, PHP handles garbage collection automatically
+            // but we can clean up manually if needed
+            $prefix = $this->getSessionPrefix();
+            $cleaned = [];
+            
+            foreach ($_SESSION as $sessionKey => $sessionData) {
+                if (strpos($sessionKey, $prefix) === 0 && 
+                    isset($sessionData['expires_at']) && 
+                    $sessionData['expires_at'] > 0 && 
+                    time() > $sessionData['expires_at']) {
+                    unset($_SESSION[$sessionKey]);
+                    $cleaned[] = str_replace($prefix, '', $sessionKey);
+                }
+            }
+            
+            if (!empty($cleaned)) {
+                $this->logOperation('expired_sessions_cleaned', ['keys' => $cleaned]);
+            }
         }
     }
     
@@ -252,12 +483,18 @@ abstract class AbstractCalendarBridge
             'expires_at' => $ttl > 0 ? time() + $ttl : 0
         ];
         
-        $_SESSION[$sessionKey] = $sessionData;
+        if ($this->isCliMode()) {
+            $this->sessionData[$sessionKey] = $sessionData;
+            $this->saveSessionToFile();
+        } else {
+            $_SESSION[$sessionKey] = $sessionData;
+        }
         
         $this->logOperation('session_set', [
             'key' => $key,
             'ttl' => $ttl,
-            'expires_at' => $sessionData['expires_at']
+            'expires_at' => $sessionData['expires_at'],
+            'mode' => $this->isCliMode() ? 'file' : 'web'
         ]);
     }
     
@@ -273,12 +510,17 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         
         $sessionKey = $this->getSessionPrefix() . $key;
+        $sessionData = null;
         
-        if (!isset($_SESSION[$sessionKey])) {
-            return $default;
+        if ($this->isCliMode()) {
+            $sessionData = $this->sessionData[$sessionKey] ?? null;
+        } else {
+            $sessionData = $_SESSION[$sessionKey] ?? null;
         }
         
-        $sessionData = $_SESSION[$sessionKey];
+        if ($sessionData === null) {
+            return $default;
+        }
         
         // Check if session data has expired
         if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
@@ -304,12 +546,17 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         
         $sessionKey = $this->getSessionPrefix() . $key;
+        $sessionData = null;
         
-        if (!isset($_SESSION[$sessionKey])) {
-            return false;
+        if ($this->isCliMode()) {
+            $sessionData = $this->sessionData[$sessionKey] ?? null;
+        } else {
+            $sessionData = $_SESSION[$sessionKey] ?? null;
         }
         
-        $sessionData = $_SESSION[$sessionKey];
+        if ($sessionData === null) {
+            return false;
+        }
         
         // Check if session data has expired
         if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
@@ -331,9 +578,17 @@ abstract class AbstractCalendarBridge
         
         $sessionKey = $this->getSessionPrefix() . $key;
         
-        if (isset($_SESSION[$sessionKey])) {
-            unset($_SESSION[$sessionKey]);
-            $this->logOperation('session_cleared', ['key' => $key]);
+        if ($this->isCliMode()) {
+            if (isset($this->sessionData[$sessionKey])) {
+                unset($this->sessionData[$sessionKey]);
+                $this->saveSessionToFile();
+                $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'file']);
+            }
+        } else {
+            if (isset($_SESSION[$sessionKey])) {
+                unset($_SESSION[$sessionKey]);
+                $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'web']);
+            }
         }
     }
     
@@ -347,15 +602,30 @@ abstract class AbstractCalendarBridge
         $prefix = $this->getSessionPrefix();
         $clearedKeys = [];
         
-        foreach ($_SESSION as $sessionKey => $sessionData) {
-            if (strpos($sessionKey, $prefix) === 0) {
-                unset($_SESSION[$sessionKey]);
-                $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+        if ($this->isCliMode()) {
+            foreach ($this->sessionData as $sessionKey => $sessionData) {
+                if (strpos($sessionKey, $prefix) === 0) {
+                    unset($this->sessionData[$sessionKey]);
+                    $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+                }
+            }
+            if (!empty($clearedKeys)) {
+                $this->saveSessionToFile();
+            }
+        } else {
+            foreach ($_SESSION as $sessionKey => $sessionData) {
+                if (strpos($sessionKey, $prefix) === 0) {
+                    unset($_SESSION[$sessionKey]);
+                    $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+                }
             }
         }
         
         if (!empty($clearedKeys)) {
-            $this->logOperation('session_cleared_all', ['keys' => $clearedKeys]);
+            $this->logOperation('session_cleared_all', [
+                'keys' => $clearedKeys,
+                'mode' => $this->isCliMode() ? 'file' : 'web'
+            ]);
         }
     }
     
@@ -371,18 +641,33 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         
         $sessionKey = $this->getSessionPrefix() . $key;
+        $sessionData = null;
         
-        if (!isset($_SESSION[$sessionKey])) {
+        if ($this->isCliMode()) {
+            $sessionData = $this->sessionData[$sessionKey] ?? null;
+        } else {
+            $sessionData = $_SESSION[$sessionKey] ?? null;
+        }
+        
+        if ($sessionData === null) {
             return false;
         }
         
-        $_SESSION[$sessionKey]['ttl'] = $ttl;
-        $_SESSION[$sessionKey]['expires_at'] = $ttl > 0 ? time() + $ttl : 0;
+        $sessionData['ttl'] = $ttl;
+        $sessionData['expires_at'] = $ttl > 0 ? time() + $ttl : 0;
+        
+        if ($this->isCliMode()) {
+            $this->sessionData[$sessionKey] = $sessionData;
+            $this->saveSessionToFile();
+        } else {
+            $_SESSION[$sessionKey] = $sessionData;
+        }
         
         $this->logOperation('session_ttl_updated', [
             'key' => $key,
             'ttl' => $ttl,
-            'expires_at' => $_SESSION[$sessionKey]['expires_at']
+            'expires_at' => $sessionData['expires_at'],
+            'mode' => $this->isCliMode() ? 'file' : 'web'
         ]);
         
         return true;
@@ -402,10 +687,13 @@ abstract class AbstractCalendarBridge
             'total_sessions' => 0,
             'active_sessions' => 0,
             'expired_sessions' => 0,
-            'sessions' => []
+            'sessions' => [],
+            'mode' => $this->isCliMode() ? 'file' : 'web'
         ];
         
-        foreach ($_SESSION as $sessionKey => $sessionData) {
+        $sessionStore = $this->isCliMode() ? $this->sessionData : $_SESSION;
+        
+        foreach ($sessionStore as $sessionKey => $sessionData) {
             if (strpos($sessionKey, $prefix) === 0) {
                 $stats['total_sessions']++;
                 $key = str_replace($prefix, '', $sessionKey);
@@ -429,5 +717,51 @@ abstract class AbstractCalendarBridge
         }
         
         return $stats;
+    }
+    
+    /**
+     * Debug session information
+     */
+    protected function debugSession(): array
+    {
+        $this->initializeSessionStorage();
+        
+        $debug = [
+            'php_sapi' => php_sapi_name(),
+            'mode' => $this->isCliMode() ? 'file' : 'web',
+            'bridge_type' => $this->getBridgeType(),
+            'session_prefix' => $this->getSessionPrefix(),
+            'detection_info' => [
+                'is_cli_sapi' => php_sapi_name() === 'cli',
+                'is_cli_server' => php_sapi_name() === 'cli-server',
+                'force_file_session' => $this->config['force_file_session'] ?? false,
+                'is_api_request' => $this->isApiRequest(),
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? null,
+                'content_type' => $_SERVER['CONTENT_TYPE'] ?? null,
+                'http_method' => $_SERVER['REQUEST_METHOD'] ?? null
+            ]
+        ];
+        
+        if ($this->isCliMode()) {
+            $debug['session_file'] = $this->sessionFile;
+            $debug['session_file_exists'] = file_exists($this->sessionFile);
+            $debug['session_data_count'] = count($this->sessionData);
+            $debug['session_data_keys'] = array_keys($this->sessionData);
+            $debug['bridge_sessions'] = array_filter(array_keys($this->sessionData), function($key) {
+                return strpos($key, $this->getSessionPrefix()) === 0;
+            });
+        } else {
+            $debug['session_status'] = session_status();
+            $debug['session_id'] = session_id();
+            $debug['session_name'] = session_name();
+            $debug['session_data_count'] = count($_SESSION);
+            $debug['session_data_keys'] = array_keys($_SESSION);
+            $debug['bridge_sessions'] = array_filter(array_keys($_SESSION), function($key) {
+                return strpos($key, $this->getSessionPrefix()) === 0;
+            });
+            $debug['session_cookie_params'] = session_get_cookie_params();
+        }
+        
+        return $debug;
     }
 }

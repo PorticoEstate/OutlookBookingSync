@@ -1179,6 +1179,27 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
 
     /**
+     * Get comprehensive session diagnostics for debugging
+     */
+    public function getSessionDiagnostics(): array
+    {
+        $sessionStats = $this->getSessionStats();
+        $currentSession = $this->getSession('auth_session', []);
+        $sessionDebug = $this->debugSession();
+        
+        return [
+            'bridge_type' => $this->getBridgeType(),
+            'session_valid' => $this->isSessionValid(),
+            'current_session' => $currentSession,
+            'session_stats' => $sessionStats,
+            'session_debug' => $sessionDebug,
+            'session_info_populated' => !empty($this->sessionInfo),
+            'session_timeout' => $this->sessionTimeout,
+            'last_refresh_attempt' => $this->lastRefreshAttempt ?? 'never'
+        ];
+    }
+
+    /**
      * Filter overlapping reservations by priority (Event > Booking > Allocation)
      * Only the highest priority reservation remains for each time slot
      */

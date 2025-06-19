@@ -321,6 +321,9 @@ $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeControl
 // Get health status of all bridges
 $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealthStatus']);
 
+// Session diagnostics for debugging
+$app->get('/bridges/{bridgeName}/session-debug', [\App\Controller\BridgeController::class, 'getSessionDiagnostics']);
+
 // Manual deletion sync
 $app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 'syncDeletions']);
 
