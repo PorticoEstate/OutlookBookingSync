@@ -29,7 +29,9 @@ class ResourceMappingController
             $queryParams = $request->getQueryParams();
             $bridgeFrom = $queryParams['bridge_from'] ?? null;
             $bridgeTo = $queryParams['bridge_to'] ?? null;
-            $resourceId = $queryParams['resource_id'] ?? null;
+            $resourceId = $queryParams['resource_id'] ?? null; // Legacy parameter - search both columns
+            $sourceCalendarId = $queryParams['source_calendar_id'] ?? null;
+            $targetCalendarId = $queryParams['target_calendar_id'] ?? null;
             $activeOnly = ($queryParams['active_only'] ?? 'true') === 'true';
 
             $sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
@@ -47,10 +49,24 @@ class ResourceMappingController
                 $params['bridge_to'] = $bridgeTo;
             }
 
+            // Handle legacy resource_id parameter - search both source and target
             if ($resourceId)
             {
-                $sql .= " AND resource_id = :resource_id";
+                $sql .= " AND (source_calendar_id = :resource_id OR target_calendar_id = :resource_id)";
                 $params['resource_id'] = $resourceId;
+            }
+
+            // New semantic parameters
+            if ($sourceCalendarId)
+            {
+                $sql .= " AND source_calendar_id = :source_calendar_id";
+                $params['source_calendar_id'] = $sourceCalendarId;
+            }
+
+            if ($targetCalendarId)
+            {
+                $sql .= " AND target_calendar_id = :target_calendar_id";
+                $params['target_calendar_id'] = $targetCalendarId;
             }
 
             if ($activeOnly)
@@ -94,8 +110,8 @@ class ResourceMappingController
         {
             $data = json_decode($request->getBody()->getContents(), true);
 
-            // Validate required fields
-            $required = ['bridge_from', 'bridge_to', 'resource_id', 'calendar_id'];
+            // Validate required fields with new semantic names
+            $required = ['bridge_from', 'bridge_to', 'source_calendar_id', 'target_calendar_id'];
             foreach ($required as $field)
             {
                 if (empty($data[$field]))
@@ -112,15 +128,15 @@ class ResourceMappingController
             $checkSql = "SELECT id FROM bridge_resource_mappings 
                         WHERE bridge_from = :bridge_from 
                         AND bridge_to = :bridge_to 
-                        AND resource_id = :resource_id 
-                        AND calendar_id = :calendar_id";
+                        AND source_calendar_id = :source_calendar_id 
+                        AND target_calendar_id = :target_calendar_id";
 
             $checkStmt = $this->db->prepare($checkSql);
             $checkStmt->execute([
                 'bridge_from' => $data['bridge_from'],
                 'bridge_to' => $data['bridge_to'],
-                'resource_id' => $data['resource_id'],
-                'calendar_id' => $data['calendar_id']
+                'source_calendar_id' => $data['source_calendar_id'],
+                'target_calendar_id' => $data['target_calendar_id']
             ]);
 
             if ($checkStmt->fetch())
@@ -134,19 +150,20 @@ class ResourceMappingController
 
             // Create new mapping
             $sql = "INSERT INTO bridge_resource_mappings 
-                    (bridge_from, bridge_to, resource_id, calendar_id, calendar_name, 
-                     sync_direction, is_active, sync_enabled) 
-                    VALUES (:bridge_from, :bridge_to, :resource_id, :calendar_id, 
-                            :calendar_name, :sync_direction, :is_active, :sync_enabled)
+                    (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
+                     source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled) 
+                    VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
+                            :source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled)
                     RETURNING id";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'bridge_from' => $data['bridge_from'],
                 'bridge_to' => $data['bridge_to'],
-                'resource_id' => $data['resource_id'],
-                'calendar_id' => $data['calendar_id'],
-                'calendar_name' => $data['calendar_name'] ?? null,
+                'source_calendar_id' => $data['source_calendar_id'],
+                'target_calendar_id' => $data['target_calendar_id'],
+                'source_calendar_name' => $data['source_calendar_name'] ?? null,
+                'target_calendar_name' => $data['target_calendar_name'] ?? null,
                 'sync_direction' => $data['sync_direction'] ?? 'bidirectional',
                 'is_active' => $data['is_active'] ?? true,
                 'sync_enabled' => $data['sync_enabled'] ?? true
@@ -204,7 +221,28 @@ class ResourceMappingController
             $updateFields = [];
             $params = ['id' => $mappingId];
 
-            $allowedFields = ['calendar_name', 'sync_direction', 'is_active', 'sync_enabled', 'bridge_to', 'bridge_from', 'resource_id', 'calendar_id'];
+            $allowedFields = [
+                'source_calendar_name', 'target_calendar_name', 'sync_direction', 'is_active', 'sync_enabled', 
+                'bridge_to', 'bridge_from', 'source_calendar_id', 'target_calendar_id'
+            ];
+
+            // Handle legacy field mappings for backward compatibility
+            if (isset($data['calendar_name'])) {
+                // Map to target_calendar_name by default, could be made smarter based on context
+                $data['target_calendar_name'] = $data['calendar_name'];
+                unset($data['calendar_name']);
+            }
+            if (isset($data['resource_id'])) {
+                // Map to source_calendar_id by default for booking system resources
+                $data['source_calendar_id'] = $data['resource_id'];
+                unset($data['resource_id']);
+            }
+            if (isset($data['calendar_id'])) {
+                // Map to target_calendar_id by default for outlook calendars
+                $data['target_calendar_id'] = $data['calendar_id'];
+                unset($data['calendar_id']);
+            }
+
             foreach ($allowedFields as $field)
             {
                 if (isset($data[$field]))
@@ -264,14 +302,15 @@ class ResourceMappingController
     /**
      * Delete a specific resource mapping
      * DELETE /mappings/resources/{bridge_from}/{resource_id}/{calendar_id}
+     * Note: resource_id and calendar_id are legacy parameter names for backward compatibility
      */
     public function deleteResourceMapping(Request $request, Response $response, array $args): Response
     {
         try
         {
             $bridgeFrom = $args['bridge_from'] ?? null;
-            $resourceId = $args['resource_id'] ?? null;
-            $calendarId = $args['calendar_id'] ?? null;
+            $resourceId = $args['resource_id'] ?? null; // Legacy: maps to source_calendar_id
+            $calendarId = $args['calendar_id'] ?? null; // Legacy: maps to target_calendar_id
 
             // Validate required parameters
             if (!$bridgeFrom || !$resourceId || !$calendarId)
@@ -288,11 +327,11 @@ class ResourceMappingController
             $resourceId = urldecode($resourceId);
             $calendarId = urldecode($calendarId);
 
-            // Check if mapping exists before deletion
-            $checkSql = "SELECT id, calendar_name FROM bridge_resource_mappings 
+            // Check if mapping exists before deletion (try both directions for backward compatibility)
+            $checkSql = "SELECT id, source_calendar_name, target_calendar_name FROM bridge_resource_mappings 
                         WHERE bridge_from = :bridge_from 
-                        AND resource_id = :resource_id 
-                        AND calendar_id = :calendar_id";
+                        AND ((source_calendar_id = :resource_id AND target_calendar_id = :calendar_id)
+                             OR (source_calendar_id = :calendar_id AND target_calendar_id = :resource_id))";
 
             $checkStmt = $this->db->prepare($checkSql);
             $checkStmt->execute([
@@ -317,11 +356,11 @@ class ResourceMappingController
                 return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
             }
 
-            // Delete the mapping
+            // Delete the mapping (try both directions for backward compatibility)
             $deleteSql = "DELETE FROM bridge_resource_mappings 
                          WHERE bridge_from = :bridge_from 
-                         AND resource_id = :resource_id 
-                         AND calendar_id = :calendar_id";
+                         AND ((source_calendar_id = :resource_id AND target_calendar_id = :calendar_id)
+                              OR (source_calendar_id = :calendar_id AND target_calendar_id = :resource_id))";
 
             $deleteStmt = $this->db->prepare($deleteSql);
             $result = $deleteStmt->execute([
@@ -340,7 +379,8 @@ class ResourceMappingController
                         'bridge_from' => $bridgeFrom,
                         'resource_id' => $resourceId,
                         'calendar_id' => $calendarId,
-                        'calendar_name' => $existingMapping['calendar_name']
+                        'source_calendar_name' => $existingMapping['source_calendar_name'],
+                        'target_calendar_name' => $existingMapping['target_calendar_name']
                     ]
                 ]));
                 return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
@@ -368,14 +408,15 @@ class ResourceMappingController
     /**
      * Delete resource mapping by composite key (bridge_from, resource_id, calendar_id)
      * DELETE /mappings/resources/by-key/{bridge_from}/{resource_id}/{calendar_id}
+     * Note: resource_id and calendar_id are legacy parameter names for backward compatibility
      */
     public function deleteResourceMappingByKey(Request $request, Response $response, array $args): Response
     {
         try
         {
             $bridgeFrom = $args['bridge_from'] ?? null;
-            $resourceId = $args['resource_id'] ?? null;
-            $calendarId = $args['calendar_id'] ?? null;
+            $resourceId = $args['resource_id'] ?? null; // Legacy: maps to source_calendar_id
+            $calendarId = $args['calendar_id'] ?? null; // Legacy: maps to target_calendar_id
 
             // Validate required parameters
             if (!$bridgeFrom || !$resourceId || !$calendarId)
@@ -392,11 +433,11 @@ class ResourceMappingController
             $resourceId = urldecode($resourceId);
             $calendarId = urldecode($calendarId);
 
-            // Check if mapping exists before deletion
-            $checkSql = "SELECT id, resource_id, calendar_name FROM bridge_resource_mappings 
+            // Check if mapping exists before deletion (try both directions for backward compatibility)
+            $checkSql = "SELECT id, source_calendar_id, target_calendar_id, source_calendar_name, target_calendar_name FROM bridge_resource_mappings 
                         WHERE bridge_from = :bridge_from 
-                        AND resource_id = :resource_id 
-                        AND calendar_id = :calendar_id
+                        AND ((source_calendar_id = :resource_id AND target_calendar_id = :calendar_id)
+                             OR (source_calendar_id = :calendar_id AND target_calendar_id = :resource_id))
                         AND is_active = true";
 
             $checkStmt = $this->db->prepare($checkSql);

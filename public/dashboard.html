@@ -680,8 +680,8 @@
                             html += `
                                 <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
                                     <strong>ID:</strong> ${mapping.id}<br>
-                                    <strong>From:</strong> ${mapping.bridge_from} (${mapping.resource_id})<br>
-                                    <strong>To:</strong> ${mapping.bridge_to} (${mapping.calendar_id})<br>
+                                    <strong>From:</strong> ${mapping.bridge_from} (${mapping.source_calendar_id || mapping.source_calendar_name || 'N/A'})<br>
+                                    <strong>To:</strong> ${mapping.bridge_to} (${mapping.target_calendar_id || mapping.target_calendar_name || 'N/A'})<br>
                                     <strong>Status:</strong> <span class="status-badge status-${mapping.sync_status}">${mapping.sync_status}</span><br>
                                     <strong>Last Sync:</strong> ${mapping.last_sync_time ? formatTimestamp(mapping.last_sync_time) : 'Never'}
                                 </div>

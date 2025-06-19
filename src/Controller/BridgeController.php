@@ -116,14 +116,8 @@ class BridgeController
             // Get all active mappings between these bridges (handle bidirectional)
             $stmt = $this->db->prepare("
                 SELECT 
-                    CASE 
-                        WHEN bridge_from = ? THEN resource_id 
-                        ELSE calendar_id 
-                    END as source_calendar_id,
-                    CASE 
-                        WHEN bridge_from = ? THEN calendar_id 
-                        ELSE resource_id 
-                    END as target_calendar_id,
+                    source_calendar_id,
+                    target_calendar_id,
                     sync_direction, 
                     id,
                     bridge_from,
@@ -136,7 +130,6 @@ class BridgeController
                 AND is_active = TRUE AND sync_enabled = TRUE
             ");
             $stmt->execute([
-                $sourceBridge, $sourceBridge, // For CASE statements
                 $sourceBridge, $targetBridge, // Forward direction
                 $targetBridge, $sourceBridge  // Reverse direction (bidirectional)
             ]);

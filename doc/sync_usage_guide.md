@@ -432,10 +432,10 @@ curl -X POST "http://your-bridge/mappings/resources" \
   -d '{
     "bridge_from": "your_system",
     "bridge_to": "outlook", 
-    "resource_id": "room_123",
-    "resource_name": "Conference Room A",
-    "calendar_id": "mr.ok23.e4.475@svgdrift.no",
-    "calendar_name": "mr.ok23.e4.475"
+    "source_calendar_id": "room_123",
+    "source_calendar_name": "Conference Room A",
+    "target_calendar_id": "mr.ok23.e4.475@svgdrift.no",
+    "target_calendar_name": "mr.ok23.e4.475"
   }'
 ```
 
@@ -619,6 +619,8 @@ curl -X POST "http://your-bridge/webhooks/subscribe" \
   }'
 ```
 
+> **Note**: The `calendar_id` parameter in webhook subscription refers to the Outlook calendar email address, not the database column names.
+
 ## Important Implementation Notes
 
 ### Calendar ID Usage
@@ -652,9 +654,11 @@ The bridge automatically uses proxy for:
 ### Resource Mapping Strategy
 
 Use meaningful, stable identifiers:
-- **`resource_id`**: Your internal system's resource ID
-- **`calendar_id`**: Target calendar email address
+- **`source_calendar_id`**: Calendar ID in the source bridge system
+- **`target_calendar_id`**: Calendar ID in the target bridge system
 - **Names**: Human-readable names for filtering and identification
+
+> **Note**: Legacy parameters `resource_id` and `calendar_id` are still supported for backward compatibility, but it's recommended to use the semantic column names for better clarity.
 
 ## Advanced Features
 
