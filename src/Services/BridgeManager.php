@@ -58,13 +58,7 @@ class BridgeManager
         return $this->bridges[$name]['instance'];
     }
     
-    /**
-     * Get all available bridge names
-     */
-    public function getAvailableBridges(): array
-    {
-        return array_keys($this->bridges);
-    }
+
     
     /**
      * Get bridge information
@@ -379,32 +373,7 @@ class BridgeManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    /**
-     * Create bridge mapping
-     */
-    private function createBridgeMapping($sourceBridge, $targetBridge, $sourceEventId, $targetEventId, $targetCalendarId, $eventData)
-    {
-        $sql = "
-            INSERT INTO bridge_mappings (
-                source_bridge, target_bridge, source_calendar_id, target_calendar_id,
-                source_event_id, target_event_id, event_data, created_at, last_synced_at
-            ) VALUES (
-                :source_bridge, :target_bridge, :source_calendar_id, :target_calendar_id,
-                :source_event_id, :target_event_id, :event_data, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-        ";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':source_bridge' => $sourceBridge,
-            ':target_bridge' => $targetBridge,
-            ':source_calendar_id' => $eventData['external_id'] ?? 'unknown',
-            ':target_calendar_id' => $targetCalendarId,
-            ':source_event_id' => $sourceEventId,
-            ':target_event_id' => $targetEventId,
-            ':event_data' => json_encode($eventData)
-        ]);
-    }
+
     
     /**
      * Update mapping timestamp
@@ -416,15 +385,7 @@ class BridgeManager
         $stmt->execute([':id' => $mappingId]);
     }
     
-    /**
-     * Delete bridge mapping
-     */
-    private function deleteBridgeMapping($mappingId)
-    {
-        $sql = "DELETE FROM bridge_mappings WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':id' => $mappingId]);
-    }
+
     
     /**
      * Process pending syncs across all bridges
