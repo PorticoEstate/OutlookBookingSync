@@ -58,8 +58,6 @@ class BridgeManager
         return $this->bridges[$name]['instance'];
     }
     
-
-    
     /**
      * Get bridge information
      */
@@ -373,8 +371,6 @@ class BridgeManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-
-    
     /**
      * Update mapping timestamp
      */
@@ -384,8 +380,6 @@ class BridgeManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $mappingId]);
     }
-    
-
     
     /**
      * Process pending syncs across all bridges
