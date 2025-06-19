@@ -9,8 +9,9 @@ The Generic Calendar Bridge transforms calendar synchronization from a single-pu
 - **Universal Bridge Pattern**: Extensible architecture supporting any calendar system
 - **REST API Communication**: Standard HTTP/REST interfaces for all integrations  
 - **Self-Hosted Solution**: Full control and customization for organizations
-- **Production Ready**: Enterprise-grade reliability and monitoring
+- **Production Ready**: Enterprise-grade reliability and monitoring with comprehensive sync status tracking
 - **Developer Friendly**: Easy to extend with new calendar system adapters
+- **Sync Status Management**: Real-time monitoring, error recovery, and retry mechanisms
 
 ## 🏗️ Architecture
 
@@ -24,11 +25,12 @@ The Generic Calendar Bridge transforms calendar synchronization from a single-pu
 
 ### Core Components
 
-- **AbstractCalendarBridge**: Base class defining standard interface for all calendar systems
-- **BridgeManager**: Central orchestrator managing multiple bridge instances  
-- **OutlookBridge**: Microsoft Graph API implementation
+- **AbstractCalendarBridge**: Base class defining standard interface for all calendar systems with sync status management
+- **BridgeManager**: Central orchestrator managing multiple bridge instances with comprehensive error handling
+- **OutlookBridge**: Microsoft Graph API implementation with enhanced sync status tracking
 - **BookingSystemBridge**: Generic booking system implementation with REST API and database fallback
-- **BridgeController**: RESTful API endpoints for bridge operations
+- **BridgeController**: RESTful API endpoints for bridge operations including sync status management
+- **HealthController**: Comprehensive monitoring and sync status endpoints
 
 ## 📁 Project Structure
 

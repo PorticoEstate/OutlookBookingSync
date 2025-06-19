@@ -1029,126 +1029,6 @@ Shows overall statistics about bridge sync operations between all connected syst
 curl -X GET "http://localhost:8082/bridge/stats"
 ```
 
-#### Get Bridge Processing Queue
-
-```bash
-# View pending operations in the bridge queue
-curl -X GET "http://localhost:8082/bridge/pending"
-
-# View completed operations
-curl -X GET "http://localhost:8082/bridge/completed"
-```
-
-### 6. Deletion and Cancellation Handling
-
-The bridge system provides robust deletion detection and synchronization across connected systems.
-
-#### Detect and Process Deletions
-
-```bash
-# Detect and sync deletions between all connected systems
-curl -X POST "http://localhost:8082/bridges/sync-deletions"
-```
-
-**What this endpoint does:**
-- Detects when events no longer exist in source systems
-- Communicates deletions to target systems via their APIs
-- Updates bridge mapping status to track deletions
-- Handles deletion conflicts and errors gracefully
-- Works with any connected bridge systems
-
-#### Process Webhook Deletion Queue
-
-```bash
-# Process deletions received via webhooks
-curl -X POST "http://localhost:8082/bridges/process-deletion-queue"
-```
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "message": "Bridge deletion processing completed",
-  "results": {
-    "detected_deletions": 4,
-    "processed_deletions": 4,
-    "success_rate": "100%",
-    "systems_affected": ["outlook", "booking_system"],
-    "bridge_operations": [
-      {
-        "bridge_mapping_id": 1234,
-        "source_system": "outlook",
-        "target_system": "booking_system", 
-        "external_id": "AAMkAGUxZWM3YWY2...",
-        "internal_id": "78265",
-        "operation": "delete",
-        "status": "completed"
-      }
-    ],
-    "summary": {
-      "outlook_deletions": 2,
-      "booking_system_deletions": 2,
-      "errors": 0
-    }
-  }
-}
-```
-
-### 7. Your System Integration Requirements
-
-For the bridge to work with your system, you need to provide these API endpoints:
-
-#### Required API Endpoints (Your System)
-
-```bash
-# Create new event in your system
-POST /api/events
-Content-Type: application/json
-{
-  "external_id": "outlook-event-123",
-  "title": "Meeting Title",
-  "start_time": "2024-12-15T10:00:00Z",
-  "end_time": "2024-12-15T11:00:00Z",
-  "location": "Conference Room A",
-  "description": "Meeting description",
-  "organizer": {
-    "name": "John Doe",
-    "email": "john@company.com"
-  }
-}
-
-# Update existing event
-PUT /api/events/{your_event_id}
-
-# Delete/cancel event  
-DELETE /api/events/{your_event_id}
-
-# List events for sync (optional, for bridge-initiated sync)
-GET /api/events?since=2024-12-15T00:00:00Z
-```
-
-**Your Implementation Freedom:**
-- Structure your internal data however you want
-- Use any database schema
-- Apply any business rules
-- Handle validation your way
-- Implement your cancellation logic
-curl -X GET "http://localhost:8082/bridges/sync-deletionsion-stats"
-```
-
-Shows statistics about reservations that may be cancelled based on their active status.
-
-#### View Cancelled Reservations
-
-### 8. Bridge Monitoring and Statistics
-
-#### Get Bridge System Statistics
-
-```bash
-# Get comprehensive bridge operation statistics
-curl -X GET "http://localhost:8082/bridge/stats"
-```
-
 #### Get Bridge Health Status
 
 ```bash
@@ -1301,7 +1181,7 @@ class BookingSystemEventController {
 Map your booking system resources to calendar resources:
 
 ```bash
-curl -X POST "http://localhost:8082/mappings/resources" \
+curl -X POST "http://your-bridge/mappings/resources" \
   -H "Content-Type: application/json" \
   -d '{
     "booking_system_resource_id": "123",
@@ -1328,23 +1208,23 @@ GET    /api/events          # List events for sync
 
 **Sync from your booking system to Outlook:**
 ```bash
-curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook"
+curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook"
 ```
 
 **Sync from Outlook to your booking system:**
 ```bash
-curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
+curl -X POST "http://your-bridge/bridges/sync/outlook/booking_system"
 ```
 
 **Process any pending sync operations:**
 ```bash
-curl -X POST "http://localhost:8082/bridge/process-pending"
+curl -X POST "http://your-bridge/bridge/process-pending"
 ```
 
 #### Step 4: Monitor Bridge Health
 
 ```bash
-curl -X GET "http://localhost:8082/bridges/health"
+curl -X GET "http://your-bridge/bridges/health"
 ```
 
 Expected response:

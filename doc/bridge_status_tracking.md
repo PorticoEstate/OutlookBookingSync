@@ -2,68 +2,140 @@
 
 ## How Status is Determined in the Bridge System
 
-The bridge system uses two main tables to track sync status:
+The bridge system uses a **hybrid approach** combining database columns and sync logs to provide comprehensive status tracking:
 
-### 1. `bridge_mappings` Table
+### 1. `bridge_mappings` Table (Updated Schema)
 - Stores permanent mapping relationships between calendar events
+- `sync_status`: Direct status column with values: 'synced', 'pending', 'error', 'cancelled'
+- `error_message`: Detailed error information for failed syncs
+- `retry_count`: Number of sync retry attempts
 - `last_synced_at`: Timestamp of last successful sync
-- No direct status column (this is the key difference from old system)
+- `updated_at`: Timestamp of last status update
 
 ### 2. `bridge_sync_logs` Table  
-- Tracks all sync operations with status
+- Tracks all sync operations with detailed audit trail
 - `status` values: 'success', 'error', 'pending'
 - `operation` values: 'create', 'update', 'delete', 'sync'
+- Provides historical context and debugging information
 
-## Status Logic
+## Current Status Logic (Enhanced)
 
 ### 🟢 **Synced**
-- Mapping has `last_synced_at` timestamp
-- AND has recent 'success' status in sync logs (last 24h)
+- `sync_status = 'synced'` in bridge_mappings
+- AND has `last_synced_at` timestamp
+- AND no recent errors or pending operations
 
 ### 🟡 **Pending** 
-- Mapping has no `last_synced_at` timestamp (never synced)
-- OR has recent 'pending' status in sync logs (last 1h)
-- AND no recent errors
+- `sync_status = 'pending'` in bridge_mappings
+- OR has no `last_synced_at` timestamp (never synced)
+- AND no recent critical errors
 
 ### 🔴 **Error**
-- Mapping has recent 'error' status in sync logs (last 24h)
-- AND no more recent 'success' status
+- `sync_status = 'error'` in bridge_mappings
+- WITH `error_message` containing failure details
+- AND `retry_count` tracking attempt numbers
 
-## Benefits of This Architecture
+### ❌ **Cancelled**
+- `sync_status = 'cancelled'` in bridge_mappings
+- Event deleted/cancelled in source system
+- Preserves mapping for audit purposes
 
-1. **Audit Trail**: Complete history of all sync operations
-2. **Transient States**: Can track temporary 'pending' states
-3. **Error Recovery**: Can see when errors are resolved
-4. **Performance**: Can track sync throughput and timing
+## Benefits of This Enhanced Architecture
+
+1. **Direct Status Access**: Immediate status without complex queries
+2. **Audit Trail**: Complete history via sync logs
+3. **Error Tracking**: Detailed error messages and retry counts
+4. **Performance**: Optimized queries with indexed status columns
 5. **Debugging**: Full context for troubleshooting
+6. **Recovery**: Built-in retry mechanisms and re-enable workflows
 
-## Query Examples
+## Status Management Methods
 
-```sql
--- Get synced mappings
-SELECT bm.* FROM bridge_mappings bm
-WHERE bm.last_synced_at IS NOT NULL
-AND EXISTS (
-    SELECT 1 FROM bridge_sync_logs bsl 
-    WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
-    AND bsl.status = 'success' 
-    AND bsl.created_at > NOW() - INTERVAL '24 hours'
-);
+The bridge system provides comprehensive status management through AbstractCalendarBridge:
 
--- Get error mappings  
-SELECT bm.* FROM bridge_mappings bm
-WHERE EXISTS (
-    SELECT 1 FROM bridge_sync_logs bsl 
-    WHERE (bsl.source_bridge = bm.source_bridge AND bsl.target_bridge = bm.target_bridge)
-    AND bsl.status = 'error' 
-    AND bsl.created_at > NOW() - INTERVAL '24 hours'
-    AND NOT EXISTS (
-        SELECT 1 FROM bridge_sync_logs bsl2 
-        WHERE (bsl2.source_bridge = bm.source_bridge AND bsl2.target_bridge = bm.target_bridge)
-        AND bsl2.status = 'success' 
-        AND bsl2.created_at > bsl.created_at
-    )
-);
+```php
+// Update sync status
+public function updateSyncStatus($eventId, $status, $errorMessage = null): bool
+
+// Create event mapping with initial status
+public function createEventMapping($sourceId, $targetId, $direction): bool
+
+// Mark event as cancelled
+public function markEventCancelled($eventId): bool
+
+// Mark event as pending for retry
+public function markEventPending($eventId): bool
+
+// Get events by status
+public function getEventsToSync($limit = 100): array
+public function getCancelledEvents($bridgeName = null, $limit = 100): array
+
+// Get comprehensive statistics
+public function getSyncStats(): array
 ```
 
-This approach provides much more granular and accurate status tracking than a simple status column.
+## API Endpoints for Status Management
+
+### Status Monitoring
+```bash
+GET /health/sync-status              # Comprehensive sync status overview
+GET /bridges/sync-stats              # Detailed statistics for all bridges
+GET /bridges/sync-stats/{bridge}     # Statistics for specific bridge
+GET /bridges/cancelled-events        # All cancelled events
+GET /bridges/{bridge}/pending-events # Pending events for bridge
+```
+
+### Status Management
+```bash
+POST /bridges/process-pending-syncs           # Process all pending syncs
+POST /bridges/process-pending-syncs/{bridge}  # Process pending for specific bridge
+POST /bridges/re-enable-failed               # Re-enable all failed events
+POST /bridges/re-enable-failed/{bridge}      # Re-enable failed for specific bridge
+```
+
+## Enhanced Query Examples
+
+```sql
+-- Get synced mappings (simplified with direct status)
+SELECT * FROM bridge_mappings 
+WHERE sync_status = 'synced';
+
+-- Get error mappings with details
+SELECT bm.*, bm.error_message, bm.retry_count
+FROM bridge_mappings bm
+WHERE bm.sync_status = 'error';
+
+-- Get pending events for processing
+SELECT * FROM bridge_mappings 
+WHERE sync_status = 'pending'
+ORDER BY updated_at ASC
+LIMIT 100;
+
+-- Get cancelled events with audit trail
+SELECT bm.*, bsl.created_at as cancelled_at
+FROM bridge_mappings bm
+LEFT JOIN bridge_sync_logs bsl ON (
+    bsl.source_bridge = bm.source_bridge 
+    AND bsl.target_bridge = bm.target_bridge
+    AND bsl.operation = 'delete'
+    AND bsl.created_at = (
+        SELECT MAX(created_at) FROM bridge_sync_logs bsl2
+        WHERE bsl2.source_bridge = bm.source_bridge
+        AND bsl2.target_bridge = bm.target_bridge
+    )
+)
+WHERE bm.sync_status = 'cancelled';
+
+-- Get comprehensive sync health overview
+SELECT 
+    sync_status,
+    COUNT(*) as count,
+    AVG(retry_count) as avg_retries,
+    MAX(retry_count) as max_retries,
+    MIN(updated_at) as oldest_update,
+    MAX(updated_at) as newest_update
+FROM bridge_mappings 
+GROUP BY sync_status;
+```
+
+This enhanced approach provides both the simplicity of direct status access and the comprehensive audit capabilities needed for enterprise-grade sync management.

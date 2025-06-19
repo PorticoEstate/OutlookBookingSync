@@ -20,9 +20,16 @@ The monitoring system provides comprehensive health checks, alerting, and a real
 - **Alert Management**: `/alerts/{id}/acknowledge` - Acknowledge alerts
 
 ### 3. Monitoring Dashboard
-- **Web Dashboard**: `/dashboard` - HTML monitoring interface
-- **Auto-refresh**: Updates every 30 seconds
-- **Real-time metrics**: System health, sync status, performance
+- **Web Dashboard**: `/dashboard` - Updated HTML monitoring interface with sync status
+- **Auto-refresh**: Updates every 30 seconds with real-time sync metrics
+- **Sync Management**: Built-in controls for processing pending syncs and re-enabling failed events
+- **Error Analysis**: Detailed retry analysis and cancellation statistics
+
+### 4. Sync Status Monitoring
+- **Sync Status Overview**: `/health/sync-status` - Comprehensive sync health monitoring
+- **Sync Statistics**: `/bridges/sync-stats` - Detailed sync statistics
+- **Cancelled Events**: `/bridges/cancelled-events` - Cancelled event tracking
+- **Pending Events**: `/bridges/{bridge}/pending-events` - Pending sync operations
 
 ## Database Tables
 
@@ -84,6 +91,17 @@ The system monitors:
 - **slow_database**: Response time >2s (Warning) or >5s (Critical)
 - **database_connectivity**: Connection failures (Critical)
 
+### Sync Status Alerts
+- **high_pending_rate**: >80% pending rate (Warning) / >95% (Critical)
+- **stuck_syncs**: Operations pending >2 hours (Warning) / >6 hours (Critical)
+- **high_retry_rate**: >50% events requiring retries (Warning)
+- **sync_stall**: No sync activity >1 hour (Warning) / >3 hours (Critical)
+
+### Bridge Health Alerts
+- **bridge_connectivity**: Bridge communication failures (Critical)
+- **mapping_failures**: Event mapping errors >10% (Warning) / >25% (Critical)
+- **cancellation_surge**: Unusual cancellation patterns (Warning)
+
 ## Dashboard Features
 
 ### System Overview Cards
@@ -103,6 +121,33 @@ The system monitors:
 - Error summaries
 - Performance metrics
 - Throughput statistics
+
+### Sync Status Monitoring Features
+
+The enhanced dashboard includes comprehensive sync status monitoring:
+
+#### Real-time Sync Health Overview
+- **Overall sync health status** with color-coded indicators
+- **Error rate tracking** with percentage breakdowns
+- **Pending rate monitoring** for sync queue management
+- **Stuck sync detection** for operations requiring intervention
+
+#### Bridge-specific Statistics
+- **Per-bridge sync breakdowns** showing individual bridge performance
+- **Retry analysis** with average retry counts and patterns
+- **Cancellation tracking** for deleted/cancelled events
+- **Last activity timestamps** for each bridge pair
+
+#### Interactive Sync Management
+- **Process Pending Syncs** - Execute pending sync operations
+- **Re-enable Failed Events** - Recover from sync failures
+- **View Cancelled Events** - Display cancelled event details
+- **View Sync Statistics** - Comprehensive sync metrics
+
+#### Performance Monitoring
+- **Sync throughput metrics** - Events processed per time period
+- **Error trending** - Historical error rate analysis
+- **Resource utilization** - Bridge system performance metrics
 
 ## Configuration
 
@@ -415,5 +460,3 @@ curl -X POST "http://your-bridge/alerts/check-priority-filtering"
   ]
 }
 ```
-
-## Database Tables

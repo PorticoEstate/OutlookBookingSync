@@ -110,6 +110,25 @@ The following cron jobs are active in the Docker container for the generic bridg
 - `POST /bridges/sync-deletions` - Manual deletion sync verification
 - `GET /bridges/health` - Monitor bridge system health and statistics
 
+### **Sync Status Management** ✅ IMPLEMENTED
+- `GET /health/sync-status` - Comprehensive sync status monitoring with real-time health metrics
+- `POST /bridges/process-pending-syncs` - Process all pending synchronizations across bridges
+- `POST /bridges/process-pending-syncs/{bridge}` - Process pending syncs for specific bridge
+- `POST /bridges/re-enable-failed` - Re-enable failed events across all bridges
+- `POST /bridges/re-enable-failed/{bridge}` - Re-enable failed events for specific bridge
+- `GET /bridges/sync-stats` - Detailed sync statistics for all bridges
+- `GET /bridges/sync-stats/{bridge}` - Sync statistics for specific bridge
+- `GET /bridges/cancelled-events` - View cancelled events across all bridges
+- `GET /bridges/cancelled-events/{bridge}` - View cancelled events for specific bridge
+- `GET /bridges/{bridge}/pending-events` - Get pending sync events for specific bridge
+
+### **Enhanced Monitoring Dashboard** ✅ IMPLEMENTED
+- `GET /dashboard` - Comprehensive HTML monitoring dashboard with real-time sync status
+- Real-time auto-refresh every 30 seconds with live sync metrics
+- Interactive sync management controls for processing pending syncs and re-enabling failed events
+- Detailed error analysis with retry patterns and cancellation tracking
+- Bridge-specific health monitoring with performance metrics
+
 ---
 
 ## 5. **Data Mapping** ✅ IMPLEMENTED (Bridge Architecture)

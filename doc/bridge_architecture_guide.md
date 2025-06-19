@@ -37,10 +37,25 @@ The Generic Calendar Bridge Service is a production-ready, extensible platform t
 ### **Database Schema**
 
 The bridge system uses these core tables:
-- `bridge_mappings`: Event synchronization relationships with composite ID support
+- `bridge_mappings`: Event synchronization relationships with composite ID support and sync_status tracking
+  - Includes: `sync_status`, `error_message`, `retry_count`, `updated_at` for comprehensive status tracking
 - `bridge_resource_mappings`: Calendar resource mappings
 - `bridge_sync_logs`: Audit trail and monitoring
 - `bridge_queue`: Asynchronous operation processing
+
+### **Sync Status Management**
+
+The bridge system implements comprehensive sync status tracking with the following states:
+- **synced**: Event successfully synchronized and up-to-date
+- **pending**: Event awaiting synchronization or update
+- **error**: Synchronization failed with error details
+- **cancelled**: Event cancelled/deleted in one system
+
+**Key Features:**
+- Real-time sync status monitoring via `/health/sync-status`
+- Automatic retry mechanisms for failed synchronizations
+- Re-enable workflow for recovering from sync failures
+- Detailed error tracking and resolution capabilities
 
 ### **Composite ID System**
 
@@ -143,15 +158,33 @@ The system provides robust deletion handling in both directions with composite I
 ## 4. **API Endpoints**
 
 ### **Bridge Management**
-```
+
+```bash
 GET    /bridges                                  - List available bridges
 GET    /bridges/{bridge}/calendars               - Get calendars for bridge
 POST   /bridges/sync/{source}/{target}          - Sync between bridges
 GET    /bridges/health                          - Bridge health status
 ```
 
-### **Resource Mapping**
+### **Sync Status Management**
+
+```bash
+GET    /health/sync-status                      - Detailed sync status monitoring
+POST   /health/re-enable-failed                 - Re-enable failed events (all bridges)
+POST   /bridges/process-pending-syncs           - Process pending syncs (all bridges)
+POST   /bridges/process-pending-syncs/{bridge}  - Process pending syncs for specific bridge
+POST   /bridges/re-enable-failed                - Re-enable failed events (all bridges)
+POST   /bridges/re-enable-failed/{bridge}       - Re-enable failed events for specific bridge
+GET    /bridges/sync-stats                      - Get sync statistics (all bridges)
+GET    /bridges/sync-stats/{bridge}             - Get sync statistics for specific bridge
+GET    /bridges/cancelled-events                - Get cancelled events (all bridges)
+GET    /bridges/cancelled-events/{bridge}       - Get cancelled events for specific bridge
+GET    /bridges/{bridge}/pending-events         - Get pending sync events for specific bridge
 ```
+
+### **Resource Mapping**
+
+```bash
 GET    /mappings/resources                      - List resource mappings
 POST   /mappings/resources                      - Create resource mapping
 PUT    /mappings/resources/{id}                 - Update resource mapping
@@ -159,16 +192,21 @@ DELETE /mappings/resources/{id}                 - Delete resource mapping
 ```
 
 ### **Deletion Sync**
-```
+
+```bash
 POST   /bridges/sync-deletions                  - Detect and sync deletions
 POST   /bridges/process-deletion-queue          - Process deletion queue
 ```
 
 ### **Health & Monitoring**
-```
+
+```bash
 GET    /health                                  - Quick health check
 GET    /health/system                           - Comprehensive system health
+GET    /health/dashboard                        - Dashboard data (JSON)
+GET    /dashboard                               - Monitoring dashboard (HTML)
 POST   /alerts/check                            - Run alert checks
+GET    /alerts                                  - Get active alerts
 ```
 
 ---

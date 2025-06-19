@@ -17,12 +17,14 @@ A **production-ready, extensible calendar synchronization platform** that acts a
 
 - ✅ **Universal Bridge System** - Connect any calendar to any other calendar
 - ✅ **Complete Bidirectional Sync** - Events flow seamlessly between systems
+- ✅ **Comprehensive Sync Status Tracking** - Real-time monitoring, error recovery, and retry mechanisms
 - ✅ **Automatic Deletion Handling** - Detects and syncs deletions across systems
 - ✅ **Resource Mapping Management** - Map booking resources to calendar systems
 - ✅ **Webhook-Free Operation** - Works perfectly with polling (no public IP needed)
 - ✅ **Real-time Webhooks** - Optional instant sync for internet-accessible systems
-- ✅ **RESTful API** - Comprehensive endpoints for all operations
-- ✅ **Health Monitoring** - Statistics, logs, and system monitoring
+- ✅ **RESTful API** - Comprehensive endpoints for all operations including sync status management
+- ✅ **Health Monitoring** - Statistics, logs, and real-time sync status monitoring
+- ✅ **Interactive Dashboard** - Web-based monitoring interface with sync management controls
 - ✅ **Docker Containerized** - Easy deployment and scaling
 
 ## 🏗️ Architecture
