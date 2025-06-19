@@ -121,8 +121,38 @@ class OutlookBridge extends AbstractCalendarBridge
             $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
             $createdEvent = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->post($outlookEvent)->wait();
             
-            return $createdEvent->getId();
+            $eventId = $createdEvent->getId();
+            
+            // Create event mapping with synced status
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->createEventMapping(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_event_id'],
+                    $eventId,
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    'source_to_target',
+                    'synced',
+                    $event
+                );
+            }
+            
+            return $eventId;
+            
         } catch (\Exception $e) {
+            // Mark as error if mapping context exists
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'error',
+                    $e->getMessage()
+                );
+            }
             throw new \Exception("Failed to create event: " . $e->getMessage());
         }
     }
@@ -139,8 +169,33 @@ class OutlookBridge extends AbstractCalendarBridge
             $outlookEvent = $this->mapGenericEventToOutlookSDK($event);
             $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->patch($outlookEvent)->wait();
             
+            // Update sync status
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'synced'
+                );
+            }
+            
             return true;
+            
         } catch (\Exception $e) {
+            // Mark as error if mapping context exists
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'error',
+                    $e->getMessage()
+                );
+            }
             throw new \Exception("Failed to update event: " . $e->getMessage());
         }
     }
@@ -152,8 +207,35 @@ class OutlookBridge extends AbstractCalendarBridge
         try {
             $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->delete()->wait();
             
+            // Mark related mappings as cancelled (find by target event ID)
+            try {
+                $stmt = $this->db->prepare("
+                    UPDATE bridge_mappings 
+                    SET sync_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+                    WHERE target_event_id = ? AND target_bridge = ?
+                ");
+                $stmt->execute([$eventId, $this->getBridgeType()]);
+                
+                $this->logger->info('Marked mappings as cancelled for deleted Outlook event', [
+                    'event_id' => $eventId,
+                    'calendar_id' => $calendarId
+                ]);
+                
+            } catch (\Exception $e) {
+                $this->logger->error('Failed to update mapping status for deleted Outlook event', [
+                    'event_id' => $eventId,
+                    'error' => $e->getMessage()
+                ]);
+            }
+            
             return true;
+            
         } catch (\Exception $e) {
+            $this->logger->error('Failed to delete Outlook event', [
+                'calendar_id' => $calendarId,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
             throw new \Exception("Failed to delete event: " . $e->getMessage());
         }
     }
@@ -964,6 +1046,179 @@ class OutlookBridge extends AbstractCalendarBridge
                 'bridge' => 'outlook'
             ]);
             throw $e;
+        }
+    }
+    
+    /**
+     * Re-enable failed events for Outlook bridge
+     */
+    public function reEnableFailedEvents($eventIds = []): int
+    {
+        try {
+            $sql = "
+                UPDATE bridge_mappings 
+                SET sync_status = 'pending', 
+                    retry_count = 0, 
+                    error_message = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE sync_status = 'error'
+                AND (target_bridge = ? OR source_bridge = ?)
+            ";
+            
+            $params = [$this->getBridgeType(), $this->getBridgeType()];
+            
+            if (!empty($eventIds)) {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $sql .= " AND (source_event_id IN ($placeholders) OR target_event_id IN ($placeholders))";
+                $params = array_merge($params, $eventIds, $eventIds);
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $count = $stmt->rowCount();
+            
+            $this->logger->info("OutlookBridge: Re-enabled {$count} failed events");
+            
+            return $count;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to re-enable failed events for Outlook bridge', [
+                'error' => $e->getMessage()
+            ]);
+            return 0;
+        }
+    }
+    
+    /**
+     * Process pending synchronizations for Outlook bridge
+     */
+    public function processPendingSyncs($batchSize = 50): array
+    {
+        try {
+            $pendingEvents = $this->getEventsToSync($this->getBridgeType(), 3);
+            $processed = [];
+            $errors = [];
+            
+            foreach (array_slice($pendingEvents, 0, $batchSize) as $mapping) {
+                try {
+                    // Determine sync direction and process accordingly
+                    if ($mapping['source_bridge'] === $this->getBridgeType()) {
+                        // We are the source - sync to target
+                        $processed[] = $this->processPendingSyncAsSource($mapping);
+                    } else {
+                        // We are the target - sync from source  
+                        $processed[] = $this->processPendingSyncAsTarget($mapping);
+                    }
+                    
+                } catch (\Exception $e) {
+                    $errors[] = [
+                        'mapping_id' => $mapping['id'],
+                        'error' => $e->getMessage()
+                    ];
+                    
+                    // Update mapping with error status
+                    $this->updateSyncStatus(
+                        $mapping['source_bridge'],
+                        $mapping['target_bridge'],
+                        $mapping['source_calendar_id'],
+                        $mapping['target_calendar_id'],
+                        $mapping['source_event_id'],
+                        'error',
+                        $e->getMessage()
+                    );
+                }
+            }
+            
+            return [
+                'processed' => count($processed),
+                'errors' => count($errors),
+                'error_details' => $errors,
+                'success_details' => $processed
+            ];
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to process pending syncs for Outlook bridge', [
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'processed' => 0,
+                'errors' => 1,
+                'error_details' => [['error' => $e->getMessage()]]
+            ];
+        }
+    }
+    
+    /**
+     * Process pending sync where Outlook bridge is the source
+     */
+    private function processPendingSyncAsSource($mapping): array
+    {
+        // Get the current event from Outlook
+        $event = $this->getEventById($mapping['source_calendar_id'], $mapping['source_event_id']);
+        
+        if (!$event) {
+            // Event no longer exists - mark as cancelled
+            $this->markEventCancelled(
+                $mapping['source_bridge'],
+                $mapping['target_bridge'],
+                $mapping['source_calendar_id'],
+                $mapping['target_calendar_id'],
+                $mapping['source_event_id']
+            );
+            
+            return [
+                'action' => 'cancelled',
+                'reason' => 'source_event_not_found',
+                'mapping_id' => $mapping['id']
+            ];
+        }
+        
+        // Event exists - update target bridge (handled by BridgeManager)
+        return [
+            'action' => 'updated',
+            'mapping_id' => $mapping['id'],
+            'requires_target_update' => true
+        ];
+    }
+    
+    /**
+     * Process pending sync where Outlook bridge is the target
+     */
+    private function processPendingSyncAsTarget($mapping): array
+    {
+        // For target processing, we would need the source bridge to provide the event
+        // This is typically handled by the BridgeManager coordinating between bridges
+        
+        return [
+            'action' => 'pending_source_coordination',
+            'mapping_id' => $mapping['id'],
+            'requires_source_coordination' => true
+        ];
+    }
+    
+    /**
+     * Get a single event by ID (helper for sync processing)
+     */
+    private function getEventById($calendarId, $eventId): ?array
+    {
+        try {
+            $event = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->get()->wait();
+            
+            if ($event) {
+                return $this->mapOutlookSDKEventToGeneric($event);
+            }
+            
+            return null;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get Outlook event by ID', [
+                'calendar_id' => $calendarId,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
         }
     }
 }

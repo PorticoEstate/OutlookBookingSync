@@ -391,15 +391,47 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function createEvent($calendarId, $event): string
     {
-        // When we're the target, we receive events from other bridges
-        // We need to create a new reservation in our booking system
-        $createdId = $this->createEventViaApi($calendarId, $event);
-        
-        if ($this->debug) {
-            error_log("BookingSystemBridge: Created event with composite ID: {$createdId}");
+        try {
+            // When we're the target, we receive events from other bridges
+            // We need to create a new reservation in our booking system
+            $createdId = $this->createEventViaApi($calendarId, $event);
+            
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Created event with composite ID: {$createdId}");
+            }
+            
+            // Create event mapping with synced status
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->createEventMapping(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_event_id'],
+                    $createdId,
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    'source_to_target',
+                    'synced',
+                    $event
+                );
+            }
+            
+            return $createdId; // Returns composite ID (e.g., "event_12345")
+            
+        } catch (\Exception $e) {
+            // Mark as error if mapping exists
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'error',
+                    $e->getMessage()
+                );
+            }
+            throw $e;
         }
-        
-        return $createdId; // Returns composite ID (e.g., "event_12345")
     }
 
     /**
@@ -407,14 +439,45 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function updateEvent($calendarId, $eventId, $event): bool
     {
-        // Extract original ID from composite ID for API call
-        $originalId = $this->extractOriginalId($eventId);
-        
-        if ($this->debug) {
-            error_log("BookingSystemBridge: Updating event - composite ID: {$eventId}, original ID: {$originalId}");
+        try {
+            // Extract original ID from composite ID for API call
+            $originalId = $this->extractOriginalId($eventId);
+            
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Updating event - composite ID: {$eventId}, original ID: {$originalId}");
+            }
+            
+            $success = $this->updateEventViaApi($calendarId, $eventId, $event);
+            
+            // Update sync status
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'synced'
+                );
+            }
+            
+            return $success;
+            
+        } catch (\Exception $e) {
+            // Mark as error if mapping exists
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                $this->updateSyncStatus(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId,
+                    $event['source_event_id'],
+                    'error',
+                    $e->getMessage()
+                );
+            }
+            throw $e;
         }
-        
-        return $this->updateEventViaApi($calendarId, $eventId, $event);
     }
 
     /**
@@ -422,14 +485,46 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function deleteEvent($calendarId, $eventId): bool
     {
-        // Extract original ID from composite ID for API call
-        $originalId = $this->extractOriginalId($eventId);
-        
-        if ($this->debug) {
-            error_log("BookingSystemBridge: Deleting event - composite ID: {$eventId}, original ID: {$originalId}");
+        try {
+            // Extract original ID from composite ID for API call
+            $originalId = $this->extractOriginalId($eventId);
+            
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Deleting event - composite ID: {$eventId}, original ID: {$originalId}");
+            }
+            
+            $success = $this->deleteEventViaApi($calendarId, $eventId);
+            
+            // Mark related mappings as cancelled (find by target event ID)
+            try {
+                $stmt = $this->db->prepare("
+                    UPDATE bridge_mappings 
+                    SET sync_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+                    WHERE target_event_id = ? AND target_bridge = ?
+                ");
+                $stmt->execute([$eventId, $this->getBridgeType()]);
+                
+                if ($this->debug) {
+                    error_log("BookingSystemBridge: Marked mappings as cancelled for event: {$eventId}");
+                }
+                
+            } catch (\Exception $e) {
+                $this->logger->error('Failed to update mapping status for deleted event', [
+                    'event_id' => $eventId,
+                    'error' => $e->getMessage()
+                ]);
+            }
+            
+            return $success;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to delete event in booking system', [
+                'calendar_id' => $calendarId,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
-        
-        return $this->deleteEventViaApi($calendarId, $eventId);
     }
 
     /**
@@ -1507,5 +1602,182 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
     }
 
- 
+    /**
+     * Re-enable failed events (set from error back to pending)
+     */
+    public function reEnableFailedEvents($eventIds = []): int
+    {
+        try {
+            $sql = "
+                UPDATE bridge_mappings 
+                SET sync_status = 'pending', 
+                    retry_count = 0, 
+                    error_message = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE sync_status = 'error'
+                AND (target_bridge = ? OR source_bridge = ?)
+            ";
+            
+            $params = [$this->getBridgeType(), $this->getBridgeType()];
+            
+            if (!empty($eventIds)) {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $sql .= " AND (source_event_id IN ($placeholders) OR target_event_id IN ($placeholders))";
+                $params = array_merge($params, $eventIds, $eventIds);
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $count = $stmt->rowCount();
+            
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Re-enabled {$count} failed events");
+            }
+            
+            return $count;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to re-enable failed events', [
+                'bridge' => $this->getBridgeType(),
+                'error' => $e->getMessage()
+            ]);
+            return 0;
+        }
+    }
+
+    /**
+     * Process pending synchronizations for this bridge
+     */
+    public function processPendingSyncs($batchSize = 50): array
+    {
+        try {
+            $pendingEvents = $this->getEventsToSync($this->getBridgeType(), 3);
+            $processed = [];
+            $errors = [];
+            
+            foreach (array_slice($pendingEvents, 0, $batchSize) as $mapping) {
+                try {
+                    // Determine sync direction and process accordingly
+                    if ($mapping['source_bridge'] === $this->getBridgeType()) {
+                        // We are the source - sync to target
+                        $processed[] = $this->processPendingSyncAsSource($mapping);
+                    } else {
+                        // We are the target - sync from source  
+                        $processed[] = $this->processPendingSyncAsTarget($mapping);
+                    }
+                    
+                } catch (\Exception $e) {
+                    $errors[] = [
+                        'mapping_id' => $mapping['id'],
+                        'error' => $e->getMessage()
+                    ];
+                    
+                    // Update mapping with error status
+                    $this->updateSyncStatus(
+                        $mapping['source_bridge'],
+                        $mapping['target_bridge'],
+                        $mapping['source_calendar_id'],
+                        $mapping['target_calendar_id'],
+                        $mapping['source_event_id'],
+                        'error',
+                        $e->getMessage()
+                    );
+                }
+            }
+            
+            return [
+                'processed' => count($processed),
+                'errors' => count($errors),
+                'error_details' => $errors,
+                'success_details' => $processed
+            ];
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to process pending syncs', [
+                'bridge' => $this->getBridgeType(),
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'processed' => 0,
+                'errors' => 1,
+                'error_details' => [['error' => $e->getMessage()]]
+            ];
+        }
+    }
+
+    /**
+     * Process pending sync where this bridge is the source
+     */
+    private function processPendingSyncAsSource($mapping): array
+    {
+        // Get the current event from our bridge
+        $event = $this->getEventById($mapping['source_calendar_id'], $mapping['source_event_id']);
+        
+        if (!$event) {
+            // Event no longer exists - mark as cancelled
+            $this->markEventCancelled(
+                $mapping['source_bridge'],
+                $mapping['target_bridge'],
+                $mapping['source_calendar_id'],
+                $mapping['target_calendar_id'],
+                $mapping['source_event_id']
+            );
+            
+            return [
+                'action' => 'cancelled',
+                'reason' => 'source_event_not_found',
+                'mapping_id' => $mapping['id']
+            ];
+        }
+        
+        // Event exists - update target bridge (handled by BridgeManager)
+        return [
+            'action' => 'updated',
+            'mapping_id' => $mapping['id'],
+            'requires_target_update' => true
+        ];
+    }
+
+    /**
+     * Process pending sync where this bridge is the target
+     */
+    private function processPendingSyncAsTarget($mapping): array
+    {
+        // For target processing, we would need the source bridge to provide the event
+        // This is typically handled by the BridgeManager coordinating between bridges
+        
+        return [
+            'action' => 'pending_source_coordination',
+            'mapping_id' => $mapping['id'],
+            'requires_source_coordination' => true
+        ];
+    }
+
+    /**
+     * Get a single event by ID (helper for sync processing)
+     */
+    private function getEventById($calendarId, $eventId): ?array
+    {
+        try {
+            $events = $this->getEvents($calendarId, date('Y-m-d', strtotime('-1 year')), date('Y-m-d', strtotime('+1 year')));
+            
+            foreach ($events as $event) {
+                if ($event['id'] === $eventId) {
+                    return $event;
+                }
+            }
+            
+            return null;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get event by ID', [
+                'calendar_id' => $calendarId,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
 }

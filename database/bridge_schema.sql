@@ -11,9 +11,13 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     source_event_id VARCHAR(255) NOT NULL,
     target_event_id VARCHAR(255) NOT NULL,
     sync_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'source_to_target', 'target_to_source', 'bidirectional'
+    sync_status VARCHAR(20) DEFAULT 'pending' NOT NULL, -- 'pending', 'synced', 'cancelled', 'error'
     event_data JSONB,
     last_synced_at TIMESTAMP,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id)
 );
 
@@ -98,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_active ON bridge_resourc
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_synced_at);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync_status ON bridge_mappings(sync_status);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_retry ON bridge_mappings(retry_count) WHERE sync_status = 'error';
 
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_created ON bridge_sync_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_status ON bridge_sync_logs(status);

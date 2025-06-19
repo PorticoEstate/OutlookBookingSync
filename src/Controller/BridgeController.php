@@ -878,4 +878,201 @@ class BridgeController
         }
     }
 
+    /**
+     * Process pending syncs for a specific bridge or all bridges
+     */
+    public function processPendingSyncs(Request $request, Response $response, $args)
+    {
+        try {
+            $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $bridgeName = $args['bridgeName'] ?? null;
+            $batchSize = $body['batch_size'] ?? 50;
+            
+            // Process pending syncs
+            $results = $this->bridgeManager->processPendingSyncs($bridgeName, $batchSize);
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Pending syncs processed',
+                'results' => $results
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to process pending syncs', [
+                'bridge' => $bridgeName ?? 'all',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Re-enable failed events for a bridge
+     */
+    public function reEnableFailedEvents(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'] ?? null;
+            $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $eventIds = $body['event_ids'] ?? [];
+            
+            // Re-enable failed events
+            $results = $this->bridgeManager->reEnableFailedEvents($bridgeName, $eventIds);
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Failed events re-enabled',
+                'results' => $results
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to re-enable failed events', [
+                'bridge' => $bridgeName ?? 'all',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Get sync statistics for all bridges
+     */
+    public function getSyncStats(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'] ?? null;
+            
+            if ($bridgeName) {
+                // Get stats for specific bridge
+                $bridge = $this->bridgeManager->getBridge($bridgeName);
+                $stats = $bridge->getSyncStats();
+                
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'bridge_name' => $bridgeName,
+                    'stats' => $stats
+                ]));
+            } else {
+                // Get stats for all bridges
+                $allStats = $this->bridgeManager->getAllSyncStats();
+                
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'all_bridge_stats' => $allStats
+                ]));
+            }
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get sync stats', [
+                'bridge' => $bridgeName ?? 'all',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Get cancelled events for cleanup
+     */
+    public function getCancelledEvents(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'] ?? null;
+            
+            if ($bridgeName) {
+                // Get cancelled events for specific bridge
+                $bridge = $this->bridgeManager->getBridge($bridgeName);
+                $cancelledEvents = $bridge->getCancelledEvents();
+                
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'bridge_name' => $bridgeName,
+                    'cancelled_events' => $cancelledEvents,
+                    'count' => count($cancelledEvents)
+                ]));
+            } else {
+                // Get cancelled events for all bridges
+                $allCancelledEvents = $this->bridgeManager->getAllCancelledEvents();
+                
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'all_cancelled_events' => $allCancelledEvents
+                ]));
+            }
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get cancelled events', [
+                'bridge' => $bridgeName ?? 'all',
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    
+    /**
+     * Get events pending sync for a bridge
+     */
+    public function getPendingSyncEvents(Request $request, Response $response, $args)
+    {
+        try {
+            $bridgeName = $args['bridgeName'];
+            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            
+            $pendingEvents = $bridge->getEventsToSync($bridgeName, 3);
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge_name' => $bridgeName,
+                'pending_events' => $pendingEvents,
+                'count' => count($pendingEvents)
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get pending sync events', [
+                'bridge' => $bridgeName,
+                'error' => $e->getMessage()
+            ]);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+            
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }

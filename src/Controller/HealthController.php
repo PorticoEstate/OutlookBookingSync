@@ -360,15 +360,17 @@ class HealthController
     }
 
     /**
-     * Check sync status
+     * Check sync status with detailed breakdown
      */
     private function checkSyncStatus()
     {
         try {
+            // Get sync status breakdown
             $stmt = $this->db->prepare("
                 SELECT 
                     sync_status,
-                    COUNT(*) as count
+                    COUNT(*) as count,
+                    MAX(updated_at) as last_updated
                 FROM bridge_mappings 
                 GROUP BY sync_status
             ");
@@ -377,26 +379,76 @@ class HealthController
 
             $stats = [];
             $totalItems = 0;
+            $lastActivity = null;
+            
             foreach ($results as $row) {
-                $stats[$row['sync_status']] = $row['count'];
+                $stats[$row['sync_status']] = [
+                    'count' => $row['count'],
+                    'last_updated' => $row['last_updated']
+                ];
                 $totalItems += $row['count'];
+                
+                if ($row['last_updated'] && (!$lastActivity || $row['last_updated'] > $lastActivity)) {
+                    $lastActivity = $row['last_updated'];
+                }
             }
 
-            $errorCount = $stats['error'] ?? 0;
+            $errorCount = $stats['error']['count'] ?? 0;
+            $pendingCount = $stats['pending']['count'] ?? 0;
+            $syncedCount = $stats['synced']['count'] ?? 0;
+            $cancelledCount = $stats['cancelled']['count'] ?? 0;
+            
             $errorRate = $totalItems > 0 ? round(($errorCount / $totalItems) * 100, 2) : 0;
+            $pendingRate = $totalItems > 0 ? round(($pendingCount / $totalItems) * 100, 2) : 0;
 
+            // Determine overall sync health
             $status = 'healthy';
+            $issues = [];
+            
             if ($errorRate > 10) {
                 $status = 'critical';
+                $issues[] = "High error rate: {$errorRate}%";
             } elseif ($errorRate > 5) {
                 $status = 'warning';
+                $issues[] = "Elevated error rate: {$errorRate}%";
+            }
+            
+            if ($pendingRate > 20) {
+                $status = ($status === 'critical') ? 'critical' : 'warning';
+                $issues[] = "High pending rate: {$pendingRate}%";
+            }
+            
+            // Check for stuck syncs (pending items older than 1 hour)
+            $stuckStmt = $this->db->prepare("
+                SELECT COUNT(*) as stuck_count
+                FROM bridge_mappings 
+                WHERE sync_status = 'pending' 
+                AND updated_at < NOW() - INTERVAL '1 hour'
+            ");
+            $stuckStmt->execute();
+            $stuckResult = $stuckStmt->fetch(PDO::FETCH_ASSOC);
+            $stuckCount = $stuckResult['stuck_count'];
+            
+            if ($stuckCount > 0) {
+                $status = ($status === 'critical') ? 'critical' : 'warning';
+                $issues[] = "Stuck syncs detected: {$stuckCount}";
             }
 
             return [
                 'status' => $status,
                 'total_items' => $totalItems,
                 'error_rate_percent' => $errorRate,
-                'sync_breakdown' => $stats
+                'pending_rate_percent' => $pendingRate,
+                'last_activity' => $lastActivity,
+                'stuck_syncs' => $stuckCount,
+                'issues' => $issues,
+                'breakdown' => [
+                    'synced' => $syncedCount,
+                    'pending' => $pendingCount,
+                    'error' => $errorCount,
+                    'cancelled' => $cancelledCount
+                ],
+                'detailed_stats' => $stats
             ];
 
         } catch (Exception $e) {
@@ -725,5 +777,246 @@ class HealthController
         }
         
         return $memoryLimit;
+    }
+
+    /**
+     * Get detailed sync status for monitoring
+     */
+    public function getSyncStatusDetails(Request $request, Response $response, $args)
+    {
+        try {
+            $syncDetails = [
+                'timestamp' => date('Y-m-d H:i:s'),
+                'overall_sync_health' => $this->checkSyncStatus(),
+                'bridge_sync_stats' => $this->getBridgeSyncStats(),
+                'retry_analysis' => $this->getRetryAnalysis(),
+                'cancellation_stats' => $this->getCancellationStats(),
+                'sync_performance' => $this->getSyncPerformanceMetrics()
+            ];
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'sync_status' => $syncDetails
+            ], JSON_PRETTY_PRINT));
+
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (Exception $e) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Sync status details retrieval failed: ' . $e->getMessage()
+            ]));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+    }
+    
+    /**
+     * Re-enable failed events endpoint
+     */
+    public function reEnableFailedEvents(Request $request, Response $response, $args)
+    {
+        try {
+            $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $bridgeName = $body['bridge_name'] ?? null;
+            $eventIds = $body['event_ids'] ?? [];
+            
+            // Re-enable failed events via BridgeManager
+            $sql = "
+                UPDATE bridge_mappings 
+                SET sync_status = 'pending', 
+                    retry_count = 0, 
+                    error_message = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE sync_status = 'error'
+            ";
+            
+            $params = [];
+            
+            if ($bridgeName) {
+                $sql .= " AND (source_bridge = ? OR target_bridge = ?)";
+                $params = [$bridgeName, $bridgeName];
+            }
+            
+            if (!empty($eventIds)) {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $sql .= " AND (source_event_id IN ($placeholders) OR target_event_id IN ($placeholders))";
+                $params = array_merge($params, $eventIds, $eventIds);
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $reEnabledCount = $stmt->rowCount();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => "Re-enabled {$reEnabledCount} failed events",
+                're_enabled_count' => $reEnabledCount,
+                'bridge_name' => $bridgeName,
+                'event_ids_filter' => $eventIds
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (Exception $e) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Failed to re-enable failed events: ' . $e->getMessage()
+            ]));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+    }
+    
+    /**
+     * Get bridge-specific sync stats
+     */
+    private function getBridgeSyncStats()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    source_bridge,
+                    target_bridge,
+                    sync_status,
+                    COUNT(*) as count,
+                    AVG(retry_count) as avg_retries,
+                    MAX(updated_at) as last_activity
+                FROM bridge_mappings 
+                GROUP BY source_bridge, target_bridge, sync_status
+                ORDER BY source_bridge, target_bridge, sync_status
+            ");
+            $stmt->execute();
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $stats = [];
+            foreach ($results as $row) {
+                $bridgePair = $row['source_bridge'] . ' -> ' . $row['target_bridge'];
+                if (!isset($stats[$bridgePair])) {
+                    $stats[$bridgePair] = [];
+                }
+                $stats[$bridgePair][$row['sync_status']] = [
+                    'count' => $row['count'],
+                    'avg_retries' => round($row['avg_retries'], 2),
+                    'last_activity' => $row['last_activity']
+                ];
+            }
+            
+            return $stats;
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get retry analysis
+     */
+    private function getRetryAnalysis()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    retry_count,
+                    sync_status,
+                    COUNT(*) as count
+                FROM bridge_mappings 
+                WHERE retry_count > 0
+                GROUP BY retry_count, sync_status
+                ORDER BY retry_count, sync_status
+            ");
+            $stmt->execute();
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $analysis = [
+                'total_with_retries' => 0,
+                'max_retry_count' => 0,
+                'retry_breakdown' => []
+            ];
+            
+            foreach ($results as $row) {
+                $analysis['total_with_retries'] += $row['count'];
+                $analysis['max_retry_count'] = max($analysis['max_retry_count'], $row['retry_count']);
+                
+                if (!isset($analysis['retry_breakdown'][$row['retry_count']])) {
+                    $analysis['retry_breakdown'][$row['retry_count']] = [];
+                }
+                $analysis['retry_breakdown'][$row['retry_count']][$row['sync_status']] = $row['count'];
+            }
+            
+            return $analysis;
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get cancellation statistics
+     */
+    private function getCancellationStats()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    source_bridge,
+                    target_bridge,
+                    COUNT(*) as cancelled_count,
+                    MAX(updated_at) as last_cancellation
+                FROM bridge_mappings 
+                WHERE sync_status = 'cancelled'
+                GROUP BY source_bridge, target_bridge
+                ORDER BY cancelled_count DESC
+            ");
+            $stmt->execute();
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'total_cancelled' => array_sum(array_column($results, 'cancelled_count')),
+                'by_bridge_pair' => $results
+            ];
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get sync performance metrics
+     */
+    private function getSyncPerformanceMetrics()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    DATE(updated_at) as sync_date,
+                    sync_status,
+                    COUNT(*) as count
+                FROM bridge_mappings 
+                WHERE updated_at > NOW() - INTERVAL '7 days'
+                GROUP BY DATE(updated_at), sync_status
+                ORDER BY sync_date DESC, sync_status
+            ");
+            $stmt->execute();
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $metrics = [
+                'daily_sync_activity' => [],
+                'status_trends' => []
+            ];
+            
+            foreach ($results as $row) {
+                $date = $row['sync_date'];
+                if (!isset($metrics['daily_sync_activity'][$date])) {
+                    $metrics['daily_sync_activity'][$date] = [];
+                }
+                $metrics['daily_sync_activity'][$date][$row['sync_status']] = $row['count'];
+                
+                if (!isset($metrics['status_trends'][$row['sync_status']])) {
+                    $metrics['status_trends'][$row['sync_status']] = 0;
+                }
+                $metrics['status_trends'][$row['sync_status']] += $row['count'];
+            }
+            
+            return $metrics;
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
     }
 }

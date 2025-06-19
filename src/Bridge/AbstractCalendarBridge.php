@@ -784,4 +784,245 @@ abstract class AbstractCalendarBridge
         
         return $debug;
     }
+    
+    /**
+     * Sync Status Management Methods
+     */
+    
+    /**
+     * Update sync status for an event mapping
+     */
+    protected function updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $status, $errorMessage = null): bool
+    {
+        try {
+            $stmt = $this->db->prepare("
+                UPDATE bridge_mappings 
+                SET sync_status = ?, 
+                    error_message = ?,
+                    retry_count = CASE 
+                        WHEN ? = 'error' THEN retry_count + 1 
+                        WHEN ? = 'synced' THEN 0 
+                        ELSE retry_count 
+                    END,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_synced_at = CASE WHEN ? = 'synced' THEN CURRENT_TIMESTAMP ELSE last_synced_at END
+                WHERE source_bridge = ? 
+                    AND target_bridge = ? 
+                    AND source_calendar_id = ? 
+                    AND target_calendar_id = ? 
+                    AND source_event_id = ?
+            ");
+            
+            return $stmt->execute([
+                $status, 
+                $errorMessage, 
+                $status, 
+                $status, 
+                $status,
+                $sourceBridge, 
+                $targetBridge, 
+                $sourceCalendarId, 
+                $targetCalendarId, 
+                $sourceEventId
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to update sync status', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_event_id' => $sourceEventId,
+                'status' => $status
+            ]);
+            return false;
+        }
+    }
+    
+    /**
+     * Create a new event mapping with sync status
+     */
+    protected function createEventMapping($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $eventData = null, $syncDirection = 'bidirectional'): bool
+    {
+        try {
+            $stmt = $this->db->prepare("
+                INSERT INTO bridge_mappings 
+                (source_bridge, target_bridge, source_calendar_id, target_calendar_id, 
+                 source_event_id, target_event_id, sync_direction, sync_status, event_data, 
+                 created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id)
+                DO UPDATE SET 
+                    target_event_id = EXCLUDED.target_event_id,
+                    sync_status = 'synced',
+                    event_data = EXCLUDED.event_data,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_synced_at = CURRENT_TIMESTAMP,
+                    retry_count = 0,
+                    error_message = NULL
+            ");
+            
+            return $stmt->execute([
+                $sourceBridge, 
+                $targetBridge, 
+                $sourceCalendarId, 
+                $targetCalendarId, 
+                $sourceEventId, 
+                $targetEventId, 
+                $syncDirection,
+                json_encode($eventData)
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to create event mapping', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_event_id' => $sourceEventId,
+                'target_event_id' => $targetEventId
+            ]);
+            return false;
+        }
+    }
+    
+    /**
+     * Mark event as cancelled
+     */
+    protected function markEventCancelled($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId): bool
+    {
+        return $this->updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, 'cancelled');
+    }
+    
+    /**
+     * Mark event as pending for re-sync
+     */
+    protected function markEventPending($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId): bool
+    {
+        try {
+            // Clear target event ID and reset status for re-sync
+            $stmt = $this->db->prepare("
+                UPDATE bridge_mappings 
+                SET sync_status = 'pending',
+                    target_event_id = '',
+                    error_message = NULL,
+                    retry_count = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE source_bridge = ? 
+                    AND target_bridge = ? 
+                    AND source_calendar_id = ? 
+                    AND target_calendar_id = ? 
+                    AND source_event_id = ?
+            ");
+            
+            return $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId]);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to mark event as pending', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_event_id' => $sourceEventId
+            ]);
+            return false;
+        }
+    }
+    
+    /**
+     * Get events that need syncing (pending or error with retry limit)
+     */
+    protected function getEventsToSync($sourceBridge, $targetBridge, $maxRetries = 3): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT * FROM bridge_mappings 
+                WHERE source_bridge = ? 
+                    AND target_bridge = ? 
+                    AND (sync_status = 'pending' OR (sync_status = 'error' AND retry_count < ?))
+                ORDER BY 
+                    CASE sync_status 
+                        WHEN 'pending' THEN 1 
+                        WHEN 'error' THEN 2 
+                        ELSE 3 
+                    END,
+                    created_at ASC
+                LIMIT 100
+            ");
+            
+            $stmt->execute([$sourceBridge, $targetBridge, $maxRetries]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get events to sync', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
+            return [];
+        }
+    }
+    
+    /**
+     * Get cancelled events for cleanup
+     */
+    protected function getCancelledEvents($sourceBridge, $targetBridge): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT * FROM bridge_mappings 
+                WHERE source_bridge = ? 
+                    AND target_bridge = ? 
+                    AND sync_status = 'cancelled'
+                    AND target_event_id != ''
+                ORDER BY updated_at ASC
+                LIMIT 50
+            ");
+            
+            $stmt->execute([$sourceBridge, $targetBridge]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get cancelled events', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
+            return [];
+        }
+    }
+    
+    /**
+     * Get sync status statistics
+     */
+    protected function getSyncStats($sourceBridge = null, $targetBridge = null): array
+    {
+        try {
+            $whereClause = "WHERE 1=1";
+            $params = [];
+            
+            if ($sourceBridge) {
+                $whereClause .= " AND source_bridge = ?";
+                $params[] = $sourceBridge;
+            }
+            
+            if ($targetBridge) {
+                $whereClause .= " AND target_bridge = ?";
+                $params[] = $targetBridge;
+            }
+            
+            $stmt = $this->db->prepare("
+                SELECT 
+                    sync_status,
+                    COUNT(*) as count,
+                    AVG(retry_count) as avg_retries,
+                    MAX(retry_count) as max_retries
+                FROM bridge_mappings 
+                $whereClause
+                GROUP BY sync_status
+            ");
+            
+            $stmt->execute($params);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get sync stats', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
+            return [];
+        }
+    }
 }
