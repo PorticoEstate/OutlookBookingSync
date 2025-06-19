@@ -79,12 +79,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         try
         {
+            // Load session from global session storage
+            $this->sessionInfo = $this->getSession('auth_session', []);
+            
             // Check if we have cached session info and if it's still valid
             if ($this->isSessionValid())
             {
                 if ($this->debug ?? false)
                 {
-                    error_log("BookingSystemBridge: Using existing valid session");
+                    error_log("BookingSystemBridge: Using existing valid session from storage");
                 }
                 return;
             }
@@ -114,14 +117,28 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function isSessionValid(): bool
     {
+        // First check if we have session data in memory
         if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
         {
-            return false;
+            // Try to load from global session storage
+            $this->sessionInfo = $this->getSession('auth_session', []);
+            
+            if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
+            {
+                return false;
+            }
         }
 
-        // Check if session has expired
+        // Check if session has expired using last_activity
         $lastActivity = $this->sessionInfo['last_activity'] ?? 0;
         $isValid = (time() - $lastActivity) < $this->sessionTimeout;
+
+        if (!$isValid)
+        {
+            // Session expired, clear it from storage
+            $this->clearSession('auth_session');
+            $this->sessionInfo = [];
+        }
 
         if ($this->debug ?? false)
         {
@@ -152,20 +169,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         if (!$response)
         {
+            $this->clearBookingSystemSession();
             throw new \Exception("Login to booking system failed - empty response");
         }
 
         $this->sessionInfo = is_array($response) ? $response : json_decode($response, true);
         if (!$this->sessionInfo || !isset($this->sessionInfo['session_id']))
         {
+            $this->clearBookingSystemSession();
             throw new \Exception("Invalid login response from booking system: " . print_r($response, true));
         }
 
         $this->sessionInfo['last_activity'] = time();
 
+        // Store session in global session storage with TTL
+        $this->setSession('auth_session', $this->sessionInfo, $this->sessionTimeout);
+
         if ($this->debug ?? false)
         {
-            error_log("BookingSystemBridge: Login successful, session ID: " . substr($this->sessionInfo['session_id'], 0, 8) . "...");
+            error_log("BookingSystemBridge: Login successful, session ID: " . substr($this->sessionInfo['session_id'], 0, 8) . "... (stored in session)");
         }
     }
 
@@ -190,16 +212,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $response = $this->makeHttpRequest('GET', $url);
             $this->sessionInfo['last_activity'] = time();
 
+            // Update session in global session storage
+            $this->setSession('auth_session', $this->sessionInfo, $this->sessionTimeout);
+
             if ($this->debug ?? false)
             {
-                error_log("BookingSystemBridge: Session refresh successful");
+                error_log("BookingSystemBridge: Session refreshed and updated in storage");
             }
 
             return true;
         }
         catch (\Exception $e)
         {
-            // Refresh failed, will need to login again
+            // Refresh failed, clear session and will need to login again
+            $this->clearBookingSystemSession();
+            
             if ($this->debug ?? false)
             {
                 error_log("BookingSystemBridge: Session refresh failed: " . $e->getMessage());
@@ -1429,4 +1456,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         return true; // Assume success if no webhook support
     }
+
+    /**
+     * Clear booking system session from storage
+     */
+    private function clearBookingSystemSession(): void
+    {
+        $this->clearSession('auth_session');
+        $this->sessionInfo = [];
+        
+        if ($this->debug ?? false)
+        {
+            error_log("BookingSystemBridge: Session cleared from storage");
+        }
+    }
+
+ 
 }

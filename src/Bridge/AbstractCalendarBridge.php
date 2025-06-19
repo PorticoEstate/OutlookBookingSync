@@ -210,4 +210,224 @@ abstract class AbstractCalendarBridge
             'raw_data' => $data
         ];
     }
+    
+    // Global Session Management System
+    // =================================
+    
+    /**
+     * Initialize session if not already started
+     */
+    protected function initializeSessionStorage(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+    }
+    
+    /**
+     * Get session storage prefix for this bridge
+     */
+    protected function getSessionPrefix(): string
+    {
+        $prefix = $this->config['session_prefix'] ?? 'bridge_';
+        return $prefix . $this->getBridgeType() . '_';
+    }
+    
+    /**
+     * Store data in session with optional TTL
+     * 
+     * @param string $key Session key
+     * @param mixed $data Data to store
+     * @param int $ttl Time to live in seconds (0 = no expiration)
+     */
+    protected function setSession(string $key, $data, int $ttl = 0): void
+    {
+        $this->initializeSessionStorage();
+        
+        $sessionKey = $this->getSessionPrefix() . $key;
+        $sessionData = [
+            'data' => $data,
+            'created_at' => time(),
+            'ttl' => $ttl,
+            'expires_at' => $ttl > 0 ? time() + $ttl : 0
+        ];
+        
+        $_SESSION[$sessionKey] = $sessionData;
+        
+        $this->logOperation('session_set', [
+            'key' => $key,
+            'ttl' => $ttl,
+            'expires_at' => $sessionData['expires_at']
+        ]);
+    }
+    
+    /**
+     * Retrieve data from session
+     * 
+     * @param string $key Session key
+     * @param mixed $default Default value if key doesn't exist or expired
+     * @return mixed
+     */
+    protected function getSession(string $key, $default = null)
+    {
+        $this->initializeSessionStorage();
+        
+        $sessionKey = $this->getSessionPrefix() . $key;
+        
+        if (!isset($_SESSION[$sessionKey])) {
+            return $default;
+        }
+        
+        $sessionData = $_SESSION[$sessionKey];
+        
+        // Check if session data has expired
+        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
+            $this->clearSession($key);
+            $this->logOperation('session_expired', [
+                'key' => $key,
+                'expired_at' => $sessionData['expires_at']
+            ]);
+            return $default;
+        }
+        
+        return $sessionData['data'];
+    }
+    
+    /**
+     * Check if session key exists and is valid
+     * 
+     * @param string $key Session key
+     * @return bool
+     */
+    protected function hasValidSession(string $key): bool
+    {
+        $this->initializeSessionStorage();
+        
+        $sessionKey = $this->getSessionPrefix() . $key;
+        
+        if (!isset($_SESSION[$sessionKey])) {
+            return false;
+        }
+        
+        $sessionData = $_SESSION[$sessionKey];
+        
+        // Check if session data has expired
+        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
+            $this->clearSession($key);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Remove data from session
+     * 
+     * @param string $key Session key
+     */
+    protected function clearSession(string $key): void
+    {
+        $this->initializeSessionStorage();
+        
+        $sessionKey = $this->getSessionPrefix() . $key;
+        
+        if (isset($_SESSION[$sessionKey])) {
+            unset($_SESSION[$sessionKey]);
+            $this->logOperation('session_cleared', ['key' => $key]);
+        }
+    }
+    
+    /**
+     * Clear all sessions for this bridge
+     */
+    protected function clearAllSessions(): void
+    {
+        $this->initializeSessionStorage();
+        
+        $prefix = $this->getSessionPrefix();
+        $clearedKeys = [];
+        
+        foreach ($_SESSION as $sessionKey => $sessionData) {
+            if (strpos($sessionKey, $prefix) === 0) {
+                unset($_SESSION[$sessionKey]);
+                $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+            }
+        }
+        
+        if (!empty($clearedKeys)) {
+            $this->logOperation('session_cleared_all', ['keys' => $clearedKeys]);
+        }
+    }
+    
+    /**
+     * Update session TTL for existing key
+     * 
+     * @param string $key Session key
+     * @param int $ttl New TTL in seconds
+     * @return bool True if updated, false if key doesn't exist
+     */
+    protected function updateSessionTTL(string $key, int $ttl): bool
+    {
+        $this->initializeSessionStorage();
+        
+        $sessionKey = $this->getSessionPrefix() . $key;
+        
+        if (!isset($_SESSION[$sessionKey])) {
+            return false;
+        }
+        
+        $_SESSION[$sessionKey]['ttl'] = $ttl;
+        $_SESSION[$sessionKey]['expires_at'] = $ttl > 0 ? time() + $ttl : 0;
+        
+        $this->logOperation('session_ttl_updated', [
+            'key' => $key,
+            'ttl' => $ttl,
+            'expires_at' => $_SESSION[$sessionKey]['expires_at']
+        ]);
+        
+        return true;
+    }
+    
+    /**
+     * Get session statistics for this bridge
+     * 
+     * @return array
+     */
+    protected function getSessionStats(): array
+    {
+        $this->initializeSessionStorage();
+        
+        $prefix = $this->getSessionPrefix();
+        $stats = [
+            'total_sessions' => 0,
+            'active_sessions' => 0,
+            'expired_sessions' => 0,
+            'sessions' => []
+        ];
+        
+        foreach ($_SESSION as $sessionKey => $sessionData) {
+            if (strpos($sessionKey, $prefix) === 0) {
+                $stats['total_sessions']++;
+                $key = str_replace($prefix, '', $sessionKey);
+                
+                $isExpired = $sessionData['expires_at'] > 0 && time() > $sessionData['expires_at'];
+                
+                if ($isExpired) {
+                    $stats['expired_sessions']++;
+                } else {
+                    $stats['active_sessions']++;
+                }
+                
+                $stats['sessions'][$key] = [
+                    'created_at' => $sessionData['created_at'],
+                    'ttl' => $sessionData['ttl'],
+                    'expires_at' => $sessionData['expires_at'],
+                    'expired' => $isExpired,
+                    'age_seconds' => time() - $sessionData['created_at']
+                ];
+            }
+        }
+        
+        return $stats;
+    }
 }
