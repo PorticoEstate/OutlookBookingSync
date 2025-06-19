@@ -300,8 +300,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return [
             'to_booking_system' => [
                 'subject' => 'title',
-                'start' => 'start_time',
-                'end' => 'end_time',
+                'start' => 'from_',
+                'end' => 'to_',
                 'description' => 'description',
                 'organizer' => 'contact_name',
                 'attendees' => 'contact_email'  // First attendee becomes contact_email
@@ -309,8 +309,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'from_booking_system' => [
                 'title' => 'subject',
                 'name' => 'subject',
-                'start_time' => 'start',
-                'end_time' => 'end',
+                'from_' => 'start',
+                'to_' => 'end',
                 'description' => 'description',
                 'contact_name' => 'organizer',
                 'contact_email' => 'attendees'  // Contact email becomes attendees array
@@ -784,7 +784,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Fallback for common fields if not mapped
         $fallbacks = [
-            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? '',
+            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ??$reservationType ?? '',
             'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
             'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
             'location' => $bookingEvent['location'] ?? $bookingEvent['resource_name'] ?? '',
@@ -1341,19 +1341,29 @@ class BookingSystemBridge extends AbstractCalendarBridge
             return null;
         }
 
-        $startTimestamp = strtotime($start);
-        $endTimestamp = strtotime($end);
-        
-        if ($startTimestamp === false || $endTimestamp === false) {
+        try {
+            // Use DateTime for reliable ISO 8601 parsing with timezone support
+            $startDateTime = new \DateTime($start);
+            $endDateTime = new \DateTime($end);
+            
+            $startTimestamp = $startDateTime->getTimestamp();
+            $endTimestamp = $endDateTime->getTimestamp();
+            
+            return [
+                'start_timestamp' => $startTimestamp,
+                'end_timestamp' => $endTimestamp,
+                'start_iso' => $startDateTime->format('Y-m-d\TH:i:s'),
+                'end_iso' => $endDateTime->format('Y-m-d\TH:i:s')
+            ];
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to parse reservation dates', [
+                'start' => $start,
+                'end' => $end,
+                'error' => $e->getMessage(),
+                'bridge' => 'booking_system'
+            ]);
             return null;
         }
-
-        return [
-            'start_timestamp' => $startTimestamp,
-            'end_timestamp' => $endTimestamp,
-            'start_iso' => date('Y-m-d\TH:i:s', $startTimestamp),
-            'end_iso' => date('Y-m-d\TH:i:s', $endTimestamp)
-        ];
     }
 
     /**

@@ -77,8 +77,15 @@ abstract class AbstractCalendarBridge
             return false;
         }
         
-        // Validate start is before end
-        if (strtotime($event['start']) >= strtotime($event['end'])) {
+        // Validate start is before end - use DateTime for reliable parsing
+        try {
+            $startDateTime = new \DateTime($event['start']);
+            $endDateTime = new \DateTime($event['end']);
+            
+            if ($startDateTime >= $endDateTime) {
+                return false;
+            }
+        } catch (\Exception $e) {
             return false;
         }
         
@@ -131,12 +138,25 @@ abstract class AbstractCalendarBridge
     
     protected function isValidDateTime($dateString): bool
     {
+        // Try standard format first
         $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
-        if ($date === false) {
-            $date = \DateTime::createFromFormat('c', $dateString); // ISO 8601
+        if ($date !== false) {
+            return true;
         }
         
-        return $date !== false;
+        // Try ISO 8601 format with createFromFormat
+        $date = \DateTime::createFromFormat('c', $dateString);
+        if ($date !== false) {
+            return true;
+        }
+        
+        // Fall back to DateTime constructor which is more flexible with ISO 8601
+        try {
+            $date = new \DateTime($dateString);
+            return true;
+        } catch (\Exception $e) {
+            return false;
+        }
     }
     
     protected function normalizeDateTime($dateString): string
