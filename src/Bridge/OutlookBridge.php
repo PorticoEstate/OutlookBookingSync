@@ -128,13 +128,12 @@ class OutlookBridge extends AbstractCalendarBridge
                 $this->createEventMapping(
                     $event['source_bridge'],
                     $this->getBridgeType(),
-                    $event['source_event_id'],
-                    $eventId,
                     $event['source_calendar_id'],
                     $calendarId,
-                    'source_to_target',
-                    'synced',
-                    $event
+                    $event['source_event_id'],
+                    $eventId,
+                    $event,
+                    'source_to_target'
                 );
             }
             
