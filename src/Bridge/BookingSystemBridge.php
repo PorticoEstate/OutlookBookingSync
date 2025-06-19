@@ -1605,8 +1605,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Re-enable failed events (set from error back to pending)
      */
-    public function reEnableFailedEvents($eventIds = []): int
+    public function reEnableFailedEvents(array $eventIds = []): array
     {
+        $results = [
+            're_enabled_count' => 0,
+            'errors' => 0,
+            'error_details' => []
+        ];
+        
         try {
             $sql = "
                 UPDATE bridge_mappings 
@@ -1629,21 +1635,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             
-            $count = $stmt->rowCount();
+            $results['re_enabled_count'] = $stmt->rowCount();
             
             if ($this->debug) {
-                error_log("BookingSystemBridge: Re-enabled {$count} failed events");
+                error_log("BookingSystemBridge: Re-enabled {$results['re_enabled_count']} failed events");
             }
             
-            return $count;
-            
         } catch (\Exception $e) {
+            $results['errors']++;
+            $results['error_details'][] = [
+                'error' => 'Failed to re-enable failed events for BookingSystem bridge: ' . $e->getMessage()
+            ];
+            
             $this->logger->error('Failed to re-enable failed events', [
                 'bridge' => $this->getBridgeType(),
                 'error' => $e->getMessage()
             ]);
-            return 0;
         }
+        
+        return $results;
     }
 
     /**

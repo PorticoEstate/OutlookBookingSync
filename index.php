@@ -369,6 +369,30 @@ $app->post('/webhook/outlook-notifications', function (Request $request, Respons
     return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
 });
 
+// Sync Status Management Routes (added for comprehensive sync_status support)
+// IMPORTANT: These routes must come before the catch-all 404 route
+
+// Get detailed sync status for monitoring
+$app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getSyncStatusDetails']);
+
+// Re-enable failed events endpoint
+$app->post('/health/re-enable-failed', [\App\Controller\HealthController::class, 'reEnableFailedEvents']);
+
+// Process pending syncs for specific bridge or all bridges
+$app->post('/bridges/process-pending-syncs[/{bridgeName}]', [\App\Controller\BridgeController::class, 'processPendingSyncs']);
+
+// Re-enable failed events for specific bridge or all bridges
+$app->post('/bridges/re-enable-failed[/{bridgeName}]', [\App\Controller\BridgeController::class, 'reEnableFailedEvents']);
+
+// Get sync statistics for specific bridge or all bridges
+$app->get('/bridges/sync-stats[/{bridgeName}]', [\App\Controller\BridgeController::class, 'getSyncStats']);
+
+// Get cancelled events for cleanup for specific bridge or all bridges
+$app->get('/bridges/cancelled-events[/{bridgeName}]', [\App\Controller\BridgeController::class, 'getCancelledEvents']);
+
+// Get events pending sync for a specific bridge
+$app->get('/bridges/{bridgeName}/pending-events', [\App\Controller\BridgeController::class, 'getPendingSyncEvents']);
+
 // Custom 404 handler with helpful JSON responses for API endpoints
 $errorHandler = $errorMiddleware->getDefaultErrorHandler();
 $errorHandler->forceContentType('application/json');
@@ -396,6 +420,19 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue',
                 'POST /bridges/sync-deletions' => 'Sync deletions across bridges'
+            ],
+            'sync_status_management' => [
+                'GET /health/sync-status' => 'Get detailed sync status monitoring',
+                'POST /health/re-enable-failed' => 'Re-enable failed events (all bridges)',
+                'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges)',
+                'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge',
+                'POST /bridges/re-enable-failed' => 'Re-enable failed events (all bridges)',
+                'POST /bridges/re-enable-failed/{bridge}' => 'Re-enable failed events for specific bridge',
+                'GET /bridges/sync-stats' => 'Get sync statistics (all bridges)',
+                'GET /bridges/sync-stats/{bridge}' => 'Get sync statistics for specific bridge',
+                'GET /bridges/cancelled-events' => 'Get cancelled events (all bridges)',
+                'GET /bridges/cancelled-events/{bridge}' => 'Get cancelled events for specific bridge',
+                'GET /bridges/{bridge}/pending-events' => 'Get pending sync events for specific bridge'
             ],
             'health_monitoring' => [
                 'GET /health' => 'System health check',

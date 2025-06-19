@@ -441,22 +441,23 @@ class BridgeManager
             }
         } else {
             // Process pending syncs for all bridges
-            foreach ($this->bridges as $name => $bridge) {
-                if (method_exists($bridge, 'processPendingSyncs')) {
-                    try {
+            foreach (array_keys($this->bridges) as $name) {
+                try {
+                    $bridge = $this->getBridge($name);
+                    if (method_exists($bridge, 'processPendingSyncs')) {
                         $results[$name] = $bridge->processPendingSyncs($batchSize);
-                    } catch (\Exception $e) {
-                        $results[$name] = [
-                            'processed' => 0,
-                            'errors' => 1,
-                            'error_details' => [['error' => $e->getMessage()]]
-                        ];
-                        
-                        $this->logger->error('Failed to process pending syncs for bridge', [
-                            'bridge' => $name,
-                            'error' => $e->getMessage()
-                        ]);
                     }
+                } catch (\Exception $e) {
+                    $results[$name] = [
+                        'processed' => 0,
+                        'errors' => 1,
+                        'error_details' => [['error' => $e->getMessage()]]
+                    ];
+                    
+                    $this->logger->error('Failed to process pending syncs for bridge', [
+                        'bridge' => $name,
+                        'error' => $e->getMessage()
+                    ]);
                 }
             }
         }
@@ -479,18 +480,19 @@ class BridgeManager
             }
         } else {
             // Re-enable for all bridges
-            foreach ($this->bridges as $name => $bridge) {
-                if (method_exists($bridge, 'reEnableFailedEvents')) {
-                    try {
+            foreach (array_keys($this->bridges) as $name) {
+                try {
+                    $bridge = $this->getBridge($name);
+                    if (method_exists($bridge, 'reEnableFailedEvents')) {
                         $results[$name] = $bridge->reEnableFailedEvents($eventIds);
-                    } catch (\Exception $e) {
-                        $results[$name] = 0;
-                        
-                        $this->logger->error('Failed to re-enable failed events for bridge', [
-                            'bridge' => $name,
-                            'error' => $e->getMessage()
-                        ]);
                     }
+                } catch (\Exception $e) {
+                    $results[$name] = 0;
+                    
+                    $this->logger->error('Failed to re-enable failed events for bridge', [
+                        'bridge' => $name,
+                        'error' => $e->getMessage()
+                    ]);
                 }
             }
         }
@@ -505,8 +507,9 @@ class BridgeManager
     {
         $allStats = [];
         
-        foreach ($this->bridges as $name => $bridge) {
+        foreach (array_keys($this->bridges) as $name) {
             try {
+                $bridge = $this->getBridge($name);
                 if (method_exists($bridge, 'getSyncStats')) {
                     $allStats[$name] = $bridge->getSyncStats();
                 } else {
@@ -540,10 +543,11 @@ class BridgeManager
     {
         $allCancelled = [];
         
-        foreach ($this->bridges as $name => $bridge) {
+        foreach (array_keys($this->bridges) as $name) {
             try {
+                $bridge = $this->getBridge($name);
                 if (method_exists($bridge, 'getCancelledEvents')) {
-                    $cancelled = $bridge->getCancelledEvents();
+                    $cancelled = $bridge->getCancelledEvents($name, null); // Get for this bridge
                     if (!empty($cancelled)) {
                         $allCancelled[$name] = $cancelled;
                     }

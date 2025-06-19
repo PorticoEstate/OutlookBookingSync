@@ -333,7 +333,7 @@ class BridgeController
         ];
 
         try {
-            if (extension_loaded('redis')) {
+            if (extension_loaded('redis') && class_exists('Redis')) {
                 $redis = new \Redis();
                 $redis->connect('127.0.0.1', 6379);
                 $redis->lpush('bridge_deletion_checks', json_encode($queueData));
@@ -510,7 +510,7 @@ class BridgeController
     {
         // Add to Redis queue if available, otherwise use database queue
         try {
-            if (class_exists('Redis')) {
+            if (extension_loaded('redis') && class_exists('Redis')) {
                 $redis = new \Redis();
                 $redis->connect('localhost', 6379);
                 
@@ -1006,7 +1006,7 @@ class BridgeController
             if ($bridgeName) {
                 // Get cancelled events for specific bridge
                 $bridge = $this->bridgeManager->getBridge($bridgeName);
-                $cancelledEvents = $bridge->getCancelledEvents();
+                $cancelledEvents = $bridge->getCancelledEvents($bridgeName, 100);
                 
                 $response->getBody()->write(json_encode([
                     'success' => true,

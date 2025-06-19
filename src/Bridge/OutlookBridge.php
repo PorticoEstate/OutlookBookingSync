@@ -1052,8 +1052,14 @@ class OutlookBridge extends AbstractCalendarBridge
     /**
      * Re-enable failed events for Outlook bridge
      */
-    public function reEnableFailedEvents($eventIds = []): int
+    public function reEnableFailedEvents(array $eventIds = []): array
     {
+        $results = [
+            're_enabled_count' => 0,
+            'errors' => 0,
+            'error_details' => []
+        ];
+        
         try {
             $sql = "
                 UPDATE bridge_mappings 
@@ -1076,18 +1082,22 @@ class OutlookBridge extends AbstractCalendarBridge
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             
-            $count = $stmt->rowCount();
+            $results['re_enabled_count'] = $stmt->rowCount();
             
-            $this->logger->info("OutlookBridge: Re-enabled {$count} failed events");
-            
-            return $count;
+            $this->logger->info("OutlookBridge: Re-enabled {$results['re_enabled_count']} failed events");
             
         } catch (\Exception $e) {
+            $results['errors']++;
+            $results['error_details'][] = [
+                'error' => 'Failed to re-enable failed events for Outlook bridge: ' . $e->getMessage()
+            ];
+            
             $this->logger->error('Failed to re-enable failed events for Outlook bridge', [
                 'error' => $e->getMessage()
             ]);
-            return 0;
         }
+        
+        return $results;
     }
     
     /**

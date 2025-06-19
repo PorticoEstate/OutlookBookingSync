@@ -294,7 +294,14 @@
         
         async function fetchData(endpoint) {
             try {
-                const response = await fetch(endpoint);
+                const headers = {};
+                
+                // Only add API key for bridge endpoints, not health endpoints
+                if (endpoint.startsWith('/bridges/') && !endpoint.startsWith('/bridges/health')) {
+                    headers['X-API-Key'] = 'your-api-key-here';
+                }
+                
+                const response = await fetch(endpoint, { headers });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -313,30 +320,59 @@
             return new Date(timestamp).toLocaleString();
         }
 
-        function renderSystemOverview(data) {
+        function renderSystemOverview(data, syncStatusData) {
             if (!data.success || !data.dashboard) {
                 return '<div class="stat-box"><div class="stat-number">ERROR</div><div class="stat-label">System Data</div></div>';
             }
 
             const overview = data.dashboard.system_overview;
-            return `
+            let html = `
                 <div class="stat-box">
                     <div class="stat-number">${overview.total_mappings || 0}</div>
                     <div class="stat-label">Total Mappings</div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-number">${overview.synced_count || 0}</div>
-                    <div class="stat-label">Synced</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number">${overview.pending_count || 0}</div>
-                    <div class="stat-label">Pending</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number">${overview.error_count || 0}</div>
-                    <div class="stat-label">Errors</div>
-                </div>
             `;
+
+            // Use sync status data if available, otherwise fall back to dashboard data
+            if (syncStatusData && syncStatusData.success && syncStatusData.sync_status) {
+                const breakdown = syncStatusData.sync_status.overall_sync_health.breakdown;
+                html += `
+                    <div class="stat-box">
+                        <div class="stat-number">${breakdown.synced || 0}</div>
+                        <div class="stat-label">Synced</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${breakdown.pending || 0}</div>
+                        <div class="stat-label">Pending</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${breakdown.error || 0}</div>
+                        <div class="stat-label">Errors</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${breakdown.cancelled || 0}</div>
+                        <div class="stat-label">Cancelled</div>
+                    </div>
+                `;
+            } else {
+                // Fallback to dashboard data
+                html += `
+                    <div class="stat-box">
+                        <div class="stat-number">${overview.synced_count || 0}</div>
+                        <div class="stat-label">Synced</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${overview.pending_count || 0}</div>
+                        <div class="stat-label">Pending</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${overview.error_count || 0}</div>
+                        <div class="stat-label">Errors</div>
+                    </div>
+                `;
+            }
+
+            return html;
         }
 
         function renderHealthChecks(healthData) {
@@ -611,26 +647,6 @@
                 `;
             }
 
-            // Quick Actions
-            html += `
-                <div class="card">
-                    <h3>🎛️ Quick Actions</h3>
-                    <div style="margin-bottom: 10px;">
-                        <button class="action-button" onclick="triggerSync('outlook', 'booking_system')">🔄 Sync: Outlook → Booking</button>
-                        <button class="action-button" onclick="triggerSync('booking_system', 'outlook')">🔄 Sync: Booking → Outlook</button>
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
-                        <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
-                        <button class="action-button" onclick="refreshDashboard()">📊 Refresh Dashboard</button>
-                    </div>
-                    <div id="actionStatus" style="margin-top: 10px; font-size: 0.9rem;"></div>
-                </div>
-            `;
-
             return html;
         }
 
@@ -762,23 +778,26 @@
             try {
                 document.getElementById('lastUpdate').textContent = 'Loading...';
                 
-                // Fetch health, dashboard, and bridge data in parallel
-                const [healthData, dashboardData, bridgeHealthData] = await Promise.all([
+                // Fetch health, dashboard, bridge, and sync status data in parallel
+                const [healthData, dashboardData, bridgeHealthData, syncStatusData] = await Promise.all([
                     fetchData('/health/system'),
                     fetchData('/health/dashboard'),
                     fetchData('/bridges/health').catch(error => {
                         console.warn('Bridge health endpoint not available:', error);
                         return { success: false, error: 'Bridge health endpoint not available' };
-                    })
+                    }),
+                    fetchData('/health/sync-status')
                 ]);
 
-                // Update system overview
-                document.getElementById('systemOverview').innerHTML = renderSystemOverview(dashboardData);
+                // Update system overview with sync status data
+                document.getElementById('systemOverview').innerHTML = renderSystemOverview(dashboardData, syncStatusData);
 
                 // Update dashboard content
                 let dashboardHTML = renderHealthChecks(healthData);
                 dashboardHTML += renderBridgeHealth(bridgeHealthData);
+                dashboardHTML += renderSyncStatusOverview(syncStatusData);
                 dashboardHTML += renderSyncStatus(dashboardData);
+                dashboardHTML += renderSyncActions();
                 
                 // Add resource management section
                 dashboardHTML += renderResourceManagement();
@@ -800,11 +819,155 @@
             }
         }
 
-        // Action functions
+        function renderSyncStatusOverview(syncStatusData) {
+            if (!syncStatusData || !syncStatusData.success || !syncStatusData.sync_status) {
+                return '<div class="card"><h3>📊 Sync Status Overview</h3><p>Unable to retrieve sync status data</p></div>';
+            }
+
+            const syncStatus = syncStatusData.sync_status;
+            const overallHealth = syncStatus.overall_sync_health;
+            
+            let html = `
+                <div class="card">
+                    <h3>📊 Sync Status Overview ${getStatusBadge(overallHealth.status)}</h3>
+                    <div class="metric">
+                        <span class="metric-label">Overall Health</span>
+                        <span class="metric-value">${overallHealth.status.toUpperCase()}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Total Items</span>
+                        <span class="metric-value">${overallHealth.total_items}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Error Rate</span>
+                        <span class="metric-value">${overallHealth.error_rate_percent}%</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Pending Rate</span>
+                        <span class="metric-value">${overallHealth.pending_rate_percent}%</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Stuck Syncs</span>
+                        <span class="metric-value">${overallHealth.stuck_syncs}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Last Activity</span>
+                        <span class="metric-value">${overallHealth.last_activity ? formatTimestamp(overallHealth.last_activity) : 'None'}</span>
+                    </div>
+            `;
+
+            // Issues
+            if (overallHealth.issues && overallHealth.issues.length > 0) {
+                html += `
+                    <div style="margin-top: 15px;">
+                        <h4 style="color: #e53e3e; margin-bottom: 10px;">⚠️ Issues:</h4>
+                        <ul style="margin: 0; padding-left: 20px;">
+                `;
+                overallHealth.issues.forEach(issue => {
+                    html += `<li style="color: #e53e3e; margin-bottom: 5px;">${issue}</li>`;
+                });
+                html += `</ul></div>`;
+            }
+
+            html += `</div>`;
+
+            // Bridge-specific sync stats
+            if (syncStatus.bridge_sync_stats && Object.keys(syncStatus.bridge_sync_stats).length > 0) {
+                html += `
+                    <div class="card">
+                        <h3>🌉 Bridge Sync Statistics</h3>
+                `;
+                
+                Object.entries(syncStatus.bridge_sync_stats).forEach(([bridgePair, stats]) => {
+                    html += `
+                        <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                            <h4 style="margin: 0 0 8px 0;">${bridgePair}</h4>
+                    `;
+                    
+                    Object.entries(stats).forEach(([status, data]) => {
+                        html += `
+                            <div style="margin: 5px 0; display: flex; justify-content: space-between;">
+                                <span><strong>${status}:</strong> ${data.count} items</span>
+                                <span style="font-size: 0.85rem; color: #666;">
+                                    ${data.avg_retries ? `Avg retries: ${data.avg_retries}` : ''}
+                                    ${data.last_activity ? `Last: ${formatTimestamp(data.last_activity)}` : ''}
+                                </span>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `</div>`;
+                });
+                
+                html += `</div>`;
+            }
+
+            // Retry Analysis
+            if (syncStatus.retry_analysis && syncStatus.retry_analysis.total_with_retries > 0) {
+                html += `
+                    <div class="card">
+                        <h3>🔄 Retry Analysis</h3>
+                        <div class="metric">
+                            <span class="metric-label">Items with Retries</span>
+                            <span class="metric-value">${syncStatus.retry_analysis.total_with_retries}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Max Retry Count</span>
+                            <span class="metric-value">${syncStatus.retry_analysis.max_retry_count}</span>
+                        </div>
+                `;
+                
+                if (syncStatus.retry_analysis.retry_breakdown && syncStatus.retry_analysis.retry_breakdown.length > 0) {
+                    html += `<div style="margin-top: 10px;"><h4>Retry Breakdown:</h4>`;
+                    syncStatus.retry_analysis.retry_breakdown.forEach(item => {
+                        html += `
+                            <div style="margin: 5px 0; padding: 5px; background: #f8f9fa; border-radius: 3px;">
+                                <strong>${item.retry_count} retries:</strong> ${item.count} items
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
+                }
+                
+                html += `</div>`;
+            }
+
+            // Cancellation Stats
+            if (syncStatus.cancellation_stats && syncStatus.cancellation_stats.total_cancelled > 0) {
+                html += `
+                    <div class="card">
+                        <h3>❌ Cancellation Statistics</h3>
+                        <div class="metric">
+                            <span class="metric-label">Total Cancelled</span>
+                            <span class="metric-value">${syncStatus.cancellation_stats.total_cancelled}</span>
+                        </div>
+                `;
+                
+                if (syncStatus.cancellation_stats.by_bridge_pair && syncStatus.cancellation_stats.by_bridge_pair.length > 0) {
+                    html += `<div style="margin-top: 10px;"><h4>By Bridge Pair:</h4>`;
+                    syncStatus.cancellation_stats.by_bridge_pair.forEach(item => {
+                        html += `
+                            <div style="margin: 5px 0; padding: 5px; background: #f8f9fa; border-radius: 3px;">
+                                <strong>${item.bridge_pair}:</strong> ${item.count} cancelled
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
+                }
+                
+                html += `</div>`;
+            }
+
+            return html;
+        }
+
         async function triggerSync(sourceBridge, targetBridge) {
             setActionStatus(`Triggering sync: ${sourceBridge} → ${targetBridge}...`, 'info');
             try {
-                const response = await fetch(`/bridges/sync/${sourceBridge}/${targetBridge}`, { method: 'POST' });
+                const response = await fetch(`/bridges/sync/${sourceBridge}/${targetBridge}`, { 
+                    method: 'POST',
+                    headers: { 'X-API-Key': 'your-api-key-here' }
+                });
                 const result = await response.json();
                 if (result.success) {
                     const summary = `✅ Sync completed: ${result.mappings_processed || 0} mappings processed, ${result.total_synced || 0} events synced`;
@@ -824,7 +987,10 @@
         async function triggerDeletionSync() {
             setActionStatus('Processing deletions...', 'info');
             try {
-                const response = await fetch('/bridges/sync-deletions', { method: 'POST' });
+                const response = await fetch('/bridges/sync-deletions', { 
+                    method: 'POST',
+                    headers: { 'X-API-Key': 'your-api-key-here' }
+                });
                 const result = await response.json();
                 if (result.success) {
                     setActionStatus('✅ Deletion sync completed', 'success');
@@ -839,7 +1005,10 @@
         async function detectCancellations() {
             setActionStatus('Detecting cancellations...', 'info');
             try {
-                const response = await fetch('/bridges/sync-deletions', { method: 'POST' });
+                const response = await fetch('/bridges/sync-deletions', { 
+                    method: 'POST',
+                    headers: { 'X-API-Key': 'your-api-key-here' }
+                });
                 const result = await response.json();
                 if (result.success) {
                     setActionStatus(`✅ Found ${result.results.deleted || 0} cancellations`, 'success');
@@ -887,6 +1056,119 @@
             } catch (error) {
                 setActionStatus('Error loading bridges: ' + error.message, 'error');
             }
+        }
+
+        // New sync status action functions
+        async function processPendingSyncs() {
+            setActionStatus('Processing pending syncs...', 'info');
+            try {
+                const response = await fetch('/bridges/process-pending-syncs', { 
+                    method: 'POST',
+                    headers: { 'X-API-Key': 'your-api-key-here' }
+                });
+                const result = await response.json();
+                if (result.success) {
+                    setActionStatus(`✅ Processed ${result.processed || 0} pending syncs`, 'success');
+                } else {
+                    setActionStatus('❌ Failed to process pending syncs: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('❌ Error processing pending syncs: ' + error.message, 'error');
+            }
+        }
+
+        async function reEnableFailedEvents() {
+            setActionStatus('Re-enabling failed events...', 'info');
+            try {
+                const response = await fetch('/bridges/re-enable-failed', { 
+                    method: 'POST',
+                    headers: { 'X-API-Key': 'your-api-key-here' }
+                });
+                const result = await response.json();
+                if (result.success) {
+                    setActionStatus(`✅ Re-enabled ${result.re_enabled || 0} failed events`, 'success');
+                } else {
+                    setActionStatus('❌ Failed to re-enable events: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('❌ Error re-enabling failed events: ' + error.message, 'error');
+            }
+        }
+
+        async function viewCancelledEvents() {
+            setActionStatus('Loading cancelled events...', 'info');
+            try {
+                const data = await fetchData('/bridges/cancelled-events');
+                if (data.success && data.events) {
+                    let message = `Found ${data.events.length} cancelled events:\n`;
+                    data.events.slice(0, 5).forEach(event => {
+                        message += `\n• ${event.event_title || 'No title'} (${event.bridge_from} → ${event.bridge_to})`;
+                        if (event.cancelled_at) {
+                            message += ` - Cancelled: ${formatTimestamp(event.cancelled_at)}`;
+                        }
+                    });
+                    if (data.events.length > 5) {
+                        message += `\n... and ${data.events.length - 5} more`;
+                    }
+                    setActionStatus(message, 'success');
+                } else {
+                    setActionStatus('Failed to load cancelled events: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('Error loading cancelled events: ' + error.message, 'error');
+            }
+        }
+
+        async function viewSyncStats() {
+            setActionStatus('Loading sync statistics...', 'info');
+            try {
+                const data = await fetchData('/bridges/sync-stats');
+                if (data.success && data.stats) {
+                    let message = 'Sync Statistics:\n';
+                    Object.entries(data.stats).forEach(([bridge, stats]) => {
+                        message += `\n${bridge}:`;
+                        Object.entries(stats).forEach(([status, count]) => {
+                            message += ` ${status}=${count}`;
+                        });
+                    });
+                    setActionStatus(message, 'success');
+                } else {
+                    setActionStatus('Failed to load sync stats: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                setActionStatus('Error loading sync stats: ' + error.message, 'error');
+            }
+        }
+
+        function renderSyncActions() {
+            return `
+                <div class="card">
+                    <h3>🎛️ Sync Management Actions</h3>
+                    <div style="margin-bottom: 15px;">
+                        <h4>Sync Operations:</h4>
+                        <button class="action-button" onclick="triggerSync('outlook', 'booking_system')">🔄 Sync: Outlook → Booking</button>
+                        <button class="action-button" onclick="triggerSync('booking_system', 'outlook')">🔄 Sync: Booking → Outlook</button>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <h4>Sync Status Management:</h4>
+                        <button class="action-button" onclick="processPendingSyncs()">⏳ Process Pending Syncs</button>
+                        <button class="action-button" onclick="reEnableFailedEvents()">🔄 Re-enable Failed Events</button>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <h4>Deletion & Cancellation:</h4>
+                        <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
+                        <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
+                        <button class="action-button" onclick="viewCancelledEvents()">📋 View Cancelled Events</button>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <h4>Monitoring & Statistics:</h4>
+                        <button class="action-button" onclick="viewSyncStats()">📊 View Sync Statistics</button>
+                        <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
+                        <button class="action-button" onclick="refreshDashboard()">🔄 Refresh Dashboard</button>
+                    </div>
+                    <div id="actionStatus" style="margin-top: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem; min-height: 20px;"></div>
+                </div>
+            `;
         }
 
         // Initialize dashboard

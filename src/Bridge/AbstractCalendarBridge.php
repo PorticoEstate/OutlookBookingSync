@@ -926,7 +926,7 @@ abstract class AbstractCalendarBridge
     /**
      * Get events that need syncing (pending or error with retry limit)
      */
-    protected function getEventsToSync($sourceBridge, $targetBridge, $maxRetries = 3): array
+    public function getEventsToSync($sourceBridge, $targetBridge, $maxRetries = 3): array
     {
         try {
             $stmt = $this->db->prepare("
@@ -959,7 +959,7 @@ abstract class AbstractCalendarBridge
     /**
      * Get cancelled events for cleanup
      */
-    protected function getCancelledEvents($sourceBridge, $targetBridge): array
+    public function getCancelledEvents($sourceBridge, $targetBridge): array
     {
         try {
             $stmt = $this->db->prepare("
@@ -987,7 +987,7 @@ abstract class AbstractCalendarBridge
     /**
      * Get sync status statistics
      */
-    protected function getSyncStats($sourceBridge = null, $targetBridge = null): array
+    public function getSyncStats($sourceBridge = null, $targetBridge = null): array
     {
         try {
             $whereClause = "WHERE 1=1";
@@ -1024,5 +1024,192 @@ abstract class AbstractCalendarBridge
             ]);
             return [];
         }
+    }
+    
+    /**
+     * Process pending syncs for this bridge
+     * 
+     * @param int $batchSize Maximum number of events to process in one batch
+     * @return array Processing results
+     */
+    public function processPendingSyncs(int $batchSize = 50): array
+    {
+        $results = [
+            'processed' => 0,
+            'errors' => 0,
+            'error_details' => [],
+            'success_details' => []
+        ];
+        
+        try {
+            // Get pending events for this bridge
+            $pendingEvents = $this->getEventsToSync($this->getBridgeType(), $batchSize);
+            
+            foreach ($pendingEvents as $event) {
+                try {
+                    // Process the pending sync based on the event data
+                    $this->processSinglePendingEvent($event);
+                    $results['processed']++;
+                    $results['success_details'][] = [
+                        'event_id' => $event['event_id'],
+                        'source_bridge' => $event['source_bridge'],
+                        'target_bridge' => $event['target_bridge']
+                    ];
+                } catch (\Exception $e) {
+                    $results['errors']++;
+                    $results['error_details'][] = [
+                        'event_id' => $event['event_id'],
+                        'error' => $e->getMessage(),
+                        'source_bridge' => $event['source_bridge'],
+                        'target_bridge' => $event['target_bridge']
+                    ];
+                }
+            }
+            
+            $this->logOperation('process_pending_syncs', [
+                'bridge_type' => $this->getBridgeType(),
+                'batch_size' => $batchSize,
+                'processed' => $results['processed'],
+                'errors' => $results['errors']
+            ]);
+            
+        } catch (\Exception $e) {
+            $results['errors']++;
+            $results['error_details'][] = [
+                'error' => 'Failed to process pending syncs: ' . $e->getMessage()
+            ];
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * Process a single pending event
+     * 
+     * @param array $eventData Event data from the database
+     */
+    protected function processSinglePendingEvent(array $eventData): void
+    {
+        // This is a placeholder - specific bridge implementations should override this
+        // or implement their own logic to handle pending events
+        $this->updateSyncStatus(
+            $eventData['event_id'],
+            $eventData['source_bridge'],
+            $eventData['target_bridge'],
+            'synced',
+            null,
+            0
+        );
+    }
+    
+    /**
+     * Re-enable failed events for this bridge
+     * 
+     * @param array $eventIds Optional array of specific event IDs to re-enable
+     * @return array Re-enable results
+     */
+    public function reEnableFailedEvents(array $eventIds = []): array
+    {
+        $results = [
+            're_enabled_count' => 0,
+            'errors' => 0,
+            'error_details' => []
+        ];
+        
+        try {
+            $whereClause = "sync_status = 'error' AND (source_bridge = ? OR target_bridge = ?)";
+            $params = [$this->getBridgeType(), $this->getBridgeType()];
+            
+            if (!empty($eventIds)) {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $whereClause .= " AND event_id IN ($placeholders)";
+                $params = array_merge($params, $eventIds);
+            }
+            
+            $stmt = $this->db->prepare("
+                UPDATE bridge_mappings 
+                SET sync_status = 'pending', 
+                    error_message = NULL, 
+                    retry_count = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE $whereClause
+            ");
+            
+            $stmt->execute($params);
+            
+            $results['re_enabled_count'] = $stmt->rowCount();
+            
+            $this->logOperation('re_enable_failed_events', [
+                'bridge_type' => $this->getBridgeType(),
+                're_enabled_count' => $results['re_enabled_count'],
+                'event_ids_filter' => $eventIds
+            ]);
+            
+        } catch (\Exception $e) {
+            $results['errors']++;
+            $results['error_details'][] = [
+                'error' => 'Failed to re-enable failed events: ' . $e->getMessage()
+            ];
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * Get session diagnostics for debugging
+     * 
+     * @return array Session diagnostic information
+     */
+    public function getSessionDiagnostics(): array
+    {
+        $diagnostics = [
+            'bridge_type' => $this->getBridgeType(),
+            'session_mode' => $this->isCliMode() ? 'cli_file' : 'web_session',
+            'timestamp' => date('Y-m-d H:i:s'),
+            'php_sapi' => php_sapi_name()
+        ];
+        
+        if ($this->isCliMode()) {
+            $diagnostics['cli_session'] = [
+                'session_file' => $this->getSessionFilePath(),
+                'file_exists' => file_exists($this->getSessionFilePath()),
+                'file_readable' => is_readable($this->getSessionFilePath()),
+                'file_writable' => is_writable(dirname($this->getSessionFilePath())),
+                'session_data_loaded' => $this->sessionData !== null,
+                'session_keys' => $this->sessionData ? array_keys($this->sessionData) : []
+            ];
+            
+            if (file_exists($this->getSessionFilePath())) {
+                $diagnostics['cli_session']['file_size'] = filesize($this->getSessionFilePath());
+                $diagnostics['cli_session']['file_modified'] = date('Y-m-d H:i:s', filemtime($this->getSessionFilePath()));
+            }
+        } else {
+            $diagnostics['web_session'] = [
+                'session_status' => session_status(),
+                'session_id' => session_id() ? substr(session_id(), 0, 8) . '...' : 'none',
+                'session_name' => session_name(),
+                'session_keys' => array_keys($_SESSION ?? [])
+            ];
+        }
+        
+        return $diagnostics;
+    }
+    
+    /**
+     * Get the session file path for CLI mode
+     * 
+     * @return string Session file path
+     */
+    protected function getSessionFilePath(): string
+    {
+        if ($this->sessionFile) {
+            return $this->sessionFile;
+        }
+        
+        // Generate if not already set
+        $projectRoot = dirname(dirname(__DIR__));
+        $sessionDir = $projectRoot . '/storage/sessions';
+        $sessionId = $this->generateConsistentSessionId();
+        return $sessionDir . '/session_' . $sessionId . '.json';
     }
 }
