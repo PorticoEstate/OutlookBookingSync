@@ -548,7 +548,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function buildUrl($urlTemplate, $params = []): string
     {
-        $url = $this->apiBaseUrl . $urlTemplate;
+        // Check if urlTemplate is already a full URL
+        if (filter_var($urlTemplate, FILTER_VALIDATE_URL)) {
+            $url = $urlTemplate;
+        } else {
+            // Only add base URL if it's a relative path
+            $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($urlTemplate, '/');
+        }
 
         foreach ($params as $key => $value)
         {
@@ -683,12 +689,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function makeApiRequest($method, $url, $params = [], $data = [])
     {
-        // Ensure URL includes the base URL if it's a relative path
-        if (!filter_var($url, FILTER_VALIDATE_URL))
-        {
-            $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($url, '/');
-        }
-
         $response = $this->makeHttpRequest($method, $url, $params, $data);
 
         if ($response === false)
