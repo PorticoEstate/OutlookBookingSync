@@ -605,6 +605,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
             }
         }
 
+        // If URL doesn't start with http:// or https://, prepend the API base URL
+        if (!preg_match('/^https?:\/\//', $url)) {
+            $url = $this->apiBaseUrl . $url;
+        }
+
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
