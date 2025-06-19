@@ -1068,7 +1068,26 @@
                 });
                 const result = await response.json();
                 if (result.success) {
-                    setActionStatus(`✅ Processed ${result.processed || 0} pending syncs`, 'success');
+                    let totalProcessed = 0;
+                    let totalErrors = 0;
+                    
+                    if (result.results) {
+                        Object.values(result.results).forEach(bridgeResult => {
+                            totalProcessed += bridgeResult.processed || 0;
+                            totalErrors += bridgeResult.errors || 0;
+                        });
+                    }
+                    
+                    const processed = result.processed || totalProcessed;
+                    const errors = result.errors || totalErrors;
+                    
+                    let message = `✅ Processed ${processed} pending syncs`;
+                    if (errors > 0) {
+                        message += ` with ${errors} errors`;
+                        setActionStatus(message, 'warning');
+                    } else {
+                        setActionStatus(message, 'success');
+                    }
                 } else {
                     setActionStatus('❌ Failed to process pending syncs: ' + (result.error || 'Unknown error'), 'error');
                 }
@@ -1086,7 +1105,26 @@
                 });
                 const result = await response.json();
                 if (result.success) {
-                    setActionStatus(`✅ Re-enabled ${result.re_enabled || 0} failed events`, 'success');
+                    let totalReEnabled = 0;
+                    let totalErrors = 0;
+                    
+                    if (result.results) {
+                        Object.values(result.results).forEach(bridgeResult => {
+                            totalReEnabled += bridgeResult.re_enabled_count || bridgeResult.re_enabled || 0;
+                            totalErrors += bridgeResult.errors || 0;
+                        });
+                    }
+                    
+                    const reEnabled = result.re_enabled || totalReEnabled;
+                    const errors = result.errors || totalErrors;
+                    
+                    let message = `✅ Re-enabled ${reEnabled} failed events`;
+                    if (errors > 0) {
+                        message += ` with ${errors} errors`;
+                        setActionStatus(message, 'warning');
+                    } else {
+                        setActionStatus(message, 'success');
+                    }
                 } else {
                     setActionStatus('❌ Failed to re-enable events: ' + (result.error || 'Unknown error'), 'error');
                 }
@@ -1099,16 +1137,24 @@
             setActionStatus('Loading cancelled events...', 'info');
             try {
                 const data = await fetchData('/bridges/cancelled-events');
-                if (data.success && data.events) {
-                    let message = `Found ${data.events.length} cancelled events:\n`;
-                    data.events.slice(0, 5).forEach(event => {
-                        message += `\n• ${event.event_title || 'No title'} (${event.bridge_from} → ${event.bridge_to})`;
+                if (data.success) {
+                    // Handle both all_cancelled_events and cancelled_events response formats
+                    const events = data.all_cancelled_events || data.cancelled_events || [];
+                    
+                    if (events.length === 0) {
+                        setActionStatus('✅ No cancelled events found', 'success');
+                        return;
+                    }
+                    
+                    let message = `Found ${events.length} cancelled events:\n`;
+                    events.slice(0, 5).forEach(event => {
+                        message += `\n• ${event.event_title || event.subject || 'No title'} (${event.bridge_from} → ${event.bridge_to})`;
                         if (event.cancelled_at) {
                             message += ` - Cancelled: ${formatTimestamp(event.cancelled_at)}`;
                         }
                     });
-                    if (data.events.length > 5) {
-                        message += `\n... and ${data.events.length - 5} more`;
+                    if (events.length > 5) {
+                        message += `\n... and ${events.length - 5} more`;
                     }
                     setActionStatus(message, 'success');
                 } else {
@@ -1123,13 +1169,29 @@
             setActionStatus('Loading sync statistics...', 'info');
             try {
                 const data = await fetchData('/bridges/sync-stats');
-                if (data.success && data.stats) {
+                if (data.success) {
+                    // Handle both all_bridge_stats and stats response formats
+                    const stats = data.all_bridge_stats || data.stats || {};
+                    
+                    if (Object.keys(stats).length === 0) {
+                        setActionStatus('✅ No sync statistics available', 'success');
+                        return;
+                    }
+                    
                     let message = 'Sync Statistics:\n';
-                    Object.entries(data.stats).forEach(([bridge, stats]) => {
+                    Object.entries(stats).forEach(([bridge, bridgeStats]) => {
                         message += `\n${bridge}:`;
-                        Object.entries(stats).forEach(([status, count]) => {
-                            message += ` ${status}=${count}`;
-                        });
+                        if (Array.isArray(bridgeStats)) {
+                            // Array format from database
+                            bridgeStats.forEach(stat => {
+                                message += ` ${stat.sync_status}=${stat.count}`;
+                            });
+                        } else {
+                            // Object format
+                            Object.entries(bridgeStats).forEach(([status, count]) => {
+                                message += ` ${status}=${count}`;
+                            });
+                        }
                     });
                     setActionStatus(message, 'success');
                 } else {
