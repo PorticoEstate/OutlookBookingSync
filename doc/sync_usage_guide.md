@@ -1986,30 +1986,57 @@ Authorization: [Session-based auth headers]
 
 **Your API Response**:
 ```json
-{
-    "events": [
-        {
-            "id": 25635,
-            "title": "Conference Room Booking",
-            "from_": "2025-06-25T15:30:00+02:00",
-            "to_": "2025-06-25T16:00:00+02:00",
-            "description": "Team meeting",
-            "contact_name": "John Doe",
-            "contact_email": "john@company.com",
-            "reservation_type": "booking",
-            "active": 1
-        },
-        {
-            "id": 800398,
-            "title": "Equipment Allocation", 
-            "from_": "2025-07-09T15:30:00+02:00",
-            "to_": "2025-07-09T16:30:00+02:00",
-            "description": "Equipment allocation for project",
-            "reservation_type": "allocation",
-            "active": 1
-        }
-    ]
-}
+[
+    {
+        "type": "allocation",
+        "organization_id": 698,
+        "season_id": 980,
+        "id_string": "800398",
+        "additional_invoice_information": "",
+        "organization_name": "bølleball",
+        "organization_shortname": "bølle",
+        "id": 800398,
+        "active": 1,
+        "from_": "2025-07-09T15:30:00+02:00",
+        "to_": "2025-07-09T16:30:00+02:00",
+        "completed": 0,
+        "building_name": "Testbygg",
+        "skip_bas": 0,
+        "resources": [
+            {
+                "id": 431,
+                "name": "Nytt testrom",
+                "activity_id": 161,
+                "deactivate_application": false
+            }
+        ]
+    },
+    {
+        "type": "booking",
+        "group_id": 276,
+        "allocation_id": 800396,
+        "season_id": 980,
+        "activity_id": 161,
+        "reminder": 1,
+        "group_name": "Testgruppe1",
+        "activity_name": "Innbyggertorg",
+        "id": 25635,
+        "active": 1,
+        "from_": "2025-06-25T15:30:00+02:00",
+        "to_": "2025-06-25T16:00:00+02:00",
+        "completed": 0,
+        "building_name": "Testbygg",
+        "skip_bas": 0,
+        "resources": [
+            {
+                "id": 431,
+                "name": "Nytt testrom",
+                "activity_id": 161,
+                "deactivate_application": false
+            }
+        ]
+    }
+]
 ```
 
 **Bridge Behavior**:
