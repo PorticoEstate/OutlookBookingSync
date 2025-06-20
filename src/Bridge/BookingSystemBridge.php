@@ -81,7 +81,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             // Load session from global session storage
             $this->sessionInfo = $this->getSession('auth_session', []);
-            
+
             // Check if we have cached session info and if it's still valid
             if ($this->isSessionValid())
             {
@@ -122,7 +122,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             // Try to load from global session storage
             $this->sessionInfo = $this->getSession('auth_session', []);
-            
+
             if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
             {
                 return false;
@@ -226,7 +226,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             // Refresh failed, clear session and will need to login again
             $this->clearBookingSystemSession();
-            
+
             if ($this->debug ?? false)
             {
                 error_log("BookingSystemBridge: Session refresh failed: " . $e->getMessage());
@@ -395,17 +395,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function createEvent($calendarId, $event): string
     {
-        try {
+        try
+        {
             // When we're the target, we receive events from other bridges
             // We need to create a new reservation in our booking system
             $createdId = $this->createEventViaApi($calendarId, $event);
-            
-            if ($this->debug) {
+
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Created event with composite ID: {$createdId}");
             }
-            
+
             // Create event mapping with synced status
-            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id']))
+            {
                 // Look up the resource mapping to get the configured sync direction
                 $syncDirection = $this->getResourceMappingSyncDirection(
                     $event['source_bridge'],
@@ -413,7 +416,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     $event['source_calendar_id'],
                     $calendarId
                 );
-                
+
                 $this->createEventMapping(
                     $event['source_bridge'],
                     $this->getBridgeType(),
@@ -425,12 +428,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     $syncDirection
                 );
             }
-            
+
             return $createdId; // Returns composite ID (e.g., "event_12345")
-            
-        } catch (\Exception $e) {
+
+        }
+        catch (\Exception $e)
+        {
             // Mark as error if mapping exists
-            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id']))
+            {
                 $this->updateSyncStatus(
                     $event['source_bridge'],
                     $this->getBridgeType(),
@@ -450,18 +456,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function updateEvent($calendarId, $eventId, $event): bool
     {
-        try {
+        try
+        {
             // Extract original ID from composite ID for API call
             $originalId = $this->extractOriginalId($eventId);
-            
-            if ($this->debug) {
+
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Updating event - composite ID: {$eventId}, original ID: {$originalId}");
             }
-            
+
             $success = $this->updateEventViaApi($calendarId, $eventId, $event);
-            
+
             // Update sync status
-            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id']))
+            {
                 $this->updateSyncStatus(
                     $event['source_bridge'],
                     $this->getBridgeType(),
@@ -471,12 +480,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     'synced'
                 );
             }
-            
+
             return $success;
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             // Mark as error if mapping exists
-            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+            if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id']))
+            {
                 $this->updateSyncStatus(
                     $event['source_bridge'],
                     $this->getBridgeType(),
@@ -497,56 +508,67 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function deleteEvent($calendarId, $eventId): bool
     {
-        try {
+        try
+        {
             // Extract original ID from composite ID for API call
             $originalId = $this->extractOriginalId($eventId);
-            
-            if ($this->debug) {
+
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Deleting event - composite ID: {$eventId}, original ID: {$originalId}");
             }
-            
+
             // Check if this event was imported from Outlook (find mapping where this is target)
             $wasImportedFromOutlook = $this->checkIfEventImportedFromOutlook($eventId);
-            
-            if ($wasImportedFromOutlook) {
+
+            if ($wasImportedFromOutlook)
+            {
                 // For events imported from Outlook, toggle active status to 0 instead of deleting
                 $success = $this->toggleEventActiveStatus($calendarId, $eventId, false);
-                
-                if ($this->debug) {
+
+                if ($this->debug)
+                {
                     error_log("BookingSystemBridge: Set active=0 for Outlook-imported event: {$eventId}");
                 }
-            } else {
+            }
+            else
+            {
                 // For events created in booking system, perform actual deletion
                 $success = $this->deleteEventViaApi($calendarId, $eventId);
-                
-                if ($this->debug) {
+
+                if ($this->debug)
+                {
                     error_log("BookingSystemBridge: Actually deleted booking system native event: {$eventId}");
                 }
             }
-            
+
             // Mark related mappings as cancelled (find by target event ID)
-            try {
+            try
+            {
                 $stmt = $this->db->prepare("
                     UPDATE bridge_mappings 
                     SET sync_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
                     WHERE target_event_id = ? AND target_bridge = ?
                 ");
                 $stmt->execute([$eventId, $this->getBridgeType()]);
-                
-                if ($this->debug) {
+
+                if ($this->debug)
+                {
                     error_log("BookingSystemBridge: Marked mappings as cancelled for event: {$eventId}");
                 }
-                
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e)
+            {
                 $this->logger->error('Failed to update mapping status for deleted event', [
                     'event_id' => $eventId,
                     'error' => $e->getMessage()
                 ]);
             }
-            
+
             return $success;
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to delete event in booking system', [
                 'calendar_id' => $calendarId,
                 'event_id' => $eventId,
@@ -564,7 +586,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $originalId = $this->extractOriginalId($eventId);
         $reservationType = $this->extractReservationType($eventId);
-        
+
         return [
             'composite_id' => $eventId,
             'original_id' => $originalId,
@@ -578,7 +600,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function checkIfEventImportedFromOutlook($eventId): bool
     {
-        try {
+        try
+        {
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as count
                 FROM bridge_mappings 
@@ -589,9 +612,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ");
             $stmt->execute([$eventId, $this->getBridgeType()]);
             $result = $stmt->fetch();
-            
+
             return ($result['count'] ?? 0) > 0;
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to check if event was imported from Outlook', [
                 'event_id' => $eventId,
                 'error' => $e->getMessage()
@@ -605,10 +630,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function toggleEventActiveStatus($resourceId, $eventId, $active = false): bool
     {
-        try {
+        try
+        {
             // Extract original ID from composite ID if needed
             $originalEventId = $this->extractOriginalId($eventId);
-            
+
             $endpoint = $this->apiEndpoints['toggle_event'];
             $url = $this->buildUrl($endpoint['url'], [
                 'event_id' => $originalEventId
@@ -621,13 +647,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
             $response = $this->makeApiRequest($endpoint['method'], $url, [], $data);
 
-            if ($this->debug) {
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Toggled event {$eventId} active status to " . ($active ? 'true' : 'false'));
             }
 
             return $response['success'] ?? true;
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to toggle event active status', [
                 'resource_id' => $resourceId,
                 'event_id' => $eventId,
@@ -677,7 +705,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Filter overlapping reservations by priority (Event > Booking > Allocation)
         $filteredEvents = $this->filterReservationsByPriority($events);
-        
+
         return array_map([$this, 'mapBookingEventToGeneric'], $filteredEvents);
     }
 
@@ -691,11 +719,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $response = $this->makeApiRequest($endpoint['method'], $url, [], $mappedEvent);
 
         $originalId = $response['event_id'] ?? $response['id'] ?? uniqid('event_');
-        
+
         // Determine reservation type (default to 'event' for new creations)
         // Don't use the mapped event type as it might contain the source event ID
         $reservationType = 'event';
-        
+
         // Return composite ID for consistent tracking
         return $this->createCompositeId($reservationType, $originalId);
     }
@@ -704,7 +732,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         // Extract original ID from composite ID if needed
         $originalEventId = $this->extractOriginalId($eventId);
-        
+
         $endpoint = $this->apiEndpoints['update_event'];
         $url = $this->buildUrl($endpoint['url'], [
             'resource_id' => $resourceId,
@@ -722,7 +750,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         // Extract original ID from composite ID if needed
         $originalEventId = $this->extractOriginalId($eventId);
-        
+
         $endpoint = $this->apiEndpoints['delete_event'];
         $url = $this->buildUrl($endpoint['url'], [
             'resource_id' => $resourceId,
@@ -766,9 +794,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private function buildUrl($urlTemplate, $params = []): string
     {
         // Check if urlTemplate is already a full URL
-        if (filter_var($urlTemplate, FILTER_VALIDATE_URL)) {
+        if (filter_var($urlTemplate, FILTER_VALIDATE_URL))
+        {
             $url = $urlTemplate;
-        } else {
+        }
+        else
+        {
             // Only add base URL if it's a relative path
             $url = rtrim($this->apiBaseUrl, '/') . '/' . ltrim($urlTemplate, '/');
         }
@@ -796,7 +827,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
 
         // If URL doesn't start with http:// or https://, prepend the API base URL
-        if (!preg_match('/^https?:\/\//', $url)) {
+        if (!preg_match('/^https?:\/\//', $url))
+        {
             $url = $this->apiBaseUrl . $url;
         }
 
@@ -840,14 +872,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($params);
         }
-        
+
         // Set the final URL for all methods
         curl_setopt($ch, CURLOPT_URL, $url);
-        
+
         if ($method === 'POST')
         {
             curl_setopt($ch, CURLOPT_POST, true);
-            
+
             // Always send as form data (for $_POST to work on receiving end)
             if (!empty($data))
             {
@@ -953,10 +985,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $reservationType = strtolower($bookingEvent['type'] ?? 'unknown');
         $reservationId = $bookingEvent['id'] ?? 'unknown';
         $compositeId = $reservationType . '_' . $reservationId;
-        
+
         // Use composite ID for internal tracking
         $genericEvent['id'] = $compositeId;
-        
+
         // Store original ID and type for reference
         $genericEvent['original_id'] = $reservationId;
         $genericEvent['reservation_type'] = $reservationType;
@@ -980,7 +1012,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Fallback for common fields if not mapped
         $fallbacks = [
-            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ??$reservationType ?? '',
+            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? $reservationType ?? '',
             'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
             'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
             'location' => $bookingEvent['location'] ?? $bookingEvent['resource_name'] ?? '',
@@ -1016,25 +1048,34 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $bookingEvent = [];
 
         // Extract original ID and type from composite ID if present
-        if (isset($event['id']) && strpos($event['id'], '_') !== false) {
+        if (isset($event['id']) && strpos($event['id'], '_') !== false)
+        {
             // Composite ID format: "type_id" - only use this for booking system events
             $parts = explode('_', $event['id'], 2);
             // Only set type if it looks like a valid reservation type (not a long Outlook ID)
             $potentialType = $parts[0];
-            if (in_array($potentialType, ['event', 'booking', 'allocation']) && strlen($potentialType) < 20) {
+            if (in_array($potentialType, ['event', 'booking', 'allocation']) && strlen($potentialType) < 20)
+            {
                 $bookingEvent['type'] = $potentialType;
                 $bookingEvent['id'] = $parts[1];
-            } else {
+            }
+            else
+            {
                 // This is likely an Outlook event ID, don't use it as type
                 $bookingEvent['id'] = $event['id'] ?? null;
             }
-        } elseif (isset($event['original_id'])) {
+        }
+        elseif (isset($event['original_id']))
+        {
             // Use stored original ID if available
             $bookingEvent['id'] = $event['original_id'];
-            if (isset($event['reservation_type'])) {
+            if (isset($event['reservation_type']))
+            {
                 $bookingEvent['type'] = $event['reservation_type'];
             }
-        } else {
+        }
+        else
+        {
             // Fallback to direct ID - don't set type from unknown source
             $bookingEvent['id'] = $event['id'] ?? null;
         }
@@ -1394,7 +1435,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $sessionStats = $this->getSessionStats();
         $currentSession = $this->getSession('auth_session', []);
         $sessionDebug = $this->debugSession();
-        
+
         return [
             'bridge_type' => $this->getBridgeType(),
             'session_valid' => $this->isSessionValid(),
@@ -1413,28 +1454,31 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function filterReservationsByPriority($reservations): array
     {
-        if (empty($reservations) || !is_array($reservations)) {
+        if (empty($reservations) || !is_array($reservations))
+        {
             return [];
         }
 
         // Define priority levels (lower number = higher priority)
         $priorities = [
             'event' => 1,
-            'booking' => 2, 
+            'booking' => 2,
             'allocation' => 3
         ];
 
         // Parse and prepare reservations with normalized data
         $parsed = [];
-        foreach ($reservations as $reservation) {
+        foreach ($reservations as $reservation)
+        {
             $type = strtolower($reservation['type'] ?? 'unknown');
             $resourceId = $this->getReservationResourceId($reservation);
             $timeData = $this->getReservationTimeData($reservation);
-            
-            if (!$resourceId || !$timeData) {
+
+            if (!$resourceId || !$timeData)
+            {
                 continue; // Skip invalid reservations
             }
-            
+
             $parsed[] = [
                 'reservation' => $reservation,
                 'type' => $type,
@@ -1447,22 +1491,28 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Group by resource
         $byResource = [];
-        foreach ($parsed as $item) {
+        foreach ($parsed as $item)
+        {
             $byResource[$item['resource_id']][] = $item;
         }
 
         $filtered = [];
-        
+
         // Process each resource separately
-        foreach ($byResource as $resourceReservations) {
+        foreach ($byResource as $resourceReservations)
+        {
             $filtered = array_merge($filtered, $this->filterOverlappingReservations($resourceReservations));
         }
 
-        if ($this->debug) {
+        if ($this->debug)
+        {
             error_log("BookingSystemBridge: Filtered " . count($reservations) . " reservations down to " . count($filtered) . " after priority filtering");
         }
 
-        return array_map(function($item) { return $item['reservation']; }, $filtered);
+        return array_map(function ($item)
+        {
+            return $item['reservation'];
+        }, $filtered);
     }
 
     /**
@@ -1471,34 +1521,43 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private function filterOverlappingReservations($reservations): array
     {
         // Sort by start time, then by priority
-        usort($reservations, function($a, $b) {
+        usort($reservations, function ($a, $b)
+        {
             $timeCompare = $a['start_timestamp'] <=> $b['start_timestamp'];
             return $timeCompare !== 0 ? $timeCompare : $a['priority'] <=> $b['priority'];
         });
 
         $result = [];
-        
-        foreach ($reservations as $current) {
+
+        foreach ($reservations as $current)
+        {
             $shouldAdd = true;
-            
+
             // Check if this reservation overlaps with any higher priority reservation already added
-            foreach ($result as $existing) {
-                if ($this->reservationsOverlap($current, $existing)) {
-                    if ($current['priority'] > $existing['priority']) {
+            foreach ($result as $existing)
+            {
+                if ($this->reservationsOverlap($current, $existing))
+                {
+                    if ($current['priority'] > $existing['priority'])
+                    {
                         // Current has lower priority, skip it
                         $shouldAdd = false;
                         break;
-                    } else if ($current['priority'] < $existing['priority']) {
+                    }
+                    else if ($current['priority'] < $existing['priority'])
+                    {
                         // Current has higher priority, remove the existing one
-                        $result = array_filter($result, function($item) use ($existing) {
+                        $result = array_filter($result, function ($item) use ($existing)
+                        {
                             return $item !== $existing;
                         });
                     }
                     // If same priority, keep the first one (already sorted by time)
                 }
             }
-            
-            if ($shouldAdd) {
+
+            if ($shouldAdd)
+            {
                 $result[] = $current;
             }
         }
@@ -1511,8 +1570,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function reservationsOverlap($res1, $res2): bool
     {
-        return $res1['start_timestamp'] < $res2['end_timestamp'] && 
-               $res2['start_timestamp'] < $res1['end_timestamp'];
+        return $res1['start_timestamp'] < $res2['end_timestamp'] &&
+            $res2['start_timestamp'] < $res1['end_timestamp'];
     }
 
     /**
@@ -1521,14 +1580,16 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private function getReservationResourceId($reservation): ?string
     {
         // Try multiple possible fields for resource identification
-        if (isset($reservation['resources']) && is_array($reservation['resources']) && !empty($reservation['resources'])) {
+        if (isset($reservation['resources']) && is_array($reservation['resources']) && !empty($reservation['resources']))
+        {
             return (string)$reservation['resources'][0]['id'];
         }
-        
-        if (isset($reservation['resource_id'])) {
+
+        if (isset($reservation['resource_id']))
+        {
             return (string)$reservation['resource_id'];
         }
-        
+
         return null;
     }
 
@@ -1539,26 +1600,30 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $start = $reservation['from_'] ?? $reservation['start_time'] ?? $reservation['start'] ?? null;
         $end = $reservation['to_'] ?? $reservation['end_time'] ?? $reservation['end'] ?? null;
-        
-        if (!$start || !$end) {
+
+        if (!$start || !$end)
+        {
             return null;
         }
 
-        try {
+        try
+        {
             // Use DateTime for reliable ISO 8601 parsing with timezone support
             $startDateTime = new \DateTime($start);
             $endDateTime = new \DateTime($end);
-            
+
             $startTimestamp = $startDateTime->getTimestamp();
             $endTimestamp = $endDateTime->getTimestamp();
-            
+
             return [
                 'start_timestamp' => $startTimestamp,
                 'end_timestamp' => $endTimestamp,
                 'start_iso' => $startDateTime->format('Y-m-d\TH:i:s'),
                 'end_iso' => $endDateTime->format('Y-m-d\TH:i:s')
             ];
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to parse reservation dates', [
                 'start' => $start,
                 'end' => $end,
@@ -1575,12 +1640,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function extractOriginalId($compositeId): ?string
     {
-        if (empty($compositeId)) {
+        if (empty($compositeId))
+        {
             return null;
         }
 
         // If it's already a simple ID (no underscore), return as-is
-        if (strpos($compositeId, '_') === false) {
+        if (strpos($compositeId, '_') === false)
+        {
             return $compositeId;
         }
 
@@ -1594,7 +1661,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function extractReservationType($compositeId): ?string
     {
-        if (empty($compositeId) || strpos($compositeId, '_') === false) {
+        if (empty($compositeId) || strpos($compositeId, '_') === false)
+        {
             return null;
         }
 
@@ -1624,38 +1692,47 @@ class BookingSystemBridge extends AbstractCalendarBridge
     public function subscribeToChanges($calendarId, $webhookUrl): string
     {
         // Most booking systems don't support webhooks, but we can implement if needed
-        if ($this->debug) {
+        if ($this->debug)
+        {
             error_log("BookingSystemBridge: Webhook subscription requested for calendar {$calendarId} to {$webhookUrl}");
         }
 
         // Check if the booking system supports webhook subscriptions
-        if (isset($this->apiEndpoints['subscribe_webhook'])) {
+        if (isset($this->apiEndpoints['subscribe_webhook']))
+        {
             $endpoint = $this->apiEndpoints['subscribe_webhook'];
             $url = $this->buildUrl($endpoint['url']);
-            
+
             $subscriptionData = [
                 'calendar_id' => $calendarId,
                 'webhook_url' => $webhookUrl,
                 'events' => ['created', 'updated', 'deleted']
             ];
 
-            try {
+            try
+            {
                 $response = $this->makeApiRequest($endpoint['method'], $url, [], $subscriptionData);
                 return $response['subscription_id'] ?? uniqid('booking_webhook_');
-            } catch (\Exception $e) {
-                if ($this->debug) {
+            }
+            catch (\Exception $e)
+            {
+                if ($this->debug)
+                {
                     error_log("BookingSystemBridge: Webhook subscription failed: " . $e->getMessage());
                 }
                 throw new \Exception("Booking system does not support webhook subscriptions: " . $e->getMessage());
             }
-        } else {
+        }
+        else
+        {
             // Fallback: Return a fake subscription ID and log that polling should be used
             $fakeSubscriptionId = 'polling_' . $calendarId . '_' . uniqid();
-            
-            if ($this->debug) {
+
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: No webhook support, using polling. Fake subscription ID: {$fakeSubscriptionId}");
             }
-            
+
             return $fakeSubscriptionId;
         }
     }
@@ -1665,28 +1742,36 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function unsubscribeFromChanges($subscriptionId): bool
     {
-        if ($this->debug) {
+        if ($this->debug)
+        {
             error_log("BookingSystemBridge: Unsubscribe requested for subscription {$subscriptionId}");
         }
 
         // If it's a polling subscription (fake), just return true
-        if (strpos($subscriptionId, 'polling_') === 0) {
-            if ($this->debug) {
+        if (strpos($subscriptionId, 'polling_') === 0)
+        {
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Polling subscription removed: {$subscriptionId}");
             }
             return true;
         }
 
         // Real webhook unsubscription
-        if (isset($this->apiEndpoints['unsubscribe_webhook'])) {
+        if (isset($this->apiEndpoints['unsubscribe_webhook']))
+        {
             $endpoint = $this->apiEndpoints['unsubscribe_webhook'];
             $url = $this->buildUrl($endpoint['url'], ['subscription_id' => $subscriptionId]);
 
-            try {
+            try
+            {
                 $response = $this->makeApiRequest($endpoint['method'], $url);
                 return $response['success'] ?? true;
-            } catch (\Exception $e) {
-                if ($this->debug) {
+            }
+            catch (\Exception $e)
+            {
+                if ($this->debug)
+                {
                     error_log("BookingSystemBridge: Webhook unsubscription failed: " . $e->getMessage());
                 }
                 return false;
@@ -1703,7 +1788,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $this->clearSession('auth_session');
         $this->sessionInfo = [];
-        
+
         if ($this->debug ?? false)
         {
             error_log("BookingSystemBridge: Session cleared from storage");
@@ -1720,8 +1805,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'errors' => 0,
             'error_details' => []
         ];
-        
-        try {
+
+        try
+        {
             $sql = "
                 UPDATE bridge_mappings 
                 SET sync_status = 'pending', 
@@ -1731,36 +1817,39 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 WHERE sync_status = 'error'
                 AND (target_bridge = ? OR source_bridge = ?)
             ";
-            
+
             $params = [$this->getBridgeType(), $this->getBridgeType()];
-            
-            if (!empty($eventIds)) {
+
+            if (!empty($eventIds))
+            {
                 $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
                 $sql .= " AND (source_event_id IN ($placeholders) OR target_event_id IN ($placeholders))";
                 $params = array_merge($params, $eventIds, $eventIds);
             }
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
-            
+
             $results['re_enabled_count'] = $stmt->rowCount();
-            
-            if ($this->debug) {
+
+            if ($this->debug)
+            {
                 error_log("BookingSystemBridge: Re-enabled {$results['re_enabled_count']} failed events");
             }
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $results['errors']++;
             $results['error_details'][] = [
                 'error' => 'Failed to re-enable failed events for BookingSystem bridge: ' . $e->getMessage()
             ];
-            
+
             $this->logger->error('Failed to re-enable failed events', [
                 'bridge' => $this->getBridgeType(),
                 'error' => $e->getMessage()
             ]);
         }
-        
+
         return $results;
     }
 
@@ -1769,28 +1858,35 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function processPendingSyncs($batchSize = 50): array
     {
-        try {
+        try
+        {
             $pendingEvents = $this->getEventsToSync($this->getBridgeType(), 3);
             $processed = [];
             $errors = [];
-            
-            foreach (array_slice($pendingEvents, 0, $batchSize) as $mapping) {
-                try {
+
+            foreach (array_slice($pendingEvents, 0, $batchSize) as $mapping)
+            {
+                try
+                {
                     // Determine sync direction and process accordingly
-                    if ($mapping['source_bridge'] === $this->getBridgeType()) {
+                    if ($mapping['source_bridge'] === $this->getBridgeType())
+                    {
                         // We are the source - sync to target
                         $processed[] = $this->processPendingSyncAsSource($mapping);
-                    } else {
+                    }
+                    else
+                    {
                         // We are the target - sync from source  
                         $processed[] = $this->processPendingSyncAsTarget($mapping);
                     }
-                    
-                } catch (\Exception $e) {
+                }
+                catch (\Exception $e)
+                {
                     $errors[] = [
                         'mapping_id' => $mapping['id'],
                         'error' => $e->getMessage()
                     ];
-                    
+
                     // Update mapping with error status
                     $this->updateSyncStatus(
                         $mapping['source_bridge'],
@@ -1803,20 +1899,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     );
                 }
             }
-            
+
             return [
                 'processed' => count($processed),
                 'errors' => count($errors),
                 'error_details' => $errors,
                 'success_details' => $processed
             ];
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to process pending syncs', [
                 'bridge' => $this->getBridgeType(),
                 'error' => $e->getMessage()
             ]);
-            
+
             return [
                 'processed' => 0,
                 'errors' => 1,
@@ -1832,8 +1929,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         // Get the current event from our bridge
         $event = $this->getEventById($mapping['source_calendar_id'], $mapping['source_event_id']);
-        
-        if (!$event) {
+
+        if (!$event)
+        {
             // Event no longer exists - mark as cancelled
             $this->markEventCancelled(
                 $mapping['source_bridge'],
@@ -1842,14 +1940,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 $mapping['target_calendar_id'],
                 $mapping['source_event_id']
             );
-            
+
             return [
                 'action' => 'cancelled',
                 'reason' => 'source_event_not_found',
                 'mapping_id' => $mapping['id']
             ];
         }
-        
+
         // Event exists - update target bridge (handled by BridgeManager)
         return [
             'action' => 'updated',
@@ -1865,7 +1963,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         // For target processing, we would need the source bridge to provide the event
         // This is typically handled by the BridgeManager coordinating between bridges
-        
+
         return [
             'action' => 'pending_source_coordination',
             'mapping_id' => $mapping['id'],
@@ -1878,18 +1976,22 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function getEventById($calendarId, $eventId): ?array
     {
-        try {
+        try
+        {
             $events = $this->getEvents($calendarId, date('Y-m-d', strtotime('-1 year')), date('Y-m-d', strtotime('+1 year')));
-            
-            foreach ($events as $event) {
-                if ($event['id'] === $eventId) {
+
+            foreach ($events as $event)
+            {
+                if ($event['id'] === $eventId)
+                {
                     return $event;
                 }
             }
-            
+
             return null;
-            
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             $this->logger->error('Failed to get event by ID', [
                 'calendar_id' => $calendarId,
                 'event_id' => $eventId,
