@@ -143,7 +143,7 @@ class BridgeManager
         
         foreach ($sourceEvents as $sourceEvent) {
             try {
-                $eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappings, $targetCalendarId, $options);
+                $eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options);
                 
                 $results[$eventResult['action']]++;
                 $results['processed_events'][] = $eventResult;
@@ -179,14 +179,14 @@ class BridgeManager
     /**
      * Process a single event sync with sync_status tracking
      */
-    private function processSingleEvent($source, $target, $sourceEvent, $mappings, $targetCalendarId, $options)
+    private function processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options)
     {
         $mapping = $this->findMapping($mappings, $sourceEvent['id']);
         
         // Add source bridge information to event data
         $sourceEvent['source_bridge'] = $source->getBridgeType();
         $sourceEvent['source_event_id'] = $sourceEvent['id'];
-        $sourceEvent['source_calendar_id'] = $targetCalendarId; // Source calendar context
+        $sourceEvent['source_calendar_id'] = $sourceCalendarId; // Correct: source calendar ID
         
         if ($mapping) {
             // Update existing event

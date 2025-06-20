@@ -792,7 +792,7 @@ abstract class AbstractCalendarBridge
     /**
      * Update sync status for an event mapping
      */
-    protected function updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $status, $errorMessage = null): bool
+    public function updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $status, $errorMessage = null): bool
     {
         try {
             $stmt = $this->db->prepare("
