@@ -150,8 +150,20 @@ class BridgeController
             $totalErrors = 0;
 
             foreach ($mappings as $mapping) {
-                $sourceCalendarId = $mapping['source_calendar_id'];
-                $targetCalendarId = $mapping['target_calendar_id'];
+                // Determine the correct source and target calendar IDs based on sync direction
+                // The database columns are semantic: source_calendar_id is always the booking system resource
+                // and target_calendar_id is always the Outlook calendar
+                
+                if ($sourceBridge === $mapping['bridge_from'] && $targetBridge === $mapping['bridge_to']) {
+                    // Forward direction: booking_system → outlook
+                    $sourceCalendarId = $mapping['source_calendar_id']; // booking system resource
+                    $targetCalendarId = $mapping['target_calendar_id']; // outlook calendar
+                } else {
+                    // Reverse direction: outlook → booking_system
+                    $sourceCalendarId = $mapping['target_calendar_id']; // outlook calendar (now source)
+                    $targetCalendarId = $mapping['source_calendar_id']; // booking system resource (now target)
+                }
+                
                 $syncDirection = $mapping['sync_direction'];
 
                 try {
