@@ -270,7 +270,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ],
             'update_event' => [
                 'method' => 'PUT',
-                'url' => '/booking/resources/{resource_id}/events/{event_id}'
+                'url' => '/booking/resources/{resource_id}/events/{event_id}/update'
             ],
             'delete_event' => [
                 'method' => 'DELETE',
@@ -606,7 +606,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $originalId = $response['event_id'] ?? $response['id'] ?? uniqid('event_');
         
         // Determine reservation type (default to 'event' for new creations)
-        $reservationType = $mappedEvent['type'] ?? 'event';
+        // Don't use the mapped event type as it might contain the source event ID
+        $reservationType = 'event';
         
         // Return composite ID for consistent tracking
         return $this->createCompositeId($reservationType, $originalId);
@@ -929,10 +930,17 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Extract original ID and type from composite ID if present
         if (isset($event['id']) && strpos($event['id'], '_') !== false) {
-            // Composite ID format: "type_id"
+            // Composite ID format: "type_id" - only use this for booking system events
             $parts = explode('_', $event['id'], 2);
-            $bookingEvent['type'] = $parts[0];
-            $bookingEvent['id'] = $parts[1];
+            // Only set type if it looks like a valid reservation type (not a long Outlook ID)
+            $potentialType = $parts[0];
+            if (in_array($potentialType, ['event', 'booking', 'allocation']) && strlen($potentialType) < 20) {
+                $bookingEvent['type'] = $potentialType;
+                $bookingEvent['id'] = $parts[1];
+            } else {
+                // This is likely an Outlook event ID, don't use it as type
+                $bookingEvent['id'] = $event['id'] ?? null;
+            }
         } elseif (isset($event['original_id'])) {
             // Use stored original ID if available
             $bookingEvent['id'] = $event['original_id'];
@@ -940,7 +948,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 $bookingEvent['type'] = $event['reservation_type'];
             }
         } else {
-            // Fallback to direct ID
+            // Fallback to direct ID - don't set type from unknown source
             $bookingEvent['id'] = $event['id'] ?? null;
         }
 
