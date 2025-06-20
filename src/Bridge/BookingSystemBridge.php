@@ -738,19 +738,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'Accept: application/json'
         ];
 
-        // For non-login requests, add session parameters
+        // For non-login requests, add session parameters to URL
         if (!$isLoginRequest)
         {
             $sessionParams = $this->getSessionParams();
-            $params = array_merge($params, $sessionParams);
+            if (!empty($sessionParams))
+            {
+                $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($sessionParams);
+            }
         }
 
         if ($method === 'GET' && !empty($params))
         {
             $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($params);
-            curl_setopt($ch, CURLOPT_URL, $url);
         }
-        else if ($method === 'POST')
+        
+        // Set the final URL for all methods
+        curl_setopt($ch, CURLOPT_URL, $url);
+        
+        if ($method === 'POST')
         {
             curl_setopt($ch, CURLOPT_POST, true);
             
