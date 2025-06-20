@@ -1188,11 +1188,12 @@ Map your booking system resources to calendar resources:
 curl -X POST "http://your-bridge/mappings/resources" \
   -H "Content-Type: application/json" \
   -d '{
-    "booking_system_resource_id": "123",
-    "calendar_system": "outlook",
-    "calendar_resource_id": "room-calendar-id",
-    "calendar_resource_name": "Conference Room A",
-    "active": true
+    "bridge_from": "your_system",
+    "bridge_to": "outlook", 
+    "source_calendar_id": "room_123",
+    "source_calendar_name": "Conference Room A",
+    "target_calendar_id": "mr.ok23.e4.475@svgdrift.no",
+    "target_calendar_name": "mr.ok23.e4.475"
   }'
 ```
 
@@ -1871,3 +1872,279 @@ The Calendar Bridge system provides a clean, extensible architecture for connect
 6. Monitor Health: Use bridge health endpoints for monitoring
 
 The calendar bridge system is production-ready and designed to scale with your integration needs.
+
+## BookingSystemBridge API Specification
+
+The BookingSystemBridge communicates with your booking system through standardized REST API endpoints. Here are the exact calls made by the bridge:
+
+### Default API Endpoints
+
+The bridge uses these default endpoint patterns (configurable):
+
+```php
+[
+    'list_events' => [
+        'method' => 'GET',
+        'url' => '/booking/resources/{resource_id}/schedule'
+    ],
+    'create_event' => [
+        'method' => 'POST', 
+        'url' => '/booking/resources/{resource_id}/events'
+    ],
+    'update_event' => [
+        'method' => 'PUT',
+        'url' => '/booking/resources/{resource_id}/events/{event_id}'
+    ],
+    'delete_event' => [
+        'method' => 'DELETE',
+        'url' => '/booking/resources/{resource_id}/events/{event_id}'
+    ],
+    'list_resources' => [
+        'method' => 'GET',
+        'url' => '/booking/resources'
+    ]
+]
+```
+
+### Field Mappings (Outlook → Booking System)
+
+When syncing FROM Outlook TO your booking system, the bridge transforms fields:
+
+```php
+[
+    'subject' => 'title',           // Outlook subject → booking title
+    'start' => 'from_',             // Outlook start → booking from_
+    'end' => 'to_',                 // Outlook end → booking to_
+    'description' => 'description', // Description (unchanged)
+    'organizer' => 'contact_name',  // Outlook organizer → booking contact_name
+    'attendees' => 'contact_email'  // First attendee → booking contact_email
+]
+```
+
+### Field Mappings (Booking System → Outlook)
+
+When syncing FROM your booking system TO Outlook, the bridge transforms fields:
+
+```php
+[
+    'title' => 'subject',           // booking title → Outlook subject
+    'name' => 'subject',            // booking name → Outlook subject (fallback)
+    'from_' => 'start',             // booking from_ → Outlook start
+    'to_' => 'end',                 // booking to_ → Outlook end
+    'description' => 'description', // Description (unchanged)
+    'contact_name' => 'organizer',  // booking contact_name → Outlook organizer
+    'contact_email' => 'attendees'  // booking contact_email → Outlook attendees
+]
+```
+
+### 1. CREATE Event (Outlook → Booking System)
+
+**When**: Outlook event is synced to your booking system
+
+**HTTP Call**:
+```http
+POST /booking/resources/431/events
+Content-Type: application/json
+Authorization: [Session-based auth headers]
+
+{
+    "title": "Team Meeting",
+    "from_": "2025-06-25T15:30:00+02:00",
+    "to_": "2025-06-25T16:00:00+02:00", 
+    "description": "Weekly team sync meeting",
+    "contact_name": "john.doe@company.com",
+    "contact_email": "attendee@company.com",
+    "source": "calendar_bridge",
+    "bridge_import": true,
+    "type": "event"
+}
+```
+
+**Your API Response**:
+```json
+{
+    "success": true,
+    "event_id": 12345,
+    "id": 12345
+}
+```
+
+**Bridge Behavior**:
+- Creates composite ID: `"event_12345"`
+- Creates mapping in `bridge_mappings` table
+- Sets sync status to `"synced"`
+
+### 2. READ Events (Booking System → Outlook)
+
+**When**: Bridge fetches events from your booking system for sync
+
+**HTTP Call**:
+```http
+GET /booking/resources/431/schedule?start_date=2025-06-20&end_date=2025-07-20&format=json
+Authorization: [Session-based auth headers]
+```
+
+**Your API Response**:
+```json
+{
+    "events": [
+        {
+            "id": 25635,
+            "title": "Conference Room Booking",
+            "from_": "2025-06-25T15:30:00+02:00",
+            "to_": "2025-06-25T16:00:00+02:00",
+            "description": "Team meeting",
+            "contact_name": "John Doe",
+            "contact_email": "john@company.com",
+            "reservation_type": "booking",
+            "active": 1
+        },
+        {
+            "id": 800398,
+            "title": "Equipment Allocation", 
+            "from_": "2025-07-09T15:30:00+02:00",
+            "to_": "2025-07-09T16:30:00+02:00",
+            "description": "Equipment allocation for project",
+            "reservation_type": "allocation",
+            "active": 1
+        }
+    ]
+}
+```
+
+**Bridge Behavior**:
+- Converts to composite IDs: `"booking_25635"`, `"allocation_800398"`
+- Applies field mappings for Outlook
+- Creates/updates events in Outlook
+- Creates mappings in `bridge_mappings` table
+
+### 3. UPDATE Event (Outlook → Booking System)
+
+**When**: Existing Outlook event is modified and synced to your booking system
+
+**HTTP Call**:
+```http
+PUT /booking/resources/431/events/12345
+Content-Type: application/json
+Authorization: [Session-based auth headers]
+
+{
+    "title": "Team Meeting - Updated",
+    "from_": "2025-06-25T14:30:00+02:00",
+    "to_": "2025-06-25T15:30:00+02:00",
+    "description": "Updated meeting time",
+    "contact_name": "john.doe@company.com", 
+    "contact_email": "attendee@company.com",
+    "source": "calendar_bridge",
+    "bridge_import": true,
+    "type": "event"
+}
+```
+
+**Your API Response**:
+```json
+{
+    "success": true,
+    "updated": true
+}
+```
+
+**Bridge Behavior**:
+- Updates sync status to `"synced"`
+- Updates `last_synced_at` timestamp
+- Resets retry count to 0
+
+### 4. DELETE Event (Outlook → Booking System) 
+
+**When**: Outlook event is deleted and needs to be removed from booking system
+
+**HTTP Call**:
+```http
+DELETE /booking/resources/431/events/12345
+Authorization: [Session-based auth headers]
+```
+
+**Your API Response**:
+```json
+{
+    "success": true,
+    "deleted": true
+}
+```
+
+**Bridge Behavior**:
+- Sets sync status to `"cancelled"`
+- Keeps mapping record for audit trail
+- Logs deletion operation
+
+### Authentication
+
+The bridge uses **session-based authentication**:
+
+1. **Login Request**:
+```http
+POST /login
+Content-Type: application/json
+
+{
+    "username": "api_user",
+    "password": "api_password"
+}
+```
+
+2. **Session Refresh** (automatic):
+```http
+POST /refreshsession
+Authorization: Bearer [session_token]
+```
+
+3. **Session Headers** (on all API calls):
+```http
+Authorization: Bearer [session_token]
+Cookie: session_id=[session_id]
+```
+
+### Configuration Options
+
+You can customize endpoints and field mappings in your bridge configuration:
+
+```php
+// Custom API endpoints
+'api_endpoints' => [
+    'create_event' => [
+        'method' => 'POST',
+        'url' => '/api/v2/resources/{resource_id}/reservations'  // Custom endpoint
+    ],
+    'list_events' => [
+        'method' => 'GET', 
+        'url' => '/api/v2/resources/{resource_id}/calendar'      // Custom endpoint
+    ]
+],
+
+// Custom field mappings
+'field_mappings' => [
+    'to_booking_system' => [
+        'subject' => 'event_title',     // Custom: subject → event_title
+        'start' => 'start_datetime',    // Custom: start → start_datetime
+        'end' => 'end_datetime',        // Custom: end → end_datetime
+        'organizer' => 'created_by'     // Custom: organizer → created_by
+    ]
+]
+```
+
+### Error Handling
+
+**Failed Requests**:
+- Bridge sets sync status to `"error"`
+- Increments retry count
+- Logs error message in `bridge_mappings.error_message`
+
+**Authentication Failures**:
+- Bridge automatically re-authenticates
+- Retries original request
+- Logs authentication issues
+
+**Network Timeouts**:
+- Bridge retries with exponential backoff
+- Max 3 retry attempts by default
+- Sets error status after max retries
