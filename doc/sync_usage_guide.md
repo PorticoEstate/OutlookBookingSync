@@ -2035,6 +2035,38 @@ Authorization: [Session-based auth headers]
                 "deactivate_application": false
             }
         ]
+    },
+    {
+        "type": "event",
+        "activity_id": 161,
+        "description": "beskrivelse",
+        "contact_name": "sigurd",
+        "contact_email": "sigurdne@gmail.com",
+        "contact_phone": "90665164",
+        "reminder": 0,
+        "is_public": 1,
+        "id_string": "78269",
+        "building_id": 111,
+        "name": "Test på arrangement over interntildeling",
+        "organizer": "Sigurd Nes",
+        "homepage": "",
+        "equipment": "",
+        "id": 78269,
+        "active": 1,
+        "from_": "2025-06-18T15:30:00+02:00",
+        "to_": "2025-06-18T16:30:00+02:00",
+        "completed": 0,
+        "building_name": "Testbygg",
+        "skip_bas": 0,
+        "resources": [
+            {
+                "id": 431,
+                "name": "Nytt testrom",
+                "activity_id": 161,
+                "deactivate_application": false,
+                "building_id": 111
+            }
+        ]
     }
 ]
 ```
