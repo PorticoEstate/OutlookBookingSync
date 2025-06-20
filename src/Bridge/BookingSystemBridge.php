@@ -270,11 +270,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ],
             'update_event' => [
                 'method' => 'PUT',
-                'url' => '/booking/resources/{resource_id}/events/{event_id}/update'
+                'url' => '/booking/events/{event_id}'
             ],
-            'delete_event' => [
-                'method' => 'DELETE',
-                'url' => '/booking/resources/{resource_id}/events/{event_id}'
+            // 'delete_event' => [
+            //     'method' => 'DELETE',
+            //     'url' => '/booking/events/{event_id}'
+            // ],
+            'toggle_event' => [
+                'method' => 'PATCH',
+                'url' => '/booking/events/{event_id}/toggle-active'
             ],
             'list_resources' => [
                 'method' => 'GET',
@@ -489,6 +493,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     /**
      * Delete event in booking system (when BookingSystemBridge is target)
+     * For events imported from Outlook, this sets active=0 instead of actual deletion
      */
     public function deleteEvent($calendarId, $eventId): bool
     {
@@ -500,7 +505,24 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 error_log("BookingSystemBridge: Deleting event - composite ID: {$eventId}, original ID: {$originalId}");
             }
             
-            $success = $this->deleteEventViaApi($calendarId, $eventId);
+            // Check if this event was imported from Outlook (find mapping where this is target)
+            $wasImportedFromOutlook = $this->checkIfEventImportedFromOutlook($eventId);
+            
+            if ($wasImportedFromOutlook) {
+                // For events imported from Outlook, toggle active status to 0 instead of deleting
+                $success = $this->toggleEventActiveStatus($calendarId, $eventId, false);
+                
+                if ($this->debug) {
+                    error_log("BookingSystemBridge: Set active=0 for Outlook-imported event: {$eventId}");
+                }
+            } else {
+                // For events created in booking system, perform actual deletion
+                $success = $this->deleteEventViaApi($calendarId, $eventId);
+                
+                if ($this->debug) {
+                    error_log("BookingSystemBridge: Actually deleted booking system native event: {$eventId}");
+                }
+            }
             
             // Mark related mappings as cancelled (find by target event ID)
             try {
@@ -549,6 +571,71 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'reservation_type' => $reservationType,
             'context' => $context
         ];
+    }
+
+    /**
+     * Check if an event was imported from Outlook by looking at bridge mappings
+     */
+    private function checkIfEventImportedFromOutlook($eventId): bool
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT COUNT(*) as count
+                FROM bridge_mappings 
+                WHERE target_event_id = ? 
+                AND target_bridge = ? 
+                AND source_bridge = 'outlook'
+                AND sync_status != 'cancelled'
+            ");
+            $stmt->execute([$eventId, $this->getBridgeType()]);
+            $result = $stmt->fetch();
+            
+            return ($result['count'] ?? 0) > 0;
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to check if event was imported from Outlook', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+            return false; // Default to false if we can't determine
+        }
+    }
+
+    /**
+     * Toggle event active status in booking system
+     */
+    private function toggleEventActiveStatus($resourceId, $eventId, $active = false): bool
+    {
+        try {
+            // Extract original ID from composite ID if needed
+            $originalEventId = $this->extractOriginalId($eventId);
+            
+            $endpoint = $this->apiEndpoints['toggle_event'];
+            $url = $this->buildUrl($endpoint['url'], [
+                'event_id' => $originalEventId
+            ]);
+
+            // Prepare data for the toggle request
+            $data = [
+                'active' => $active ? 1 : 0
+            ];
+
+            $response = $this->makeApiRequest($endpoint['method'], $url, [], $data);
+
+            if ($this->debug) {
+                error_log("BookingSystemBridge: Toggled event {$eventId} active status to " . ($active ? 'true' : 'false'));
+            }
+
+            return $response['success'] ?? true;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to toggle event active status', [
+                'resource_id' => $resourceId,
+                'event_id' => $eventId,
+                'active' => $active,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
     }
 
     // Configurable API Methods
