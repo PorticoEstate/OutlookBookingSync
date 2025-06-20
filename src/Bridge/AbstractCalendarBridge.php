@@ -1212,4 +1212,46 @@ abstract class AbstractCalendarBridge
         $sessionId = $this->generateConsistentSessionId();
         return $sessionDir . '/session_' . $sessionId . '.json';
     }
+    
+    /**
+     * Get the sync direction configured for a resource mapping
+     */
+    protected function getResourceMappingSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId): string
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT sync_direction 
+                FROM bridge_resource_mappings 
+                WHERE bridge_from = ? 
+                    AND bridge_to = ? 
+                    AND source_calendar_id = ? 
+                    AND target_calendar_id = ?
+                    AND is_active = TRUE 
+                    AND sync_enabled = TRUE
+                LIMIT 1
+            ");
+            
+            $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result && isset($result['sync_direction'])) {
+                return $result['sync_direction'];
+            }
+            
+            // Default fallback - determine direction based on bridge relationship
+            return 'source_to_target';
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to get resource mapping sync direction', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId
+            ]);
+            
+            // Fallback to default
+            return 'source_to_target';
+        }
+    }
 }

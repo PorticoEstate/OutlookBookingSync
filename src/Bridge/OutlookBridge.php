@@ -125,6 +125,14 @@ class OutlookBridge extends AbstractCalendarBridge
             
             // Create event mapping with synced status
             if (isset($event['source_bridge']) && isset($event['source_event_id']) && isset($event['source_calendar_id'])) {
+                // Look up the resource mapping to get the configured sync direction
+                $syncDirection = $this->getResourceMappingSyncDirection(
+                    $event['source_bridge'],
+                    $this->getBridgeType(),
+                    $event['source_calendar_id'],
+                    $calendarId
+                );
+                
                 $this->createEventMapping(
                     $event['source_bridge'],
                     $this->getBridgeType(),
@@ -133,7 +141,7 @@ class OutlookBridge extends AbstractCalendarBridge
                     $event['source_event_id'],
                     $eventId,
                     $event,
-                    'source_to_target'
+                    $syncDirection
                 );
             }
             
