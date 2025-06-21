@@ -251,6 +251,56 @@ $app->get('/dashboard', function (Request $request, Response $response, $args)
     }
 });
 
+// Serve static CSS files for dashboard
+$app->get('/css/{filename}', function (Request $request, Response $response, $args)
+{
+    $filename = $args['filename'];
+    $cssPath = __DIR__ . '/public/css/' . $filename;
+    
+    // Basic security check to prevent directory traversal
+    if (strpos($filename, '..') !== false || strpos($filename, '/') !== false) {
+        return $response->withStatus(404);
+    }
+    
+    if (file_exists($cssPath) && pathinfo($filename, PATHINFO_EXTENSION) === 'css')
+    {
+        $response->getBody()->write(file_get_contents($cssPath));
+        return $response->withHeader('Content-Type', 'text/css');
+    }
+    else
+    {
+        return $response->withStatus(404);
+    }
+});
+
+// Serve static JS files for dashboard
+$app->get('/js/{filename}', function (Request $request, Response $response, $args)
+{
+    $filename = $args['filename'];
+    $jsPath = __DIR__ . '/public/js/' . $filename;
+    
+    // Basic security check to prevent directory traversal
+    if (strpos($filename, '..') !== false || strpos($filename, '/') !== false) {
+        return $response->withStatus(404);
+    }
+    
+    if (file_exists($jsPath) && pathinfo($filename, PATHINFO_EXTENSION) === 'js')
+    {
+        $response->getBody()->write(file_get_contents($jsPath));
+        return $response->withHeader('Content-Type', 'application/javascript');
+    }
+    else
+    {
+        return $response->withStatus(404);
+    }
+});
+
+// Serve favicon (return 204 No Content to prevent 404s)
+$app->get('/favicon.ico', function (Request $request, Response $response, $args)
+{
+    return $response->withStatus(204);
+});
+
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
@@ -439,6 +489,11 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /health/system' => 'Detailed system status',
                 'GET /health/dashboard' => 'Dashboard data (JSON)',
                 'GET /dashboard' => 'Monitoring dashboard (HTML)'
+            ],
+            'static_assets' => [
+                'GET /css/{filename}' => 'Serve CSS files for dashboard',
+                'GET /js/{filename}' => 'Serve JavaScript files for dashboard',
+                'GET /favicon.ico' => 'Favicon (204 No Content)'
             ],
             'resource_management' => [
                 'GET /mappings/resources' => 'List resource mappings',
