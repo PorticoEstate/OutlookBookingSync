@@ -29,8 +29,8 @@ RUN apt-get update \
 # Xdebug configuration
 COPY ./build_config/xdebug.ini /usr/local/etc/php/conf.d/xdebug.ini
 
-# Enable Apache mod_rewrite
-RUN a2enmod rewrite
+# Enable Apache modules for .htaccess functionality
+RUN a2enmod rewrite headers expires deflate
 
 # Set working directory
 WORKDIR /var/www/html

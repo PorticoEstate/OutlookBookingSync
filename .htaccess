@@ -1,14 +1,60 @@
 RewriteEngine On
+
+# Serve static files directly from public directory
+# CSS files
+RewriteRule ^css/(.+\.css)$ public/css/$1 [L]
+
+# JavaScript files  
+RewriteRule ^js/(.+\.js)$ public/js/$1 [L]
+
+# HTML files (like dashboard.html)
+RewriteRule ^dashboard$ public/dashboard.html [L]
+
+# Favicon - serve empty response to prevent 404s
+RewriteRule ^favicon\.ico$ - [R=204,L]
+
+# Images and other static assets (if you add them later)
+RewriteRule ^images/(.+\.(png|jpg|jpeg|gif|svg|ico))$ public/images/$1 [L]
+RewriteRule ^fonts/(.+\.(woff|woff2|ttf|eot))$ public/fonts/$1 [L]
+
+# Route all other requests (API endpoints) to index.php if file/directory doesn't exist
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
 
 # Security headers
 <IfModule mod_headers.c>
-   # CORS settings
-   SetEnvIf Origin "http(s)?://(www\.)?(google.com|maps.googleapis.com)$" AccessControlAllowOrigin=$0
-   Header add Access-Control-Allow-Origin %{AccessControlAllowOrigin}e env=AccessControlAllowOrigin
-   Header merge Vary Origin
+   # Security headers
+   Header always append X-Frame-Options SAMEORIGIN
+   Header always append X-Content-Type-Options nosniff
+   Header always append X-XSS-Protection "1; mode=block"
+   Header always append Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Set proper MIME types for static files
+<IfModule mod_mime.c>
+    AddType text/css .css
+    AddType application/javascript .js
+    AddType text/html .html
+</IfModule>
+
+# Cache static assets for better performance
+<IfModule mod_expires.c>
+    ExpiresActive On
+    <FilesMatch "\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$">
+        ExpiresDefault "access plus 1 month"
+        <IfModule mod_headers.c>
+            Header append Cache-Control "public, immutable"
+        </IfModule>
+    </FilesMatch>
+</IfModule>
+
+# Gzip compression for text files
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE application/json
 </IfModule>
 
 # Suppress .map file 404 errors
@@ -28,11 +74,20 @@ RewriteRule ^ index.php [QSA,L]
 RewriteRule ^.git/ - [F,L]
 RewriteRule ^(.*/)?\.git/ - [F,L]
 
-# Protect configuration files
-<FilesMatch "\.(ini|log|sh|inc|bak|sql|git|svn|htaccess)$">
+# Protect configuration files and sensitive directories
+<FilesMatch "\.(ini|log|sh|inc|bak|sql|git|svn|htaccess|env)$">
   Order allow,deny
   Deny from all
 </FilesMatch>
+
+# Additional protection for sensitive files and directories
+RewriteRule ^\.env$ - [F,L]
+RewriteRule ^\.env\.example$ - [F,L]
+RewriteRule ^composer\.(json|lock)$ - [F,L]
+RewriteRule ^vendor/ - [F,L]
+RewriteRule ^src/ - [F,L]
+RewriteRule ^storage/ - [F,L]
+RewriteRule ^database/ - [F,L]
 
 # Disable directory browsing
 Options -Indexes
