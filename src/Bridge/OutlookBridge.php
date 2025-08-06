@@ -874,8 +874,16 @@ class OutlookBridge extends AbstractCalendarBridge
             }
             
             // Add date filtering if provided
-            if ($startDate && $endDate) {
-                $queryParams['$filter'] = "start/dateTime ge '{$startDate}' and end/dateTime le '{$endDate}'";
+            $filters = [];
+            if ($startDate) {
+                $filters[] = "start/dateTime ge '{$startDate}'";
+            }
+            if ($endDate) {
+                $filters[] = "end/dateTime le '{$endDate}'";
+            }
+            
+            if (!empty($filters)) {
+                $queryParams['$filter'] = implode(' and ', $filters);
             }
             
             // Add ordering for consistent pagination
