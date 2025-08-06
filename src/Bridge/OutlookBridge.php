@@ -750,7 +750,7 @@ class OutlookBridge extends AbstractCalendarBridge
             if ($limit > 0) {
                 $queryParams[] = '$top=' . $limit;
             } else {
-                $queryParams[] = '$top=9999'; // Default large number if no limit specified
+                $queryParams[] = '$top=999'; // Default large number if no limit specified
             }
             
             if ($offset > 0) {
@@ -852,7 +852,7 @@ class OutlookBridge extends AbstractCalendarBridge
      * Get calendar items for a specific resource
      * Uses the same method as OutlookController for getting calendar events
      */
-    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array
+    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null, $limit = 0, $offset = 0): array
     {
         try {
             if (!$resourceId) {
@@ -862,9 +862,35 @@ class OutlookBridge extends AbstractCalendarBridge
             // Get the request adapter from the Graph service client
             $requestAdapter = $this->graphServiceClient->getRequestAdapter();
 
+            // Build query parameters
+            $queryParams = [];
+            
+            // Add pagination parameters
+            if ($limit > 0) {
+                $queryParams['$top'] = $limit;
+            }
+            if ($offset > 0) {
+                $queryParams['$skip'] = $offset;
+            }
+            
+            // Add date filtering if provided
+            if ($startDate && $endDate) {
+                $queryParams['$filter'] = "start/dateTime ge '{$startDate}' and end/dateTime le '{$endDate}'";
+            }
+            
+            // Add ordering for consistent pagination
+            $queryParams['$orderby'] = 'start/dateTime';
+
             // Make a direct API call to get calendar items for the resource (same as OutlookController)
             $calendarItemsRequest = new RequestInformation();
-            $calendarItemsRequest->urlTemplate = "https://graph.microsoft.com/v1.0/users/{$resourceId}/events";
+            
+            // Build the URL with query parameters
+            $baseUrl = "https://graph.microsoft.com/v1.0/users/{$resourceId}/events";
+            if (!empty($queryParams)) {
+                $baseUrl .= '?' . http_build_query($queryParams);
+            }
+            
+            $calendarItemsRequest->urlTemplate = $baseUrl;
             $calendarItemsRequest->httpMethod = HttpMethod::GET;
             $calendarItemsRequest->addHeader("Accept", "application/json");
 
@@ -875,21 +901,12 @@ class OutlookBridge extends AbstractCalendarBridge
             )->wait();
 
             $events = [];
+            $totalCount = null;
 
             if ($calendarItemsResponse && method_exists($calendarItemsResponse, 'getValue')) {
                 $items = $calendarItemsResponse->getValue();
                 if ($items && !empty($items)) {
                     foreach ($items as $item) {
-                        // Filter by date range if provided
-                        if ($startDate && $endDate) {
-                            $itemStart = $item->getStart()->getDateTime();
-                            $itemEnd = $item->getEnd()->getDateTime();
-                            
-                            if ($itemStart < $startDate || $itemEnd > $endDate) {
-                                continue; // Skip events outside date range
-                            }
-                        }
-
                         $events[] = [
                             'id' => $item->getId(),
                             'subject' => $item->getSubject(),
@@ -900,6 +917,11 @@ class OutlookBridge extends AbstractCalendarBridge
                         ];
                     }
                 }
+                
+                // Try to get the total count from @odata.count if available
+                if (method_exists($calendarItemsResponse, 'getOdataCount')) {
+                    $totalCount = $calendarItemsResponse->getOdataCount();
+                }
             }
 
             $this->logger->info('Retrieved resource calendar items from Outlook', [
@@ -907,9 +929,27 @@ class OutlookBridge extends AbstractCalendarBridge
                 'resource_id' => $resourceId,
                 'event_count' => count($events),
                 'start_date' => $startDate,
-                'end_date' => $endDate
+                'end_date' => $endDate,
+                'limit' => $limit,
+                'offset' => $offset
             ]);
 
+            // Return events with metadata if pagination was requested or total count is available
+            if ($limit > 0 || $offset > 0 || $totalCount !== null) {
+                $result = [
+                    'calendar_items' => $events,
+                    'metadata' => []
+                ];
+
+                // Add total_records to metadata if available
+                if ($totalCount !== null) {
+                    $result['metadata']['total_records'] = $totalCount;
+                }
+
+                return $result;
+            }
+
+            // Backward compatibility: return just the events array
             return $events;
             
         } catch (\Exception $e) {

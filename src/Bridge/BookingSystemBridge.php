@@ -1329,7 +1329,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Get calendar items for a specific resource
      */
-    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array
+    public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null, $limit = 0, $offset = 0): array
     {
         try
         {
@@ -1346,6 +1346,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $params = [];
             if ($startDate) $params['start_date'] = $startDate;
             if ($endDate) $params['end_date'] = $endDate;
+            
+            // Add pagination parameters
+            if ($offset > 0) $params['start'] = $offset;
+            if ($limit > 0) $params['results'] = $limit;
 
             if (!empty($params))
             {
@@ -1366,6 +1370,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 }
             }
 
+            // Extract total_records from response if available
+            $totalRecords = $response['total_records'] ?? null;
+
+            // Return events with metadata if pagination was requested or total_records is available
+            if ($limit > 0 || $offset > 0 || $totalRecords !== null) {
+                $result = [
+                    'calendar_items' => $events,
+                    'metadata' => []
+                ];
+
+                // Add total_records to metadata if available
+                if ($totalRecords !== null) {
+                    $result['metadata']['total_records'] = $totalRecords;
+                }
+
+                return $result;
+            }
+
+            // Backward compatibility: return just the events array
             return $events;
         }
         catch (\Exception $e)

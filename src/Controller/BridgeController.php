@@ -800,13 +800,29 @@ class BridgeController
             
             // Get query parameters
             $queryParams = $request->getQueryParams();
-            $startDate = $queryParams['startDate'] ?? null;
+            $startDate = $queryParams['startDate'] ?? date('Y-m-d');
             $endDate = $queryParams['endDate'] ?? null;
+            $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 0;
+            $offset = isset($queryParams['offset']) ? (int)$queryParams['offset'] : 0;
+            
+            // Validate pagination parameters
+            if ($limit < 0) $limit = 0;
+            if ($offset < 0) $offset = 0;
             
             // Get calendar items through the bridge
-            $calendarItems = $bridge->getResourceCalendarItems($resourceId, $startDate, $endDate);
+            $result = $bridge->getResourceCalendarItems($resourceId, $startDate, $endDate, $limit, $offset);
             
-            $response->getBody()->write(json_encode([
+            // Handle both old array format and new format with metadata
+            if (isset($result['calendar_items']) && isset($result['metadata'])) {
+                $calendarItems = $result['calendar_items'];
+                $metadata = $result['metadata'];
+            } else {
+                // Backward compatibility: assume it's just an array of calendar items
+                $calendarItems = is_array($result) ? $result : [];
+                $metadata = [];
+            }
+            
+            $responseData = [
                 'success' => true,
                 'bridge' => $bridgeName,
                 'resource_id' => $resourceId,
@@ -814,7 +830,28 @@ class BridgeController
                 'end_date' => $endDate,
                 'calendar_items' => $calendarItems,
                 'count' => count($calendarItems)
-            ]));
+            ];
+            
+            // Add total_records from API response if available
+            if (isset($metadata['total_records'])) {
+                $responseData['total_records'] = $metadata['total_records'];
+            }
+            
+            // Add pagination info if pagination was requested
+            if ($limit > 0 || $offset > 0) {
+                $responseData['pagination'] = [
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'returned_count' => count($calendarItems)
+                ];
+                
+                // Add total_records to pagination if available
+                if (isset($metadata['total_records'])) {
+                    $responseData['pagination']['total_records'] = $metadata['total_records'];
+                }
+            }
+            
+            $response->getBody()->write(json_encode($responseData));
             
             return $response->withHeader('Content-Type', 'application/json');
             
