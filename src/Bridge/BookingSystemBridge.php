@@ -769,7 +769,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $response = $this->makeApiRequest($endpoint['method'], $url);
 
-        $resources = $response['resources'] ?? $response['data'] ?? $response;
+        $resources = $response['results'] ?? $response['data'] ?? $response;
         if (!is_array($resources))
         {
             return [];
@@ -780,7 +780,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             return [
                 'id' => $resource['id'],
                 'name' => $resource['name'] ?? $resource['title'] ?? '',
-                'description' => $resource['description'] ?? '',
+                'description' => $resource['description_json'] ? json_decode($resource['description_json'], true)['no'] : '',
                 'type' => $resource['type'] ?? 'resource',
                 'bridge_type' => $this->getBridgeType(),
                 'raw_data' => $resource
@@ -1133,6 +1133,29 @@ class BookingSystemBridge extends AbstractCalendarBridge
     }
 
     /**
+     * Normalize attendees field - handles both string and array inputs
+     */
+    private function normalizeAttendees($attendeesData): array
+    {
+        if (empty($attendeesData))
+        {
+            return [];
+        }
+
+        if (is_string($attendeesData))
+        {
+            return array_filter([$attendeesData]);
+        }
+
+        if (is_array($attendeesData))
+        {
+            return array_unique(array_filter($attendeesData));
+        }
+
+        return [];
+    }
+
+    /**
      * Get available resources from the booking system
      */
     public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array
@@ -1439,7 +1462,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'location' => $mappedEvent['location'] ?? $event['location'] ?? $event['room'] ?? null,
             'description' => $mappedEvent['description'] ?? $event['description'] ?? $event['notes'] ?? '',
             'organizer' => $mappedEvent['organizer'] ?? $event['organizer'] ?? $event['created_by'] ?? null,
-            'attendees' => $this->extractAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
+            'attendees' => $this->normalizeAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
             'all_day' => $mappedEvent['all_day'] ?? $event['all_day'] ?? false,
             'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? 'UTC',
             'bridge_type' => 'booking_system',
