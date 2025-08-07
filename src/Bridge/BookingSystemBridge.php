@@ -1047,7 +1047,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $mappings = $this->fieldMappings['to_booking_system'];
         $bookingEvent = [];
 
-        // Extract original ID and type from composite ID if present
+        // For new events from Outlook: DO NOT set ID - let booking system generate it
+        // For updates: Only use booking system composite IDs (format: "type_id")
         if (isset($event['id']) && strpos($event['id'], '_') !== false)
         {
             // Composite ID format: "type_id" - only use this for booking system events
@@ -1059,26 +1060,18 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 $bookingEvent['type'] = $potentialType;
                 $bookingEvent['id'] = $parts[1];
             }
-            else
-            {
-                // This is likely an Outlook event ID, don't use it as type
-                $bookingEvent['id'] = $event['id'] ?? null;
-            }
+            // If it's an Outlook ID (long string), don't set any ID - let booking system generate
         }
-        elseif (isset($event['original_id']))
+        elseif (isset($event['original_id']) && !$this->isOutlookEventId($event['id'] ?? ''))
         {
-            // Use stored original ID if available
+            // Use stored original ID only if it's NOT an Outlook event
             $bookingEvent['id'] = $event['original_id'];
             if (isset($event['reservation_type']))
             {
                 $bookingEvent['type'] = $event['reservation_type'];
             }
         }
-        else
-        {
-            // Fallback to direct ID - don't set type from unknown source
-            $bookingEvent['id'] = $event['id'] ?? null;
-        }
+        // For Outlook events: Don't set any ID - let booking system generate a new one
 
         // Apply field mappings
         foreach ($mappings as $genericField => $bookingField)
@@ -1153,6 +1146,23 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
 
         return [];
+    }
+
+    /**
+     * Check if an event ID is from Outlook (long base64-like string)
+     */
+    private function isOutlookEventId($eventId): bool
+    {
+        if (empty($eventId))
+        {
+            return false;
+        }
+
+        // Outlook IDs are typically very long (100+ characters) and contain base64-like strings
+        // They often start with "AAMk" and contain mixed case letters, numbers, and special chars
+        return (strlen($eventId) > 50 && 
+                (strpos($eventId, 'AAMk') === 0 || 
+                 preg_match('/^[A-Za-z0-9+\/=_-]{50,}$/', $eventId)));
     }
 
     /**
