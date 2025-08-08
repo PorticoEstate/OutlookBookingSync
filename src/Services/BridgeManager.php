@@ -141,41 +141,158 @@ class BridgeManager
             'processed_events' => []
         ];
         
-        foreach ($sourceEvents as $sourceEvent) {
-            try {
-                $eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options);
-                
-                $results[$eventResult['action']]++;
-                $results['processed_events'][] = $eventResult;
-                
-            } catch (\Exception $e) {
-                $results['errors'][] = [
-                    'event_id' => $sourceEvent['id'] ?? 'unknown',
-                    'error' => $e->getMessage(),
-                    'event_data' => $sourceEvent
-                ];
-                
-                $this->logger->error('Event sync failed', [
-                    'source_bridge' => $sourceBridge,
-                    'target_bridge' => $targetBridge,
-                    'event' => $sourceEvent,
-                    'error' => $e->getMessage()
-                ]);
+        // Process each event individually with maximum fault tolerance
+        $totalEvents = count($sourceEvents);
+        $this->logger->info("Starting to process {$totalEvents} events individually", [
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge
+        ]);
+        
+        for ($index = 0; $index < $totalEvents; $index++) {
+            $sourceEvent = $sourceEvents[$index];
+            
+            $this->logger->info("Processing event {$index}/{$totalEvents}", [
+                'event_id' => $sourceEvent['id'] ?? 'unknown',
+                'event_subject' => $sourceEvent['subject'] ?? 'N/A'
+            ]);
+            
+            // Process this single event in complete isolation
+            $eventProcessingResult = $this->processSingleEventSafely(
+                $source, 
+                $target, 
+                $sourceEvent, 
+                $mappings, 
+                $sourceCalendarId, 
+                $targetCalendarId, 
+                $options,
+                $sourceBridge,
+                $targetBridge,
+                $index + 1,
+                $totalEvents
+            );
+            
+            // Add result to our collection
+            if ($eventProcessingResult['success']) {
+                $results[$eventProcessingResult['action']]++;
+                $results['processed_events'][] = $eventProcessingResult;
+            } else {
+                $results['errors'][] = $eventProcessingResult['error'];
             }
+            
+            $this->logger->info("Completed event {$index}/{$totalEvents} - Status: " . 
+                ($eventProcessingResult['success'] ? 'SUCCESS' : 'FAILED'));
         }
         
         // Handle deletions if requested
         if ($options['handle_deletions'] ?? false) {
-            $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId);
-            $results['deleted'] += $deletionResults['deleted'];
-            $results['errors'] = array_merge($results['errors'], $deletionResults['errors']);
+            try {
+                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId);
+                $results['deleted'] += $deletionResults['deleted'];
+                $results['errors'] = array_merge($results['errors'], $deletionResults['errors']);
+            } catch (\Exception $e) {
+                $this->logger->error('Failed to handle deletions - continuing without deletion processing', [
+                    'error' => $e->getMessage()
+                ]);
+                $results['errors'][] = [
+                    'event_id' => 'deletion_process',
+                    'error' => 'Failed to handle deletions: ' . $e->getMessage(),
+                    'error_type' => get_class($e)
+                ];
+            }
         }
         
-        $this->logger->info('Bridge sync completed', $results);
+        // Calculate success rate and add summary
+        $totalProcessed = $results['created'] + $results['updated'] + $results['skipped'];
+        $successRate = count($sourceEvents) > 0 ? ($totalProcessed / count($sourceEvents)) * 100 : 100;
+        
+        $results['summary'] = [
+            'total_source_events' => count($sourceEvents),
+            'successfully_processed' => $totalProcessed,
+            'failed_events' => count($results['errors']),
+            'success_rate_percent' => round($successRate, 2)
+        ];
+        
+        $this->logger->info('Bridge sync completed', array_merge($results['summary'], [
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'details' => [
+                'created' => $results['created'],
+                'updated' => $results['updated'], 
+                'deleted' => $results['deleted'],
+                'skipped' => $results['skipped'],
+                'errors' => count($results['errors'])
+            ]
+        ]));
         
         return $results;
     }
     
+    /**
+     * Process a single event with complete isolation and maximum error protection
+     */
+    private function processSingleEventSafely($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options, $sourceBridge, $targetBridge, $eventIndex, $totalEvents)
+    {
+        // Set error reporting to catch everything
+        $originalErrorReporting = error_reporting(E_ALL);
+        
+        try {
+            $this->logger->debug('Processing event with safety wrapper', [
+                'event_index' => $eventIndex,
+                'total_events' => $totalEvents,
+                'event_id' => $sourceEvent['id'] ?? 'unknown',
+                'event_subject' => $sourceEvent['subject'] ?? 'N/A'
+            ]);
+            
+            // Call the original processing method
+            $eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options);
+            
+            $this->logger->debug('Event processed successfully with safety wrapper', [
+                'event_id' => $sourceEvent['id'] ?? 'unknown',
+                'action' => $eventResult['action']
+            ]);
+            
+            // Restore error reporting
+            error_reporting($originalErrorReporting);
+            
+            return [
+                'success' => true,
+                'action' => $eventResult['action'],
+                'source_event_id' => $eventResult['source_event_id'],
+                'target_event_id' => $eventResult['target_event_id'] ?? null,
+                'reason' => $eventResult['reason'] ?? null
+            ];
+            
+        } catch (\Throwable $e) {
+            // Restore error reporting
+            error_reporting($originalErrorReporting);
+            
+            $errorInfo = [
+                'event_id' => $sourceEvent['id'] ?? 'unknown',
+                'event_subject' => $sourceEvent['subject'] ?? 'N/A',
+                'error' => $e->getMessage(),
+                'error_type' => get_class($e),
+                'event_data' => $sourceEvent,
+                'stack_trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ];
+            
+            $this->logger->error('Event sync failed in safety wrapper - isolated and continuing', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'event_index' => $eventIndex,
+                'total_events' => $totalEvents,
+                'events_remaining' => $totalEvents - $eventIndex,
+                'error_info' => $errorInfo
+            ]);
+            
+            return [
+                'success' => false,
+                'error' => $errorInfo
+            ];
+        }
+    }
+
     /**
      * Process a single event sync with sync_status tracking
      */
