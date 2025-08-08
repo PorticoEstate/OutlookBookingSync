@@ -1095,6 +1095,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $bookingEvent['source'] = 'calendar_bridge';
         $bookingEvent['bridge_import'] = true;
 
+        $bookingEvent['agegroups'] = [[
+            'agegroup_id' => $_ENV['BOOKING_SYSTEM_DEFAULT_AGEGROUP_ID'],
+            'male' => count($event['attendees'] ?? 1),
+            'female' => 0
+        ]];
+
+        $bookingEvent['audience'] = [$_ENV['BOOKING_SYSTEM_DEFAULT_TARGETAUDIENCE_ID']];
+        $bookingEvent['activity_id'] = $_ENV['BOOKING_SYSTEM_DEFAULT_ACTIVITY_ID'];
+
         return $bookingEvent;
     }
 
