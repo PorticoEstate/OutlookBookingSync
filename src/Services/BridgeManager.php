@@ -186,7 +186,7 @@ class BridgeManager
         // Handle deletions if requested
         if ($options['handle_deletions'] ?? false) {
             try {
-                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId);
+                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate);
                 $results['deleted'] += $deletionResults['deleted'];
                 $results['errors'] = array_merge($results['errors'], $deletionResults['errors']);
             } catch (\Exception $e) {
@@ -394,13 +394,24 @@ class BridgeManager
     
     /**
      * Handle events that were deleted from source with sync_status tracking
+     * Only considers events that originated within the specified timeframe
      */
-    private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId)
+    private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate)
     {
         $sourceEventIds = array_column($sourceEvents, 'id');
         $results = ['deleted' => 0, 'errors' => []];
         
         foreach ($mappings as $mapping) {
+            // Only consider events that were created within the sync timeframe
+            if (!$this->isEventWithinTimeframe($mapping, $startDate, $endDate)) {
+                $this->logger->debug('Skipping deletion check for event outside timeframe', [
+                    'source_event_id' => $mapping['source_event_id'],
+                    'event_created_at' => $mapping['created_at'] ?? 'unknown',
+                    'sync_window' => [$startDate, $endDate]
+                ]);
+                continue;
+            }
+            
             if (!in_array($mapping['source_event_id'], $sourceEventIds)) {
                 try {
                     // Event was deleted from source, delete from target
@@ -411,7 +422,8 @@ class BridgeManager
                     
                     $this->logger->info('Deleted event from target due to source deletion', [
                         'source_event_id' => $mapping['source_event_id'],
-                        'target_event_id' => $mapping['target_event_id']
+                        'target_event_id' => $mapping['target_event_id'],
+                        'event_created_at' => $mapping['created_at'] ?? 'unknown'
                     ]);
                     
                 } catch (\Exception $e) {
@@ -461,6 +473,40 @@ class BridgeManager
             }
         }
         return null;
+    }
+    
+    /**
+     * Check if a mapping's event is within the specified timeframe
+     * This checks if the event was created/originated within the sync window
+     */
+    private function isEventWithinTimeframe($mapping, $startDate, $endDate)
+    {
+        // Check if we have source event start/end times stored in the mapping
+        if (!empty($mapping['source_event_start'])) {
+            $eventStart = strtotime($mapping['source_event_start']);
+            $windowStart = strtotime($startDate);
+            $windowEnd = strtotime($endDate);
+            
+            // Event start falls within the sync window
+            return $eventStart >= $windowStart && $eventStart <= $windowEnd;
+        }
+        
+        // Fallback: check mapping creation time if source event times not available
+        if (!empty($mapping['created_at'])) {
+            $createdAt = strtotime($mapping['created_at']);
+            $windowStart = strtotime($startDate);
+            $windowEnd = strtotime($endDate . ' +1 day'); // Give some buffer for creation time
+            
+            return $createdAt >= $windowStart && $createdAt <= $windowEnd;
+        }
+        
+        // If we don't have timing information, be conservative and don't delete
+        $this->logger->warning('No timing information available for mapping - skipping deletion', [
+            'mapping_id' => $mapping['id'] ?? 'unknown',
+            'source_event_id' => $mapping['source_event_id'] ?? 'unknown'
+        ]);
+        
+        return false;
     }
     
     /**

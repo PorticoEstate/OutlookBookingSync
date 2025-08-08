@@ -272,10 +272,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'method' => 'PUT',
                 'url' => '/booking/events/{event_id}'
             ],
-            // 'delete_event' => [
-            //     'method' => 'DELETE',
-            //     'url' => '/booking/events/{event_id}'
-            // ],
             'toggle_event' => [
                 'method' => 'PATCH',
                 'url' => '/booking/events/{event_id}/toggle-active'
@@ -537,16 +533,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     error_log("BookingSystemBridge: Set active=0 for Outlook-imported event: {$eventId}");
                 }
             }
-            else
-            {
-                // For events created in booking system, perform actual deletion
-                $success = $this->deleteEventViaApi($calendarId, $eventId);
-
-                if ($this->debug)
-                {
-                    error_log("BookingSystemBridge: Actually deleted booking system native event: {$eventId}");
-                }
-            }
 
             // Mark related mappings as cancelled (find by target event ID)
             try
@@ -614,7 +600,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 WHERE target_event_id = ? 
                 AND target_bridge = ? 
                 AND source_bridge = 'outlook'
-                AND sync_status != 'cancelled'
             ");
             $stmt->execute([$eventId, $this->getBridgeType()]);
             $result = $stmt->fetch();
@@ -752,21 +737,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return $response['success'] ?? true;
     }
 
-    private function deleteEventViaApi($resourceId, $eventId): bool
-    {
-        // Extract original ID from composite ID if needed
-        $originalEventId = $this->extractOriginalId($eventId);
-
-        $endpoint = $this->apiEndpoints['delete_event'];
-        $url = $this->buildUrl($endpoint['url'], [
-            'resource_id' => $resourceId,
-            'event_id' => $originalEventId
-        ]);
-
-        $response = $this->makeApiRequest($endpoint['method'], $url);
-
-        return $response['success'] ?? true;
-    }
 
     private function getCalendarsViaApi(): array
     {
