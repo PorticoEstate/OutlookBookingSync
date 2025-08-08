@@ -95,6 +95,15 @@ process_single_tenant_deletions() {
     
     # Step 3: Manual deletion sync check - Lower priority
     api_call "/bridges/sync-deletions" "Manual deletion sync check" 180 || ((errors++))
+
+    # Step 4: Cleanup orphaned deletions - Global operation
+    api_call "/bridges/process-deletion-queue" "Processing webhook deletion queue" 60 || ((errors++))
+
+    # Use your existing sync endpoint and pass deletion flag + window
+    START=$(date +%F)
+    END=$(date -d "+30 days" +%F)
+    api_call "/bridges/sync/outlook/booking_system?handle_deletions=1&start_date=$START&end_date=$END" \
+        "Detecting deletions in window $START..$END" 180 || ((errors++))
     
     return $errors
 }
