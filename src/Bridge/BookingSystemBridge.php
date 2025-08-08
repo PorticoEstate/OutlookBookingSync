@@ -397,6 +397,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         try
         {
+            //alter event start and end according to timezone for receiving system.
+            $event = $this->adjustEventForTimeZone($event);
+
             // When we're the target, we receive events from other bridges
             // We need to create a new reservation in our booking system
             $createdId = $this->createEventViaApi($calendarId, $event);
@@ -465,6 +468,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
             {
                 error_log("BookingSystemBridge: Updating event - composite ID: {$eventId}, original ID: {$originalId}");
             }
+
+            //alter event start and end according to timezone for receiving system.
+            $event = $this->adjustEventForTimeZone($event);
 
             $success = $this->updateEventViaApi($calendarId, $eventId, $event);
 
@@ -2064,5 +2070,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
             ]);
             return null;
         }
+    }
+
+    private function adjustEventForTimeZone(array $event): array
+    {
+        $timezone = $_ENV['BOOKING_SYSTEM_TIMEZONE'] ?? 'UTC';
+
+        if (strtolower($event['timezone']) !== strtolower($timezone) )
+        {
+            $dateTime = new \DateTime($event['start'], new \DateTimeZone($timezone));
+            $event['start'] = $dateTime->setTimezone(new \DateTimeZone($timezone))->format('c');
+
+            $dateTime = new \DateTime($event['end'], new \DateTimeZone($timezone));
+            $event['end'] = $dateTime->setTimezone(new \DateTimeZone($timezone))->format('c');
+        }
+
+        return $event;
     }
 }

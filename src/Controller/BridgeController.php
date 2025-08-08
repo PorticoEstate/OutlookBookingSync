@@ -92,17 +92,29 @@ class BridgeController
     {
         $sourceBridge = $args['sourceBridge'];
         $targetBridge = $args['targetBridge'];
-        
-        $body = json_decode($request->getBody()->getContents(), true) ?? [];
-        
-        // Optional parameters
-        $startDate = $body['start_date'] ?? date('Y-m-d');
-        $endDate = $body['end_date'] ?? date('Y-m-d', strtotime('+30 days'));
-        
+
+        // Read both body and query; let query override body
+        $queryParams = $request->getQueryParams() ?? [];
+        $rawBody = $request->getBody()->getContents();
+        $body = json_decode($rawBody ?: '[]', true) ?? [];
+        $params = array_merge($body, $queryParams);
+
+        // Helper to coerce booleans from "1", "true", etc.
+        $toBool = function ($v, $default = false)
+        {
+            if ($v === null) return $default;
+            if (is_bool($v)) return $v;
+            return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? $default;
+        };
+
+        // Support snake_case and camelCase
+        $startDate = $params['start_date'] ?? $params['startDate'] ?? date('Y-m-d');
+        $endDate   = $params['end_date']   ?? $params['endDate']   ?? date('Y-m-d', strtotime('+30 days'));
+
         $options = [
-            'handle_deletions' => $body['handle_deletions'] ?? false,
-            'skip_updates' => $body['skip_updates'] ?? false,
-            'dry_run' => $body['dry_run'] ?? false
+            'handle_deletions' => $toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? false),
+            'skip_updates'     => $toBool($params['skip_updates']     ?? $params['skipUpdates']     ?? false),
+            'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
         ];
 
         try {

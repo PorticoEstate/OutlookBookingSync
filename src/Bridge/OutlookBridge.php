@@ -920,7 +920,23 @@ class OutlookBridge extends AbstractCalendarBridge
                             'subject' => $item->getSubject(),
                             'start' => $item->getStart()->getDateTime(),
                             'end' => $item->getEnd()->getDateTime(),
+                            'timezone' => $item->getStart()->getTimeZone(),
                             'organizer' => $item->getOrganizer() ? $item->getOrganizer()->getEmailAddress()->getAddress() : null,
+                            'location' => $item->getLocation() ? $item->getLocation()->getDisplayName() : null,
+                            'description' => $this->extractTextFromHtml($item->getBody() ? $item->getBody()->getContent() : ''),
+                            'attendees' => array_values(array_filter(array_map(function ($attendee)
+                            {
+                                $emailAddress = $attendee->getEmailAddress();
+                                if ($emailAddress === null)
+                                {
+                                    return null;
+                                }
+                                return [
+                                    'email' => $emailAddress->getAddress() ?? '',
+                                    'name'  => $emailAddress->getName() ?? ''
+                                ];
+                            }, $item->getAttendees() ?? []))),
+
                             'bridge_type' => 'outlook'
                         ];
                     }
