@@ -197,9 +197,9 @@ class BridgeController
                         'results' => $results
                     ];
 
-                    if (isset($results['synced_count'])) {
-                        $totalSynced += $results['synced_count'];
-                    }
+                    // Calculate total synced events (created + updated)
+                    $syncedInThisMapping = ($results['created'] ?? 0) + ($results['updated'] ?? 0);
+                    $totalSynced += $syncedInThisMapping;
 
                 } catch (\Exception $e) {
                     $totalErrors++;
@@ -217,11 +217,38 @@ class BridgeController
                 }
             }
 
+            // Calculate totals across all mappings
+            $totalCreated = 0;
+            $totalUpdated = 0;
+            $totalDeleted = 0;
+            $totalSkipped = 0;
+            $totalSourceEvents = 0;
+            
+            foreach ($allResults as $mappingResult) {
+                if (isset($mappingResult['results']) && !isset($mappingResult['error'])) {
+                    $results = $mappingResult['results'];
+                    $totalCreated += $results['created'] ?? 0;
+                    $totalUpdated += $results['updated'] ?? 0;
+                    $totalDeleted += $results['deleted'] ?? 0;
+                    $totalSkipped += $results['skipped'] ?? 0;
+                    $totalSourceEvents += $results['source_events_found'] ?? 0;
+                }
+            }
+
             $response->getBody()->write(json_encode([
                 'success' => true,
                 'mappings_processed' => count($mappings),
-                'total_synced' => $totalSynced,
+                'total_synced' => $totalSynced, 
                 'total_errors' => $totalErrors,
+                'summary' => [
+                    'total_source_events' => $totalSourceEvents,
+                    'created' => $totalCreated,
+                    'updated' => $totalUpdated,
+                    'deleted' => $totalDeleted,
+                    'skipped' => $totalSkipped,
+                    'errors' => $totalErrors,
+                    'success_rate' => $totalSourceEvents > 0 ? round((($totalCreated + $totalUpdated) / $totalSourceEvents) * 100, 2) : 100
+                ],
                 'sync_results' => $allResults,
                 'timestamp' => date('c')
             ]));
