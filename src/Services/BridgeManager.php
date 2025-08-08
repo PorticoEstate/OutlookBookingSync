@@ -331,6 +331,13 @@ class BridgeManager
                 if ($success) {
                     $this->updateMappingTimestamp($mapping['id']);
                     
+                    // Store source event timing for safer deletion checks
+                    $this->updateMappingWithSourceTiming(
+                        $mapping['id'],
+                        $sourceEvent['start'] ?? null,
+                        $sourceEvent['end'] ?? null
+                    );
+                    
                     // Update handled by target bridge's updateEvent method
                     return [
                         'action' => 'updated',
@@ -369,6 +376,18 @@ class BridgeManager
             // Create new event
             try {
                 $targetEventId = $target->createEvent($targetCalendarId, $sourceEvent);
+                
+                // Find the newly created mapping and update it with source timing
+                $newMappings = $this->getBridgeMappings($source->getBridgeType(), $target->getBridgeType(), $sourceCalendarId, $targetCalendarId);
+                $newMapping = $this->findMapping($newMappings, $sourceEvent['id']);
+                
+                if ($newMapping) {
+                    $this->updateMappingWithSourceTiming(
+                        $newMapping['id'],
+                        $sourceEvent['start'] ?? null,
+                        $sourceEvent['end'] ?? null
+                    );
+                }
                 
                 // Create mapping handled by target bridge's createEvent method
                 // No need to create mapping here as it's handled in the bridge
@@ -542,6 +561,43 @@ class BridgeManager
         $sql = "UPDATE bridge_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $mappingId]);
+    }
+    
+    /**
+     * Update mapping with source event timing information
+     */
+    private function updateMappingWithSourceTiming($mappingId, $sourceStart, $sourceEnd)
+    {
+        // Only update if we have timing information
+        if (empty($sourceStart)) {
+            return;
+        }
+        
+        try {
+            $sql = "UPDATE bridge_mappings 
+                    SET source_event_start = :start, 
+                        source_event_end = :end,
+                        updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = :id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':id' => $mappingId,
+                ':start' => $sourceStart,
+                ':end' => $sourceEnd
+            ]);
+            
+            $this->logger->debug('Updated mapping with source event timing', [
+                'mapping_id' => $mappingId,
+                'source_start' => $sourceStart,
+                'source_end' => $sourceEnd
+            ]);
+            
+        } catch (\Exception $e) {
+            $this->logger->warning('Failed to update mapping with source timing - continuing', [
+                'mapping_id' => $mappingId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
     
     /**

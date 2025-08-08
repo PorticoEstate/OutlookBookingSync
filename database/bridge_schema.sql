@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     target_calendar_id VARCHAR(255) NOT NULL,
     source_event_id VARCHAR(255) NOT NULL,
     target_event_id VARCHAR(255) NOT NULL,
+    source_event_start VARCHAR(64),
+    source_event_end VARCHAR(64),
     sync_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'source_to_target', 'target_to_source', 'bidirectional'
     sync_status VARCHAR(20) DEFAULT 'pending' NOT NULL, -- 'pending', 'synced', 'cancelled', 'error'
     event_data JSONB,
