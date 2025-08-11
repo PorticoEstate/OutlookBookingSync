@@ -264,6 +264,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'url' => '/booking/resources/{resource_id}/schedule',
                 'params' => ['start_date', 'end_date', 'format' => 'json']
             ],
+            'get_event' => [
+                'method' => 'GET',
+                'url' => '/booking/events/{event_id}'
+            ],
             'create_event' => [
                 'method' => 'POST',
                 'url' => '/booking/resources/{resource_id}/events'
@@ -384,6 +388,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->logOperation('get_events', ['resource_id' => $resourceId]);
 
         return $this->getEventsViaApi($resourceId, $startDate, $endDate);
+    }
+
+    public function getEvent($calendarId, $eventId): array
+    {
+        $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
+        return $this->getEventViaApi($eventId);
     }
 
     /**
@@ -698,6 +708,18 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $filteredEvents = $this->filterReservationsByPriority($events);
 
         return array_map([$this, 'mapBookingEventToGeneric'], $filteredEvents);
+    }
+
+    private function getEventViaApi($eventId): array
+    {
+        $endpoint = $this->apiEndpoints['get_event'];
+        $url = $this->buildUrl($endpoint['url'], [
+            'event_id' => $eventId
+        ]);
+
+        $response = $this->makeApiRequest($endpoint['method'], $url);
+
+        return $response['event'] ?? [];
     }
 
     private function createEventViaApi($resourceId, $event): string
