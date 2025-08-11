@@ -258,3 +258,14 @@ INSERT INTO bridge_mappings (
     '{"subject": "Test Meeting", "start": "2025-06-15T10:00:00Z", "end": "2025-06-15T11:00:00Z"}'
 );
 */
+
+CREATE TABLE IF NOT EXISTS outlook_sync_alerts (
+    id SERIAL PRIMARY KEY,
+    alert_type VARCHAR(100) NOT NULL,
+    severity VARCHAR(20) NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    message TEXT NOT NULL,
+    alert_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    acknowledged_at TIMESTAMP WITH TIME ZONE,
+    acknowledged_by VARCHAR(255)
+);

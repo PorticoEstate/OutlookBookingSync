@@ -82,7 +82,7 @@ class AlertService
             $stmt = $this->db->prepare("
                 SELECT 
                     COUNT(*) as total_operations,
-                    COUNT(CASE WHEN status = 'error' THEN 1 END) as error_count
+                    COUNT(CASE WHEN sync_status = 'error' THEN 1 END) as error_count
                 FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '1 hour'
             ");
@@ -136,7 +136,7 @@ class AlertService
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as stalled_count
                 FROM bridge_mappings 
-                WHERE status = 'pending' 
+                WHERE sync_status = 'pending' 
                 AND created_at < NOW() - INTERVAL '2 hours'
             ");
             $stmt->execute();
