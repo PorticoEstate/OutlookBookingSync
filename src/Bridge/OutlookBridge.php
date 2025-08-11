@@ -108,7 +108,24 @@ class OutlookBridge extends AbstractCalendarBridge
             throw new \Exception("Failed to get events: " . $e->getMessage());
         }
     }
-    
+
+    public function getEvent($calendarId, $eventId): array
+    {
+        $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
+
+        try {
+            $eventResponse = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->byEventId($eventId)->get()->wait();
+            
+            if (!$eventResponse) {
+                throw new \Exception("Event not found");
+            }
+            
+            return $this->mapOutlookSDKEventToGeneric($eventResponse);
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to get event: " . $e->getMessage());
+        }
+    }
+
     public function createEvent($calendarId, $event): string
     {
         $this->logOperation('create_event', ['calendar_id' => $calendarId]);

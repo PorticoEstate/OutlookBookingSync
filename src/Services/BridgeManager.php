@@ -306,6 +306,11 @@ class BridgeManager
         $sourceEvent['source_calendar_id'] = $sourceCalendarId; // Correct: source calendar ID
         
         if ($mapping) {
+            // Handle cancelled events - check if target event still exists
+            if (($mapping['sync_status'] ?? '') === 'cancelled') {
+                return $this->handleCancelledEventReactivation($source, $target, $sourceEvent, $mapping, $sourceCalendarId, $targetCalendarId, $options);
+            }
+            
             // Update existing event
             if ($options['skip_updates'] ?? false) {
                 return [
@@ -666,6 +671,168 @@ class BridgeManager
                 'sync_method' => $syncMethod,
                 'error' => $e->getMessage()
             ]);
+        }
+    }
+    
+    /**
+     * Handle reactivation of cancelled events
+     * Checks if target event still exists and either reactivates or recreates it
+     */
+    private function handleCancelledEventReactivation($source, $target, $sourceEvent, $mapping, $sourceCalendarId, $targetCalendarId, $options)
+    {
+        $this->logger->info('Handling cancelled event reactivation', [
+            'source_event_id' => $sourceEvent['id'],
+            'target_event_id' => $mapping['target_event_id'],
+            'mapping_id' => $mapping['id']
+        ]);
+        
+        // Check if target event still exists
+        $targetEventExists = $this->checkTargetEventExists($target, $targetCalendarId, $mapping['target_event_id']);
+        
+        if ($targetEventExists) {
+            // Target event exists - try to reactivate/update it
+            try {
+                $this->logger->info('Target event exists - attempting reactivation', [
+                    'target_event_id' => $mapping['target_event_id']
+                ]);
+                
+                // Mark as pending
+                $source->updateSyncStatus(
+                    $source->getBridgeType(),
+                    $target->getBridgeType(),
+                    $mapping['source_calendar_id'],
+                    $mapping['target_calendar_id'],
+                    $sourceEvent['id'],
+                    'pending'
+                );
+                
+                $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $sourceEvent);
+                
+                if ($success) {
+                    $this->updateMappingTimestamp($mapping['id']);
+                    $this->updateMappingWithSourceTiming($mapping['id'], $sourceEvent['start'] ?? null, $sourceEvent['end'] ?? null);
+                    $this->updateMappingSyncMethod(
+                        $source->getBridgeType(),
+                        $target->getBridgeType(),
+                        $mapping['source_calendar_id'],
+                        $mapping['target_calendar_id'],
+                        $sourceEvent['id'],
+                        $options['sync_method'] ?? 'manual'
+                    );
+                    
+                    return [
+                        'action' => 'reactivated',
+                        'source_event_id' => $sourceEvent['id'],
+                        'target_event_id' => $mapping['target_event_id']
+                    ];
+                }
+            } catch (\Exception $e) {
+                $this->logger->warning('Failed to reactivate existing target event, will recreate', [
+                    'target_event_id' => $mapping['target_event_id'],
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+        
+        // Target event doesn't exist or reactivation failed - create new event
+        try {
+            $this->logger->info('Creating new target event for cancelled mapping', [
+                'source_event_id' => $sourceEvent['id'],
+                'old_target_event_id' => $mapping['target_event_id']
+            ]);
+            
+            $newTargetEventId = $target->createEvent($targetCalendarId, $sourceEvent);
+            
+            // Update the mapping with new target event ID
+            $this->updateMappingTargetEventId($mapping['id'], $newTargetEventId);
+            $this->updateMappingTimestamp($mapping['id']);
+            $this->updateMappingWithSourceTiming($mapping['id'], $sourceEvent['start'] ?? null, $sourceEvent['end'] ?? null);
+            $this->updateMappingSyncMethod(
+                $source->getBridgeType(),
+                $target->getBridgeType(),
+                $mapping['source_calendar_id'],
+                $mapping['target_calendar_id'],
+                $sourceEvent['id'],
+                $options['sync_method'] ?? 'manual'
+            );
+            
+            return [
+                'action' => 'recreated',
+                'source_event_id' => $sourceEvent['id'],
+                'target_event_id' => $newTargetEventId,
+                'previous_target_event_id' => $mapping['target_event_id']
+            ];
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to recreate cancelled event', [
+                'source_event_id' => $sourceEvent['id'],
+                'mapping_id' => $mapping['id'],
+                'error' => $e->getMessage()
+            ]);
+            
+            // Mark as error
+            $source->updateSyncStatus(
+                $source->getBridgeType(),
+                $target->getBridgeType(),
+                $mapping['source_calendar_id'],
+                $mapping['target_calendar_id'],
+                $sourceEvent['id'],
+                'error',
+                'Failed to recreate cancelled event: ' . $e->getMessage()
+            );
+            
+            throw $e;
+        }
+    }
+    
+    /**
+     * Check if target event exists
+     */
+    private function checkTargetEventExists($target, $targetCalendarId, $targetEventId)
+    {
+        try {
+            // Try to get the event - if it exists, this won't throw
+            $event = $target->getEvent($targetCalendarId, $targetEventId);
+            return $event !== null;
+        } catch (\Exception $e) {
+            // Event doesn't exist or can't be accessed
+            $this->logger->debug('Target event does not exist or cannot be accessed', [
+                'target_event_id' => $targetEventId,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+    
+    /**
+     * Update mapping with new target event ID
+     */
+    private function updateMappingTargetEventId($mappingId, $newTargetEventId)
+    {
+        try {
+            $sql = "UPDATE bridge_mappings 
+                    SET target_event_id = :target_event_id,
+                        sync_status = 'synced',
+                        updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = :id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':id' => $mappingId,
+                ':target_event_id' => $newTargetEventId
+            ]);
+            
+            $this->logger->debug('Updated mapping with new target event ID', [
+                'mapping_id' => $mappingId,
+                'new_target_event_id' => $newTargetEventId
+            ]);
+            
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to update mapping with new target event ID', [
+                'mapping_id' => $mappingId,
+                'new_target_event_id' => $newTargetEventId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
     }
     
