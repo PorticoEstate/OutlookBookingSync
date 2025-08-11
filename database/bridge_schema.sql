@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     source_event_end VARCHAR(64),
     sync_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'source_to_target', 'target_to_source', 'bidirectional'
     sync_status VARCHAR(20) DEFAULT 'pending' NOT NULL, -- 'pending', 'synced', 'cancelled', 'error'
+    sync_method VARCHAR(20) DEFAULT 'manual', -- 'manual', 'polling', 'automated', 'cron'
     event_data JSONB,
     last_synced_at TIMESTAMP,
     error_message TEXT,

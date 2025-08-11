@@ -18,14 +18,14 @@ chmod 666 /var/log/bridge-cron.log
 
 # Create the crontab file for www-data user with better logging
 cat > /tmp/crontab << 'EOF'
-# Generic Calendar Bridge Cron Jobs - Production Ready
+# Generic Calendar Bridge Cron Jobs - Production Ready with sync_method tracking
 
-# 1. BIDIRECTIONAL SYNC OPERATIONS
+# 1. BIDIRECTIONAL SYNC OPERATIONS (Updated with sync_method=cron)
 # Sync from booking system to Outlook every 5 minutes
-*/5 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook" -H "Content-Type: application/json" -d "{\"start_date\":\"$START_DATE\",\"end_date\":\"$END_DATE\"}" >> /var/log/bridge-cron.log 2>&1
+*/5 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook?sync_method=cron&start_date=$START_DATE&end_date=$END_DATE" >> /var/log/bridge-cron.log 2>&1
 
-# Sync from Outlook to booking system every 10 minutes
-*/10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system" -H "Content-Type: application/json" -d "{\"start_date\":\"$START_DATE\",\"end_date\":\"$END_DATE\"}" >> /var/log/bridge-cron.log 2>&1
+# Sync from Outlook to booking system every 10 minutes with deletion handling
+*/10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" >> /var/log/bridge-cron.log 2>&1
 
 # 2. DELETION & CANCELLATION HANDLING (COORDINATED)
 # Use centralized deletion processor instead of individual API calls
@@ -38,7 +38,7 @@ cat > /tmp/crontab << 'EOF'
 # Run system health checks every 15 minutes
 */15 * * * * curl -s -X GET "http://localhost/health/system" >> /var/log/bridge-cron.log 2>&1
 
-# Run alert checks every 15 minutes
+# Run alert checks every 15 minutes (this will now detect cron activity properly)
 */15 * * * * curl -s -X POST "http://localhost/alerts/check" >> /var/log/bridge-cron.log 2>&1
 
 # 4. MAINTENANCE OPERATIONS

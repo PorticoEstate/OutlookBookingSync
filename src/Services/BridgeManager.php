@@ -186,7 +186,7 @@ class BridgeManager
         // Handle deletions if requested
         if ($options['handle_deletions'] ?? false) {
             try {
-                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate);
+                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options);
                 $results['deleted'] += $deletionResults['deleted'];
                 $results['errors'] = array_merge($results['errors'], $deletionResults['errors']);
             } catch (\Exception $e) {
@@ -338,6 +338,16 @@ class BridgeManager
                         $sourceEvent['end'] ?? null
                     );
                     
+                    // Record sync method for cron activity monitoring
+                    $this->updateMappingSyncMethod(
+                        $source->getBridgeType(),
+                        $target->getBridgeType(),
+                        $mapping['source_calendar_id'],
+                        $mapping['target_calendar_id'],
+                        $sourceEvent['id'],
+                        $options['sync_method'] ?? 'manual'
+                    );
+                    
                     // Update handled by target bridge's updateEvent method
                     return [
                         'action' => 'updated',
@@ -387,6 +397,16 @@ class BridgeManager
                         $sourceEvent['start'] ?? null,
                         $sourceEvent['end'] ?? null
                     );
+                    
+                    // Record sync method for newly created mapping
+                    $this->updateMappingSyncMethod(
+                        $source->getBridgeType(),
+                        $target->getBridgeType(),
+                        $sourceCalendarId,
+                        $targetCalendarId,
+                        $sourceEvent['id'],
+                        $options['sync_method'] ?? 'manual'
+                    );
                 }
                 
                 // Create mapping handled by target bridge's createEvent method
@@ -415,7 +435,7 @@ class BridgeManager
      * Handle events that were deleted from source with sync_status tracking
      * Only considers events that originated within the specified timeframe
      */
-    private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate)
+    private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options = [])
     {
         $sourceEventIds = array_column($sourceEvents, 'id');
         $results = ['deleted' => 0, 'errors' => []];
@@ -435,6 +455,16 @@ class BridgeManager
                 try {
                     // Event was deleted from source, delete from target
                     $target->deleteEvent($targetCalendarId, $mapping['target_event_id']);
+                    
+                    // Record sync method for deletion tracking
+                    $this->updateMappingSyncMethod(
+                        $source->getBridgeType(),
+                        $target->getBridgeType(),
+                        $mapping['source_calendar_id'],
+                        $mapping['target_calendar_id'],
+                        $mapping['source_event_id'],
+                        $options['sync_method'] ?? 'automated'
+                    );
                     
                     // Mark as cancelled in sync_status (handled by bridge's deleteEvent method)
                     $results['deleted']++;
@@ -595,6 +625,45 @@ class BridgeManager
         } catch (\Exception $e) {
             $this->logger->warning('Failed to update mapping with source timing - continuing', [
                 'mapping_id' => $mappingId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+    
+    /**
+     * Update mapping with sync method information
+     */
+    private function updateMappingSyncMethod($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $syncMethod)
+    {
+        try {
+            $sql = "UPDATE bridge_mappings 
+                    SET sync_method = :sync_method,
+                        updated_at = CURRENT_TIMESTAMP 
+                    WHERE source_bridge = :source_bridge
+                    AND target_bridge = :target_bridge
+                    AND source_calendar_id = :source_calendar_id
+                    AND target_calendar_id = :target_calendar_id
+                    AND source_event_id = :source_event_id";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':sync_method' => $syncMethod,
+                ':source_bridge' => $sourceBridge,
+                ':target_bridge' => $targetBridge,
+                ':source_calendar_id' => $sourceCalendarId,
+                ':target_calendar_id' => $targetCalendarId,
+                ':source_event_id' => $sourceEventId
+            ]);
+            
+            $this->logger->debug('Updated mapping with sync method', [
+                'source_event_id' => $sourceEventId,
+                'sync_method' => $syncMethod
+            ]);
+            
+        } catch (\Exception $e) {
+            $this->logger->debug('Failed to update mapping sync method - continuing', [
+                'source_event_id' => $sourceEventId,
+                'sync_method' => $syncMethod,
                 'error' => $e->getMessage()
             ]);
         }

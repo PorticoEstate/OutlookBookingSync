@@ -212,12 +212,12 @@ class AlertService
     private function checkCronActivity()
     {
         try {
-            // Check for recent automated sync activity
+            // Check for recent automated sync activity using sync_method instead of sync_direction
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as recent_activity
                 FROM bridge_mappings 
                 WHERE updated_at > NOW() - INTERVAL '30 minutes'
-                AND sync_direction IN ('polling', 'automated')
+                AND sync_method IN ('polling', 'automated', 'cron')
             ");
             $stmt->execute();
             $result = $stmt->fetch(PDO::FETCH_ASSOC);

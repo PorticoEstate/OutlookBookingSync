@@ -111,10 +111,21 @@ class BridgeController
         $startDate = $params['start_date'] ?? $params['startDate'] ?? date('Y-m-d');
         $endDate   = $params['end_date']   ?? $params['endDate']   ?? date('Y-m-d', strtotime('+30 days'));
 
+        // Determine sync method - defaults to 'manual' but can be overridden
+        $syncMethod = $params['sync_method'] ?? $params['syncMethod'] ?? 'manual';
+        
+        // Auto-detect automated sync methods based on other parameters
+        if ($syncMethod === 'manual') {
+            if ($toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? false)) {
+                $syncMethod = 'automated'; // Deletion handling usually indicates automated sync
+            }
+        }
+
         $options = [
             'handle_deletions' => $toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? false),
             'skip_updates'     => $toBool($params['skip_updates']     ?? $params['skipUpdates']     ?? false),
             'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
+            'sync_method'      => $syncMethod,
         ];
 
         try {
