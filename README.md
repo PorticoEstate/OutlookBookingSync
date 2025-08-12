@@ -218,7 +218,8 @@ curl -X DELETE "http://localhost:8082/mappings/resources/by-key/booking_system/r
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` - Database configuration
 - `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID`, `OUTLOOK_GROUP_ID` - Microsoft Graph API
-- `API_KEY` - Optional API key for endpoint security
+- `APP_BASE_URL` - Base URL for this service (used in links/webhooks)
+- `API_KEY` - API key for endpoint security (send as header `api_key`)
 
 ### Bridge Configuration
 
@@ -237,6 +238,10 @@ BOOKING_SYSTEM_LOGIN=your_username
 BOOKING_SYSTEM_PASSWORD=your_password
 BOOKING_SYSTEM_DOMAIN=your_domain
 BOOKING_SYSTEM_THROW_ON_FAILURE=true
+
+# Application
+APP_BASE_URL=https://bridge.example.com
+API_KEY=replace_me
 ```
 
 The bridges will be automatically available once the service starts.
@@ -249,9 +254,10 @@ The bridges will be automatically available once the service starts.
 - `GET /bridges/{bridge}/calendars` - Get calendars for a bridge
 - `GET /bridges/{bridge}/available-resources` - Get available resources (rooms/equipment) for a bridge
 - `GET /bridges/{bridge}/available-groups` - Get available groups/collections for a bridge
-- `GET /bridges/{bridge}/users/{userId}/calendar-items` - Get calendar items for specific user on a bridge
+- `GET /bridges/{bridge}/resources/{resourceId}/calendar-items` - Get calendar items for a specific resource on a bridge
 - `POST /bridges/sync/{from}/{to}` - Sync events between bridges
-- `POST /bridges/webhook/{bridge}` - Handle bridge webhooks
+- `POST /bridges/webhook/{bridge}` - Handle bridge webhooks (legacy `/webhook/outlook-notifications` is redirected)
+- `POST /bridges/{bridge}/subscriptions` - Create webhook subscriptions for a bridge
 - `GET /bridges/health` - Get health status of all bridges
 
 ### Resource Mapping
@@ -259,20 +265,31 @@ The bridges will be automatically available once the service starts.
 - `GET /mappings/resources` - Get all resource mappings
 - `POST /mappings/resources` - Create new resource mapping
 - `PUT /mappings/resources/{id}` - Update resource mapping
-- `DELETE /mappings/resources/{id}` - Delete resource mapping
-- `GET /mappings/resources/by-resource/{id}` - Get mappings by resource ID
+- `DELETE /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}` - Delete resource mapping by composite key
+- `GET /mappings/resources/by-resource/{source_calendar_id}` - Get mappings by booking system resource ID
 
 ### Deletion & Cancellation Sync
 
 - `POST /bridges/sync-deletions` - Detect and sync deletions across bridge systems
 - `POST /bridges/process-deletion-queue` - Process webhook-based deletion notifications
-- `GET /bridges/health` - Monitor deletion sync status and health
 
 ### Health & Monitoring
 
 - `GET /health` - Quick health check
 - `GET /health/system` - Comprehensive system health
+- `GET /health/dashboard` - Dashboard data
+- `GET /health/sync-status` - Detailed sync status
+- `POST /health/re-enable-failed` - Re-enable failed events (all bridges)
+- `POST /bridges/process-pending-syncs[/{bridge}]` - Process pending syncs
+- `POST /bridges/re-enable-failed[/{bridge}]` - Re-enable failed events
+- `GET /bridges/sync-stats[/{bridge}]` - Sync statistics
+- `GET /bridges/cancelled-events[/{bridge}]` - Cancelled events
+- `GET /bridges/{bridge}/pending-events` - Events pending sync
 - `POST /alerts/check` - Run alert checks
+- `GET /alerts` - Recent alerts
+- `GET /alerts/stats` - Alert statistics
+- `POST /alerts/{id}/acknowledge` - Acknowledge an alert
+- `DELETE /alerts/old` - Clear old alerts
 
 ### 📖 Documentation
 
@@ -283,17 +300,17 @@ For complete technical documentation and API reference:
 - **[Calendar Sync Service Plan](doc/calendar_sync_service_plan.md)** - Architecture and design documentation
 - **[Setup Scripts](setup_bridge_database.sh)** - Database initialization and testing tools
 
-### Legacy Endpoints (Removed)
+### Legacy Endpoints (Redirected/Removed)
 
-The following legacy endpoints have been removed and replaced with bridge equivalents:
+The following legacy endpoints have been removed or redirected to bridge equivalents:
 
-- `POST /bridges/sync-deletions` → Use `POST /bridges/sync-deletions`
-- `DELETE /cancel/reservation/{type}/{id}/{resourceId}` → Use bridge deletion sync
-- `POST /cancel/bulk` → Use `POST /bridges/process-deletion-queue`
-- `GET /cancel/stats` → Use `GET /bridges/health`
-- `GET /sync/pending-items` → Use `GET /mappings/resources`
 - `POST /sync/to-outlook` → Use `POST /bridges/sync/booking_system/outlook`
-- `POST /webhook/outlook-notifications` → Use `POST /bridges/webhook/outlook`
+- `POST /sync/from-outlook` → Use `POST /bridges/sync/outlook/booking_system`
+- `GET /sync/pending-items` → Use `GET /mappings/resources`
+- `DELETE /cancel/reservation/{type}/{id}/{resourceId}` → Use bridge deletion sync (`/bridges/sync-deletions`)
+- `POST /cancel/bulk` → Use `POST /bridges/process-deletion-queue`
+- `GET /cancel/stats` → Use health endpoints (`/health/system`, `/bridges/sync-stats`)
+- `POST /webhook/outlook-notifications` → Prefer `POST /bridges/webhook/outlook` (legacy is still supported)
 
 ## ⚙️ Automated Processing
 
@@ -345,7 +362,8 @@ The system supports automated processing through cron jobs that use bridge endpo
 ## 🌐 Service Architecture
 
 ### **Current Implementation:**
-```
+
+```text
 Generic Calendar Bridge (Port 8080)
 ├── Bridge Management API (/bridges/*)
 ├── Resource Mapping API (/mappings/*)
@@ -355,6 +373,7 @@ Generic Calendar Bridge (Port 8080)
 ```
 
 ### **Supported Integrations:**
+
 - ✅ **Microsoft Outlook/365** (Full webhook + API support)
 - ✅ **Booking Systems** (REST API)
 - 🔄 **Extensible** (Add new calendar systems by implementing AbstractCalendarBridge)
@@ -371,29 +390,23 @@ Generic Calendar Bridge (Port 8080)
 
 ```bash
 # Check overall bridge health
-curl http://localhost:8082/bridges/health
+curl -H "api_key: your_key" http://localhost:8082/bridges/health
 
 # Test specific bridge
-curl http://localhost:8082/bridges/outlook/calendars
+curl -H "api_key: your_key" http://localhost:8082/bridges/outlook/calendars
 
-# View recent sync logs
-curl http://localhost:8082/bridges/health | jq '.logs[]'
+# View dashboard data (JSON)
+curl -H "api_key: your_key" http://localhost:8082/health/dashboard | jq
 ```
 
 ### Common Issues
 
-- **Bridge Registration**: Ensure proper credentials in bridge config
-- **Resource Mapping**: Create mappings before syncing events
-- **Deletion Sync**: Run deletion processor if events aren't syncing deletions
-- **Webhooks**: Verify webhook subscriptions are active
-
-For detailed troubleshooting, see [README_BRIDGE.md](README_BRIDGE.md).
-
-### Common Issues
-
-- Ensure `.env` file is properly configured
+- Ensure `.env` file is properly configured (DB, Outlook, API_KEY)
 - Verify Microsoft Graph API permissions
-- Check database connectivity
+- Confirm resource mappings exist before syncing
+- Run deletion processor if deletions aren’t syncing
+- Verify webhook subscriptions are active (if using webhooks)
+- Check database connectivity and credentials
 - Confirm network access to Microsoft 365
 
 ## 📝 Production Readiness
@@ -421,23 +434,26 @@ See [LICENSE](LICENSE) file for details.
 
 ## ✅ Implementation Status
 
-**🎉 TRANSFORMATION COMPLETE - Ready for Production**
+### 🎉 Transformation complete — ready for production
 
 OutlookBookingSync has been successfully transformed into a **Generic Calendar Bridge** platform:
 
 ### **✅ Architecture Transformation (COMPLETED)**
+
 - **Bridge Pattern**: Full migration to extensible bridge architecture
 - **Generic Interface**: AbstractCalendarBridge base class implemented
 - **REST API**: Pure REST communication for all calendar systems
 - **Database Schema**: Complete bridge schema for mappings and configurations
 
 ### **✅ Working Bridges (COMPLETED)**
+
 - **OutlookBridge**: Microsoft Graph API with webhook support and resource discovery
 - **BookingSystemBridge**: Generic booking system with REST API + DB fallback and configurable endpoints
 - **BridgeManager**: Central orchestration service managing all bridges
 - **Resource Discovery**: All bridges support available-resources, available-groups, and user calendar queries
 
 ### **✅ Production Features (COMPLETED)**
+
 - **Bidirectional Sync**: Events sync seamlessly between any bridge types
 - **Deletion Handling**: Robust deletion detection and synchronization
 - **Real-time Webhooks**: Instant updates via webhook notifications
@@ -446,13 +462,16 @@ OutlookBookingSync has been successfully transformed into a **Generic Calendar B
 - **API Security**: Authentication and secure endpoint access
 
 ### **✅ Code Organization (COMPLETED)**
+
 - **Clean Architecture**: Obsolete code moved to `obsolete/` directories  
 - **Modern API**: RESTful endpoints replacing legacy interfaces
 - **Documentation**: Complete guides and API documentation
 - **Production Scripts**: Setup, testing, and automation tools
 
 ### **🚀 Ready for Extension**
+
 The bridge platform is now ready to support additional calendar systems:
+
 - Google Calendar (implement GoogleCalendarBridge)
 - CalDAV systems (implement CalDAVBridge)  
 - Exchange Server (implement ExchangeBridge)

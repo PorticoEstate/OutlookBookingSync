@@ -566,14 +566,14 @@ The dashboard automatically refreshes every 30 seconds to provide real-time moni
 
 ```bash
 # Test bridge health
-curl -H "X-API-Key: your_key" http://localhost/bridges/health
+curl -H "api_key: your_key" http://localhost:8082/bridges/health
 
 # Test calendar discovery
-curl -H "X-API-Key: your_key" http://localhost/bridges/outlook/calendars
+curl -H "api_key: your_key" http://localhost:8082/bridges/outlook/calendars
 
 # Test dry run sync
-curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_key" \
-  http://localhost/bridges/sync/outlook/booking_system \
+curl -X POST -H "Content-Type: application/json" -H "api_key: your_key" \
+  http://localhost:8082/bridges/sync/outlook/booking_system \
   -d '{"source_calendar_id": "room@company.com", "target_calendar_id": "123", "dry_run": true}'
 ```
 
