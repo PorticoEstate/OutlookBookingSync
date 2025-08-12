@@ -6,7 +6,7 @@
 
 set -e
 
-BRIDGE_URL="${BRIDGE_URL:-http://localhost:8082}"
+BRIDGE_URL="${BRIDGE_URL:-http://localhost}"
 LOG_FILE="${LOG_FILE:-/var/log/bridge-deletion-sync.log}"
 TENANT_MODE="${TENANT_MODE:-single}"
 SPECIFIC_TENANT="${1:-}"
