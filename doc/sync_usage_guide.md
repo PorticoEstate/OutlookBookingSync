@@ -740,14 +740,16 @@ First, update your `.env` file with your actual server URL:
 
 ```bash
 # Change from placeholder to your actual server URL
-WEBHOOK_BASE_URL=https://your-domain.com
+APP_BASE_URL=https://your-domain.com
 ```
 
 #### 2. Prerequisites for Webhooks
 
 **A. Public Internet Access**
+
 - Your server must be accessible from the internet for Microsoft Graph to send webhook notifications
-- The webhook endpoint needs to be reachable at: `https://your-domain.com/webhook/outlook-notifications`
+- The webhook endpoint should be reachable at: `https://your-domain.com/bridges/webhook/outlook`
+  - Note: legacy `https://your-domain.com/webhook/outlook-notifications` is still supported and internally routed
 
 **B. SSL Certificate Required**
 - Microsoft Graph **requires HTTPS** for webhook endpoints
@@ -766,28 +768,23 @@ Once your server is publicly accessible with HTTPS, create webhook subscriptions
 
 ```bash
 # Create webhook subscription for a specific calendar
-curl -X POST "https://your-domain.com/webhook/create" \
+curl -X POST "https://your-domain.com/bridges/outlook/subscriptions" \
   -H "Content-Type: application/json" \
+  -H "api_key: YOUR_API_KEY" \
   -d '{
-    "calendar_id": "room1@company.com"
+    "calendar_ids": ["room1@company.com"]
   }'
 
-# List active subscriptions
-curl "https://your-domain.com/webhook/subscriptions"
-
-# Test webhook endpoint (should return validation
-curl "https://your-domain.com/webhook/outlook-notifications"
+# Test webhook validation (Graph will call with validationToken)
+curl "https://your-domain.com/bridges/webhook/outlook?validationToken=test"
 ```
 
 #### 4. Webhook Endpoints
 
-The system provides several webhook management endpoints:
+Current webhook endpoints provided by the bridge:
 
-- `POST /webhook/create` - Create new webhook subscription
-- `GET /webhook/subscriptions` - List active subscriptions  
-- `POST /webhook/outlook-notifications` - Receive webhook notifications (Microsoft Graph calls this)
-- `DELETE /webhook/delete/{subscriptionId}` - Delete subscription
-- `POST /webhook/renew/{subscriptionId}` - Renew expiring subscription
+- `POST /bridges/{bridge}/subscriptions` - Create webhook subscriptions (e.g., `{bridge}=outlook`)
+- `POST /bridges/webhook/{bridge}` - Receive webhook notifications (Graph calls this)
 
 #### 5. Webhook Validation
 

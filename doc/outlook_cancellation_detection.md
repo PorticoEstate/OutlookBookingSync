@@ -29,18 +29,22 @@ The bridge system provides **automatic deletion/cancellation sync** through:
 2. **Public Webhook Endpoint**: Your server must be accessible from the internet for Microsoft to send notifications.
 
 3. **Environment Variables**: Add these to your `.env` file:
-   ```bash
-   WEBHOOK_BASE_URL=https://your-server.com
-   WEBHOOK_CLIENT_SECRET=your-secret-key-for-validation
-   ```
+  ```bash
+  APP_BASE_URL=https://your-server.com
+  WEBHOOK_CLIENT_SECRET=your-secret-key-for-validation
+  API_KEY=your_api_key
+  ```
 
 ### Setup Webhooks
 
 #### 1. Create Webhook Subscriptions
 
 ```bash
-# Create webhook subscriptions for all room calendars
-curl -X POST "http://localhost:8082/webhook/create-subscriptions"
+# Create webhook subscriptions for specific calendars
+curl -X POST "http://localhost:8082/bridges/outlook/subscriptions" \
+  -H "Content-Type: application/json" \
+  -H "api_key: YOUR_API_KEY" \
+  -d '{"calendar_ids": ["room1@company.com","room2@company.com"]}'
 ```
 
 **Expected Response:**
@@ -64,8 +68,8 @@ curl -X POST "http://localhost:8082/webhook/create-subscriptions"
 #### 2. Monitor Webhook Health
 
 ```bash
-# Get webhook subscription statistics
-curl -X GET "http://localhost:8082/webhook/stats"
+# Test webhook validation (Microsoft Graph validation token)
+curl "http://localhost:8082/bridges/webhook/outlook?validationToken=test"
 ```
 
 #### 3. Renew Expiring Subscriptions
@@ -73,8 +77,8 @@ curl -X GET "http://localhost:8082/webhook/stats"
 Microsoft Graph subscriptions expire every 3 days. Set up automatic renewal:
 
 ```bash
-# Renew expiring subscriptions (run every few hours)
-curl -X POST "http://localhost:8082/webhook/renew-subscriptions"
+# Webhook delivery endpoint (Graph posts notifications here)
+POST http://localhost:8082/bridges/webhook/outlook
 ```
 
 ### How It Works
@@ -89,11 +93,8 @@ curl -X POST "http://localhost:8082/webhook/renew-subscriptions"
 Add to your cron jobs:
 
 ```bash
-# Renew webhook subscriptions every 4 hours
-0 */4 * * * www-data curl -X POST "http://localhost:8082/webhook/renew-subscriptions" > /dev/null 2>&1
-
-# Check webhook health daily
-0 9 * * * www-data curl -X GET "http://localhost:8082/webhook/stats" > /var/log/outlook-sync/webhook-health.log
+# Example: General bridge health checks (includes webhook activity via recent syncs)
+0 */4 * * * www-data curl -sS "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY" > /dev/null 2>&1
 ```
 
 ## Method 2: Polling Detection (Fallback)
@@ -197,16 +198,12 @@ Use both methods for maximum reliability:
 2. **Backup**: Run polling detection every 30 minutes to catch missed changes
 
 ```bash
-# Combined cron setup
-# Webhook subscription renewal
-0 */4 * * * www-data curl -X POST "http://localhost:8082/webhook/renew-subscriptions" > /dev/null 2>&1
-
-# Fallback polling detection
-*/30 * * * * www-data curl -X POST "http://localhost:8082/outlook/detect-changes" > /dev/null 2>&1
+# Combined cron setup (example)
+# Fallback polling detection (if used)
+*/30 * * * * www-data curl -X POST "http://localhost:8082/bridges/process-pending-syncs/outlook" -H "api_key: YOUR_API_KEY" > /dev/null 2>&1
 
 # Daily cleanup and health checks
-0 2 * * * www-data curl -X DELETE "http://localhost:8082/outlook/cleanup-logs?days=30" > /dev/null 2>&1
-0 9 * * * www-data curl -X GET "http://localhost:8082/webhook/stats" > /var/log/outlook-sync/health.log
+0 2 * * * www-data curl -sS "http://localhost:8082/health/system" -H "api_key: YOUR_API_KEY" > /dev/null 2>&1
 ```
 
 ## What Happens When Events Are Cancelled in Outlook
