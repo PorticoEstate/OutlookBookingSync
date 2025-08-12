@@ -1329,11 +1329,11 @@ curl -X GET "http://localhost:8082/booking/processed-imports"
 # Automatically detect cancelled and re-enabled reservations in booking system
 curl -X POST "http://localhost:8082/bridges/sync-deletions"
 
-# View cancellation and re-enable statistics
-curl -X GET "http://localhost:8082/cancel/stats"
-
-# View all cancelled reservations
-curl -X GET "http://localhost:8082/cancel/cancelled-reservations"
+# View sync statistics and cancelled events
+curl -X GET "http://localhost:8082/bridges/sync-stats"
+curl -X GET "http://localhost:8082/bridges/sync-stats/outlook"
+curl -X GET "http://localhost:8082/bridges/cancelled-events"
+curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook"
 ```
 
 **Re-enable Workflow:**
@@ -1520,7 +1520,7 @@ curl -X GET "http://localhost:8082/sync/stats"
 curl -X GET "http://localhost:8082/booking/processing-stats"
 
 # Cancellation processing statistics
-curl -X GET "http://localhost:8082/cancel/stats"
+curl -X GET "http://localhost:8082/bridges/sync-stats"
 ```
 
 #### Database Verification
@@ -1685,10 +1685,11 @@ class BookingSystemIntegration {
         $this->triggerSync($reservationType, $reservationId, $resourceId);
     }
     
-    public function afterBookingCancelled($reservationType, $reservationId, $resourceId) {
-        $url = "{$this->syncBaseUrl}/cancel/booking/{$reservationType}/{$reservationId}/{$resourceId}";
-        $this->makeRequest($url, 'POST');
-    }
+  public function afterBookingCancelled($reservationType, $reservationId, $resourceId) {
+    // No direct cancel endpoint: mark inactive in your system, then rely on bridge detection
+    // Optionally trigger deletion detection proactively
+    $this->makeRequest("{$this->syncBaseUrl}/bridges/sync-deletions", 'POST');
+  }
     
     private function triggerSync($reservationType, $reservationId, $resourceId) {
         $url = "{$this->syncBaseUrl}/sync/item/{$reservationType}/{$reservationId}/{$resourceId}";

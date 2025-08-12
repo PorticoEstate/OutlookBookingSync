@@ -130,6 +130,41 @@ docker-compose up -d
 
 ### API Endpoint Overview
 
+#### Routes quick reference (from code)
+
+| Category | Method | Route | Notes |
+|---|---|---|---|
+| Bridge | GET | /bridges | List bridges |
+| Bridge | GET | /bridges/{bridge}/calendars | Calendars for bridge |
+| Bridge | GET | /bridges/{bridge}/available-resources | query, limit, offset |
+| Bridge | GET | /bridges/{bridge}/available-groups | query, limit, offset |
+| Bridge | GET | /bridges/{bridge}/resources/{resourceId}/calendar-items | startDate, endDate, limit, offset |
+| Bridge | POST | /bridges/sync/{source}/{target} | start_date, end_date, options |
+| Webhook | POST | /bridges/webhook/{bridge} | Webhook handler |
+| Webhook | POST | /bridges/{bridge}/subscriptions | Create subscriptions |
+| Health | GET | /bridges/health | Per-bridge health |
+| Health | GET | /health | Quick health |
+| Health | GET | /health/system | System status |
+| Health | GET | /health/dashboard | Dashboard data |
+| Sync mgmt | GET | /bridges/sync-stats[/{bridge}] | Sync statistics |
+| Sync mgmt | GET | /bridges/cancelled-events[/{bridge}] | Cancelled events |
+| Sync mgmt | POST | /bridges/process-pending-syncs[/{bridge}] | Process pending |
+| Sync mgmt | POST | /bridges/re-enable-failed[/{bridge}] | Re-enable failed |
+| Deletions | POST | /bridges/sync-deletions | Detect/sync deletions |
+| Deletions | POST | /bridges/process-deletion-queue | Process deletion queue |
+| Mappings | GET | /mappings/resources | List mappings |
+| Mappings | GET | /mappings/resources/by-resource/{source_calendar_id} | By resource |
+| Mappings | POST | /mappings/resources | Create mapping |
+| Mappings | PUT | /mappings/resources/{id} | Update mapping |
+| Mappings | POST | /mappings/resources/{id}/sync | Trigger mapping sync |
+| Mappings | DELETE | /mappings/resources/{bridge_from}/{source_calendar_id}/{target_calendar_id} | Delete mapping |
+| Mappings | DELETE | /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id} | Delete by key |
+| Alerts | POST | /alerts/check | Run alert checks |
+| Alerts | GET | /alerts | Recent alerts |
+| Alerts | GET | /alerts/stats | Alert statistics |
+| Alerts | POST | /alerts/{id}/acknowledge | Acknowledge alert |
+| Alerts | DELETE | /alerts/old | Clear old alerts |
+
 The Calendar Bridge provides a comprehensive REST API for managing bridge connections, synchronizing events, and monitoring system health:
 
 #### **Core Bridge Operations**
@@ -1461,45 +1496,7 @@ Response:
 }
 ```
 
-#### **Manual Cancellation**
-```http
-DELETE /cancel/reservation/{reservationType}/{reservationId}/{resourceId}
-```
-
-Immediately cancel a specific reservation and delete its Outlook event:
-
-```bash
-curl -X DELETE http://localhost:8082/cancel/reservation/event/12345/67
-```
-
-#### **Check Reservation Status**
-```http
-GET /cancel/check/{reservationType}/{reservationId}
-```
-
-Check if a reservation is cancelled:
-
-```bash
-curl http://localhost:8082/cancel/check/event/12345
-```
-
-#### **Bulk Cancellation Processing**
-```http
-POST /cancel/bulk
-```
-
-Process multiple cancellations at once:
-
-```bash
-curl -X POST http://localhost:8082/cancel/bulk \
-  -H "Content-Type: application/json" \
-  -d '{
-    "reservations": [
-      {"type": "event", "id": 12345, "resource_id": 67},
-      {"type": "event", "id": 12346, "resource_id": 67}
-    ]
-  }'
-```
+> Note: Direct legacy cancellation endpoints are deprecated and removed. Use POST `/bridges/sync-deletions` to detect and process cancellations, and GET `/bridges/cancelled-events[/{bridge}]` and `/bridges/sync-stats[/{bridge}]` to monitor results.
 
 ### **⚙️ Automated Bridge Processing**
 
@@ -1560,20 +1557,23 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 #### **Cancellation Statistics**
 ```bash
-# Get cancellation stats
-curl http://localhost:8082/cancel/stats
+# Get cancellation/sync stats
+curl http://localhost:8082/bridges/sync-stats
+curl http://localhost:8082/bridges/sync-stats/outlook
 ```
 
-#### **View Cancelled Reservations**
+#### **View Cancelled Events**
 ```bash
-# List recently cancelled reservations
-curl http://localhost:8082/cancel/cancelled-reservations
+# List recently cancelled events
+curl http://localhost:8082/bridges/cancelled-events
+curl http://localhost:8082/bridges/cancelled-events/outlook
 ```
 
-#### **Detection Statistics**
+#### **Manual Processing Triggers**
 ```bash
-# Get detection performance stats
-curl http://localhost:8082/bridges/sync-deletionsion-stats
+# Detect deletions and process webhook-driven queue
+curl -X POST http://localhost:8082/bridges/sync-deletions
+curl -X POST http://localhost:8082/bridges/process-deletion-queue
 ```
 
 ### **🔄 Re-enabling Events**
