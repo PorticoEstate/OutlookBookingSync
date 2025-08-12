@@ -157,7 +157,6 @@ docker-compose up -d
 | Mappings | POST | /mappings/resources | Create mapping |
 | Mappings | PUT | /mappings/resources/{id} | Update mapping |
 | Mappings | POST | /mappings/resources/{id}/sync | Trigger mapping sync |
-| Mappings | DELETE | /mappings/resources/{bridge_from}/{source_calendar_id}/{target_calendar_id} | Delete mapping |
 | Mappings | DELETE | /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id} | Delete by key |
 | Alerts | POST | /alerts/check | Run alert checks |
 | Alerts | GET | /alerts | Recent alerts |
@@ -168,31 +167,36 @@ docker-compose up -d
 The Calendar Bridge provides a comprehensive REST API for managing bridge connections, synchronizing events, and monitoring system health:
 
 #### **Core Bridge Operations**
+
 - `GET /bridges` - List all available bridges
 - `GET /bridges/{bridge}/calendars` - Get calendars for a bridge  
 - `GET /bridges/health` - Check health status of all bridges
 
 #### **Resource Discovery**
+
 - `GET /bridges/{bridge}/available-resources` - Get available resources (rooms/equipment)
 - `GET /bridges/{bridge}/available-groups` - Get available groups/collections
-- `GET /bridges/{bridge}/users/{userId}/calendar-items` - Get user calendar items
 
 #### **Event Synchronization**
+
 - `POST /bridges/sync/{source}/{target}` - Sync events between bridges
 - `POST /bridges/sync-deletions` - Detect and sync deletions
 - `POST /bridges/process-deletion-queue` - Process webhook-based deletions
 
 #### **Webhook Management**
+
 - `POST /bridges/webhook/{bridge}` - Handle bridge webhooks
 - `POST /bridges/{bridge}/subscriptions` - Create webhook subscriptions
 
 #### **Resource Mapping**
+
 - `GET /mappings/resources` - Get resource mappings
 - `POST /mappings/resources` - Create resource mapping
 - `PUT /mappings/resources/{id}` - Update resource mapping
-- `DELETE /mappings/resources/{id}` - Delete resource mapping
+- `DELETE /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}` - Delete mapping by composite key
 
 #### **Health & Monitoring**
+
 - `GET /health` - Quick system health check
 - `GET /health/system` - Comprehensive system health
 - `POST /alerts/check` - Run alert checks
@@ -200,11 +204,13 @@ The Calendar Bridge provides a comprehensive REST API for managing bridge connec
 ### Bridge Management
 
 #### List All Bridges
+
 ```http
 GET /bridges
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -240,6 +246,7 @@ Response:
 ```
 
 #### Get Bridge Calendars
+
 ```http
 GET /bridges/{bridgeName}/calendars
 ```
@@ -247,6 +254,7 @@ GET /bridges/{bridgeName}/calendars
 Example: `GET /bridges/outlook/calendars`
 
 Response:
+
 ```json
 {
   "success": true,
@@ -265,6 +273,7 @@ Response:
 ```
 
 #### Get Available Resources
+
 ```http
 GET /bridges/{bridgeName}/available-resources
 ```
@@ -274,6 +283,7 @@ Get available resources (rooms, equipment) for a specific bridge.
 Example: `GET /bridges/outlook/available-resources`
 
 Response:
+
 ```json
 {
   "success": true,
@@ -297,6 +307,7 @@ Response:
 ```
 
 #### Get Available Groups
+
 ```http
 GET /bridges/{bridgeName}/available-groups
 ```
@@ -306,6 +317,7 @@ Get available groups/collections for a specific bridge.
 Example: `GET /bridges/outlook/available-groups`
 
 Response:
+
 ```json
 {
   "success": true,
@@ -325,37 +337,10 @@ Response:
 }
 ```
 
-#### Get User Calendar Items
-```http
-GET /bridges/{bridgeName}/users/{userId}/calendar-items
-```
-
-Get calendar items for a specific user on a bridge.
-
-Example: `GET /bridges/outlook/users/john.doe@company.com/calendar-items?start_date=2025-06-15&end_date=2025-06-22`
-
-Response:
-```json
-{
-  "success": true,
-  "bridge_name": "outlook",
-  "user_id": "john.doe@company.com",
-  "events": [
-    {
-      "id": "event123",
-      "subject": "Team Meeting",
-      "start": "2025-06-15T10:00:00Z",
-      "end": "2025-06-15T11:00:00Z",
-      "organizer": "john.doe@company.com",
-      "attendees": ["jane.smith@company.com"]
-    }
-  ]
-}
-```
-
 ### Synchronization
 
 #### Sync Between Bridges
+
 ```http
 POST /bridges/sync/{sourceBridge}/{targetBridge}
 ```
@@ -363,6 +348,7 @@ POST /bridges/sync/{sourceBridge}/{targetBridge}
 Example: `POST /bridges/sync/outlook/booking_system`
 
 Request body:
+
 ```json
 {
   "source_calendar_id": "room1@company.com",
@@ -375,6 +361,7 @@ Request body:
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -393,6 +380,7 @@ Response:
 ### Webhooks
 
 #### Handle Bridge Webhook
+
 ```http
 POST /bridges/webhook/{bridgeName}
 ```

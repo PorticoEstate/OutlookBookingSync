@@ -22,15 +22,11 @@ catch (Throwable $e)
     $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
 
     $isApiRequest = (
-        strpos($requestUri, '/api/') === 0 ||
         strpos($requestUri, '/bridges') === 0 ||
         strpos($requestUri, '/health') === 0 ||
-        strpos($requestUri, '/resource-mapping') === 0 ||
+        strpos($requestUri, '/mappings') === 0 ||
         strpos($requestUri, '/alerts') === 0 ||
-        strpos($requestUri, '/sync') === 0 ||
-        strpos($requestUri, '/cancel') === 0 ||
-        strpos($requestUri, '/booking') === 0 ||
-        strpos($requestUri, '/outlook') === 0 ||
+        strpos($requestUri, '/webhook') === 0 ||
         strpos($acceptHeader, 'application/json') !== false ||
         strpos($contentType, 'application/json') !== false
     );
@@ -172,8 +168,7 @@ $app->add(function ($request, $handler) use ($container)
 
 // Register routes
 
-// Get resource to Outlook calendar mapping information (legacy)
-$app->get('/resource-mapping', [\App\Controller\ResourceMappingController::class, 'getMapping']);
+// Legacy resource mapping route removed (use /mappings/resources instead)
 
 // Generic bridge-based resource discovery routes (replaces Outlook-specific endpoints)
 
@@ -257,14 +252,7 @@ $container->set(\App\Controller\ResourceMappingController::class, function () us
     );
 });
 
-$container->set(\App\Controller\BridgeBookingController::class, function () use ($container)
-{
-    return new \App\Controller\BridgeBookingController(
-        $container->get('bridgeManager'),
-        $container->get('logger'),
-        $container->get('db')
-    );
-});
+// Removed unused BridgeBookingController registration (no routes reference it)
 
 // Generic Bridge API Routes
 
@@ -306,8 +294,7 @@ $app->post('/mappings/resources', [\App\Controller\ResourceMappingController::cl
 // Update existing resource mapping
 $app->put('/mappings/resources/{id}', [\App\Controller\ResourceMappingController::class, 'updateResourceMapping']);
 
-// Delete resource mapping
-$app->delete('/mappings/resources/{bridge_from}/{source_calendar_id}/{target_calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMapping']);
+// (Deprecated) Delete by composite key route removed; use /mappings/resources/by-key/... instead
 
 // Get resource mapping by booking system resource ID
 $app->get('/mappings/resources/by-resource/{source_calendar_id}', [\App\Controller\ResourceMappingController::class, 'getResourceMappingByResource']);
@@ -318,21 +305,23 @@ $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingCont
 // Add this route for deleting by composite key
 $app->delete('/mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMappingByKey']);
 
-// Backwards compatibility routes (redirect to bridge endpoints)
-$app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
-{
-    // Redirect Outlook webhooks to bridge webhook handler
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    $request = $request->withAttribute('bridgeName', 'outlook');
-    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
-});
+// Backwards compatibility routes (redirect to bridge endpoints) - gated by env flag
+if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLEAN)) {
+    $app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
+    {
+        // Redirect Outlook webhooks to bridge webhook handler
+        $bridgeController = $container->get(\App\Controller\BridgeController::class);
+        $request = $request->withAttribute('bridgeName', 'outlook');
+        return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+    });
 
-$app->post('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
-{
-    // Redirect Outlook webhooks to bridge webhook handler
-    $bridgeController = $container->get(\App\Controller\BridgeController::class);
-    return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
-});
+    $app->post('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
+    {
+        // Redirect Outlook webhooks to bridge webhook handler
+        $bridgeController = $container->get(\App\Controller\BridgeController::class);
+        return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
+    });
+}
 
 // Sync Status Management Routes (added for comprehensive sync_status support)
 // IMPORTANT: These routes must come before the catch-all 404 route
@@ -403,8 +392,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             'health_monitoring' => [
                 'GET /health' => 'System health check',
                 'GET /health/system' => 'Detailed system status',
-                'GET /health/dashboard' => 'Dashboard data (JSON)',
-                'GET /dashboard' => 'Monitoring dashboard (HTML)'
+                'GET /health/dashboard' => 'Dashboard data (JSON)'
             ],
             'static_assets' => [
                 'GET /dashboard' => 'Monitoring dashboard (HTML) - served directly by Apache',
@@ -417,7 +405,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /mappings/resources' => 'List resource mappings (query: ?limit=int&offset=int)',
                 'POST /mappings/resources' => 'Create resource mapping (body: bridge_from, source_calendar_id, target_calendar_id, sync_direction, optional: bridge_pair_id, is_active, sync_enabled)',
                 'PUT /mappings/resources/{id}' => 'Update resource mapping (body: fields to update)',
-                'DELETE /mappings/resources/{bridge_from}/{source_calendar_id}/{target_calendar_id}' => 'Delete resource mapping by composite key',
+                'DELETE /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}' => 'Delete resource mapping by composite key',
                 'GET /mappings/resources/by-resource/{source_calendar_id}' => 'Get resource mapping by booking system resource ID',
                 'POST /mappings/resources/{id}/sync' => 'Trigger sync for specific resource mapping (optional body: start_date=YYYY-MM-DD, end_date=YYYY-MM-DD, dry_run=bool)'
             ],
