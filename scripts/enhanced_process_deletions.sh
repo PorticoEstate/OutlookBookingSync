@@ -7,6 +7,7 @@
 set -e
 
 BRIDGE_URL="${BRIDGE_URL:-http://localhost}"
+API_KEY_HEADER="${API_KEY:+-H \"api_key: ${API_KEY}\"}"
 LOG_FILE="${LOG_FILE:-/var/log/bridge-deletion-sync.log}"
 TENANT_MODE="${TENANT_MODE:-single}"
 SPECIFIC_TENANT="${1:-}"
@@ -27,7 +28,8 @@ api_call() {
     # Use timeout to prevent hanging
     response=$(timeout $expected_time curl -s -X POST "$BRIDGE_URL$endpoint" \
         -H "Content-Type: application/json" \
-        -H "User-Agent: BridgeDeletionProcessor/1.0") || {
+        -H "User-Agent: BridgeDeletionProcessor/1.0" \
+        $API_KEY_HEADER) || {
         log "❌ TIMEOUT: $description (exceeded ${expected_time}s)"
         return 1
     }
@@ -162,7 +164,7 @@ process_all_tenants() {
 health_check() {
     log "🏥 Performing health check"
     
-    local health_response=$(curl -s -X GET "$BRIDGE_URL/health" -H "Content-Type: application/json")
+    local health_response=$(curl -s -X GET "$BRIDGE_URL/health" -H "Content-Type: application/json" $API_KEY_HEADER)
     
     if echo "$health_response" | jq -e '.status' > /dev/null 2>&1; then
         local status=$(echo "$health_response" | jq -r '.status')
