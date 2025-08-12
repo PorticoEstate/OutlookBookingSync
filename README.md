@@ -106,6 +106,12 @@ curl http://localhost:8082/mappings/resources
 
 See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API requirements.
 
+### Roadmap and Operations
+
+- Future plan: see [ROADMAP.md](ROADMAP.md)
+- Development guide: [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md)
+- Maintenance runbook: [doc/MAINTENANCE.md](doc/MAINTENANCE.md)
+
 ### Example: Bridge-Based Deletion Handling
 
 ```bash
