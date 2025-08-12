@@ -15,6 +15,8 @@ services:
     environment:
       - APACHE_RUN_USER=www-data
       - APACHE_RUN_GROUP=www-data
+    env_file:
+      - .env.compose
     depends_on: []
     extra_hosts:
       - "host.docker.internal:host-gateway"
