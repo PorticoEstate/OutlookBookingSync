@@ -87,103 +87,7 @@ class BridgeBookingController
         }
     }
     
-    /**
-     * Get bridge processing statistics (replaces getProcessingStats)
-     */
-    public function getBridgeStats(Request $request, Response $response, $args)
-    {
-        try {
-            $queryParams = $request->getQueryParams();
-            $hours = isset($queryParams['hours']) ? (int)$queryParams['hours'] : 24;
-            
-            // Get statistics from bridge_sync_logs
-            $stats = $this->calculateBridgeStats($hours);
-            
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'time_period_hours' => $hours,
-                'statistics' => $stats
-            ]));
-            
-            return $response->withHeader('Content-Type', 'application/json');
-            
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get bridge stats', ['error' => $e->getMessage()]);
-            
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => 'Failed to get bridge statistics: ' . $e->getMessage()
-            ]));
-            
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
     
-    /**
-     * Get pending bridge operations (replaces getPendingImports)
-     */
-    public function getPendingOperations(Request $request, Response $response, $args)
-    {
-        try {
-            $queryParams = $request->getQueryParams();
-            $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 100;
-            $bridgeType = $queryParams['bridge_type'] ?? null;
-            
-            $pendingOps = $this->getPendingBridgeOperations($limit, $bridgeType);
-            
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'pending_operations' => $pendingOps,
-                'count' => count($pendingOps),
-                'limit' => $limit
-            ]));
-            
-            return $response->withHeader('Content-Type', 'application/json');
-            
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get pending operations', ['error' => $e->getMessage()]);
-            
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => 'Failed to get pending operations: ' . $e->getMessage()
-            ]));
-            
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
-    
-    /**
-     * Get completed bridge operations (replaces getProcessedImports)
-     */
-    public function getCompletedOperations(Request $request, Response $response, $args)
-    {
-        try {
-            $queryParams = $request->getQueryParams();
-            $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 100;
-            $hours = isset($queryParams['hours']) ? (int)$queryParams['hours'] : 24;
-            
-            $completedOps = $this->getCompletedBridgeOperations($limit, $hours);
-            
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'completed_operations' => $completedOps,
-                'count' => count($completedOps),
-                'time_period_hours' => $hours
-            ]));
-            
-            return $response->withHeader('Content-Type', 'application/json');
-            
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get completed operations', ['error' => $e->getMessage()]);
-            
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => 'Failed to get completed operations: ' . $e->getMessage()
-            ]));
-            
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
     
     /**
      * Get pending bridge operations from queue
@@ -355,51 +259,8 @@ class BridgeBookingController
         ]);
     }
     
-    /**
-     * Calculate bridge statistics
-     */
-    private function calculateBridgeStats($hours): array
-    {
-        $sql = "
-            SELECT 
-                source_bridge,
-                target_bridge,
-                operation,
-                status,
-                COUNT(*) as operation_count,
-                AVG(duration_ms) as avg_duration_ms,
-                SUM(event_count) as total_events
-            FROM bridge_sync_logs 
-            WHERE created_at > NOW() - INTERVAL :hours HOUR
-            GROUP BY source_bridge, target_bridge, operation, status
-            ORDER BY operation_count DESC
-        ";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['hours' => $hours]);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-    
-    /**
-     * Get completed bridge operations
-     */
-    private function getCompletedBridgeOperations($limit, $hours): array
-    {
-        $sql = "
-            SELECT * FROM bridge_queue 
-            WHERE status IN ('completed', 'failed')
-            AND processed_at > NOW() - INTERVAL :hours HOUR
-            ORDER BY processed_at DESC 
-            LIMIT :limit
-        ";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['hours' => $hours, 'limit' => $limit]);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-    
+ 
+
     /**
      * Find bridge mapping by event details
      */

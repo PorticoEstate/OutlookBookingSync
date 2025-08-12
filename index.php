@@ -186,27 +186,6 @@ $app->get('/bridges/{bridgeName}/available-groups', [\App\Controller\BridgeContr
 // Get calendar items for a specific resource on a bridge
 $app->get('/bridges/{bridgeName}/resources/{resourceId}/calendar-items', [\App\Controller\BridgeController::class, 'getResourceCalendarItems']);
 
-// Bridge-compatible booking system integration routes (replaces legacy routes)
-
-// Process pending bridge sync operations 
-$app->post('/bridge/process-pending', [\App\Controller\BridgeBookingController::class, 'processPendingSyncs']);
-
-// Get bridge processing statistics 
-$app->get('/bridge/stats', [\App\Controller\BridgeBookingController::class, 'getBridgeStats']);
-
-// Get pending bridge operations
-$app->get('/bridge/pending', [\App\Controller\BridgeBookingController::class, 'getPendingOperations']);
-
-// Get completed bridge operations
-$app->get('/bridge/completed', [\App\Controller\BridgeBookingController::class, 'getCompletedOperations']);
-
-// Legacy cancellation routes moved to obsolete
-// Use bridge deletion endpoints instead:
-// - DELETE /bridges/mappings/{id} - Remove specific bridge mapping
-// - POST /bridges/sync-deletions - Process deletion queue  
-// - POST /bridges/process-deletion-queue - Process webhook deletions
-// - GET /bridges/health - Check bridge status including deletions
-
 // Health monitoring and dashboard routes
 
 // Quick health check for load balancers
