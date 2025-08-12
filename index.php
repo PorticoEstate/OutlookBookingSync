@@ -389,7 +389,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
     $uri = $request->getUri()->getPath();
     $method = $request->getMethod();
 
-    // Return helpful JSON response for API endpoints
+    // Return helpful JSON response for API endpoints (with query/body parameter hints)
     $errorResponse = [
         'error' => 'Not Found',
         'message' => "The endpoint '{$method} {$uri}' was not found",
@@ -398,27 +398,28 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
         'available_endpoints' => [
             'bridge_operations' => [
                 'GET /bridges' => 'List all available bridges',
-                'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge',
-                'GET /bridges/{bridge}/available-resources' => 'Get available resources (rooms/equipment) for bridge',
-                'GET /bridges/{bridge}/available-groups' => 'Get available groups/collections for bridge',
-                'GET /bridges/{bridge}/resources/{resourceId}/calendar-items' => 'Get calendar items for specific resource on bridge',
-                'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges',
+                'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge (optional query: ?limit=int&offset=int)',
+                'GET /bridges/{bridge}/available-resources' => 'Get available resources (rooms/equipment) for bridge (query: ?query=string&limit=int&offset=int)',
+                'GET /bridges/{bridge}/available-groups' => 'Get available groups/collections for bridge (query: ?query=string&limit=int&offset=int)',
+                'GET /bridges/{bridge}/resources/{resourceId}/calendar-items' => 'Get calendar items for specific resource on bridge (query: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&limit=int&offset=int)',
+                'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges (body/query: start_date=YYYY-MM-DD, end_date=YYYY-MM-DD, optional: pair_id, source_calendar_id, target_calendar_id, handle_deletions, skip_updates, dry_run, sync_method)',
                 'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
-                'POST /bridges/process-deletion-queue' => 'Process deletion queue',
-                'POST /bridges/sync-deletions' => 'Sync deletions across bridges'
+                'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
+                'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
+                'GET /bridges/health' => 'Get health status of all bridges'
             ],
             'sync_status_management' => [
-                'GET /health/sync-status' => 'Get detailed sync status monitoring',
+                'GET /health/sync-status' => 'Get detailed sync status monitoring (optional query: ?status=failed|pending|completed&limit=int&offset=int)',
                 'POST /health/re-enable-failed' => 'Re-enable failed events (all bridges)',
-                'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges)',
-                'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge',
+                'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges) (body: batch_size=int)',
+                'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge (body: batch_size=int)',
                 'POST /bridges/re-enable-failed' => 'Re-enable failed events (all bridges)',
                 'POST /bridges/re-enable-failed/{bridge}' => 'Re-enable failed events for specific bridge',
-                'GET /bridges/sync-stats' => 'Get sync statistics (all bridges)',
-                'GET /bridges/sync-stats/{bridge}' => 'Get sync statistics for specific bridge',
-                'GET /bridges/cancelled-events' => 'Get cancelled events (all bridges)',
-                'GET /bridges/cancelled-events/{bridge}' => 'Get cancelled events for specific bridge',
-                'GET /bridges/{bridge}/pending-events' => 'Get pending sync events for specific bridge'
+                'GET /bridges/sync-stats' => 'Get sync statistics (all bridges) (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD)',
+                'GET /bridges/sync-stats/{bridge}' => 'Get sync statistics for specific bridge (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD)',
+                'GET /bridges/cancelled-events' => 'Get cancelled events (all bridges) (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=int&offset=int)',
+                'GET /bridges/cancelled-events/{bridge}' => 'Get cancelled events for specific bridge (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=int&offset=int)',
+                'GET /bridges/{bridge}/pending-events' => 'Get pending sync events for specific bridge (optional query: ?limit=int&offset=int)'
             ],
             'health_monitoring' => [
                 'GET /health' => 'System health check',
@@ -434,13 +435,19 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'Note' => 'Static files are served directly by Apache via .htaccess for better performance'
             ],
             'resource_management' => [
-                'GET /mappings/resources' => 'List resource mappings',
-                'POST /mappings/resources' => 'Create resource mapping',
-                'PUT /mappings/resources/{id}' => 'Update resource mapping'
+                'GET /mappings/resources' => 'List resource mappings (query: ?limit=int&offset=int)',
+                'POST /mappings/resources' => 'Create resource mapping (body: bridge_from, source_calendar_id, target_calendar_id, sync_direction, optional: bridge_pair_id, is_active, sync_enabled)',
+                'PUT /mappings/resources/{id}' => 'Update resource mapping (body: fields to update)',
+                'DELETE /mappings/resources/{bridge_from}/{source_calendar_id}/{target_calendar_id}' => 'Delete resource mapping by composite key',
+                'GET /mappings/resources/by-resource/{source_calendar_id}' => 'Get resource mapping by booking system resource ID',
+                'POST /mappings/resources/{id}/sync' => 'Trigger sync for specific resource mapping (optional body: start_date=YYYY-MM-DD, end_date=YYYY-MM-DD, dry_run=bool)'
             ],
             'alerts' => [
                 'POST /alerts/check' => 'Check system alerts',
-                'GET /alerts' => 'Get active alerts'
+                'GET /alerts' => 'Get active alerts (query: ?limit=int&offset=int)',
+                'GET /alerts/stats' => 'Get alert statistics (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD)',
+                'POST /alerts/{id}/acknowledge' => 'Acknowledge an alert by ID',
+                'DELETE /alerts/old' => 'Clear old alerts (optional query: ?before=YYYY-MM-DD)'
             ]
         ],
         'documentation' => 'See README_BRIDGE.md for complete API documentation'
