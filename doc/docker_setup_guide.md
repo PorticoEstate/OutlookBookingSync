@@ -87,9 +87,40 @@ services:
     environment:
       - APACHE_RUN_USER=www-data
       - APACHE_RUN_GROUP=www-data
+    env_file:
+      - .env.compose
     networks:
       - portico_internal
 ```
+
+### Compose environment file (.env.compose)
+
+Use a dedicated Compose env file to inject container runtime variables (separate from the PHP app `.env`).
+
+Steps:
+
+- Create a file named `.env.compose` next to `docker-compose.yml` with at least:
+
+```dotenv
+# Used by ApiKeyMiddleware and cron jobs inside the container
+API_KEY=change-me-strong-random
+
+# Optional HTTP proxies available to the container (leave empty if not used)
+http_proxy=
+https_proxy=
+
+# Feature flags
+ENABLE_LEGACY_WEBHOOKS=false
+```
+
+- Ensure `docker-compose.yml` references it via `env_file: - .env.compose` (see snippet above).
+- Rebuild/recreate containers so the env vars are available to Apache/PHP and cron.
+
+Notes:
+
+- PHP’s Dotenv won’t override existing environment variables. If `API_KEY` is set via Compose, `$_ENV['API_KEY']` will be available to the app and cron jobs (the entrypoint propagates it to curl requests).
+- Keep sensitive values out of version control. Prefer `.env.compose` kept locally or managed via secrets.
+- If you keep an application `.env` for other settings, ensure `API_KEY` there matches or simply omit it to avoid confusion.
 
 ## Deployment Commands
 
