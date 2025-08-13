@@ -257,7 +257,7 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
     return new \App\Controller\BridgeController(
         $container->get('bridgeManager'),
         $container->get('logger'),
-    $container->get('db')
+        $container->get('db')
     );
 });
 
@@ -324,7 +324,8 @@ $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingCont
 $app->delete('/mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMappingByKey']);
 
 // Backwards compatibility routes (redirect to bridge endpoints) - gated by env flag
-if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLEAN)) {
+if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLEAN))
+{
     $app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
     {
         // Redirect Outlook webhooks to bridge webhook handler

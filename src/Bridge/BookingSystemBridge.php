@@ -1167,9 +1167,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Outlook IDs are typically very long (100+ characters) and contain base64-like strings
         // They often start with "AAMk" and contain mixed case letters, numbers, and special chars
-        return (strlen($eventId) > 50 && 
-                (strpos($eventId, 'AAMk') === 0 || 
-                 preg_match('/^[A-Za-z0-9+\/=_-]{50,}$/', $eventId)));
+        return (strlen($eventId) > 50 &&
+            (strpos($eventId, 'AAMk') === 0 ||
+                preg_match('/^[A-Za-z0-9+\/=_-]{50,}$/', $eventId)));
     }
 
     /**
@@ -1386,7 +1386,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $params = [];
             if ($startDate) $params['start_date'] = $startDate;
             if ($endDate) $params['end_date'] = $endDate;
-            
+
             // Add pagination parameters
             if ($offset > 0) $params['start'] = $offset;
             if ($limit > 0) $params['results'] = $limit;
@@ -1414,14 +1414,16 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $totalRecords = $response['total_records'] ?? null;
 
             // Return events with metadata if pagination was requested or total_records is available
-            if ($limit > 0 || $offset > 0 || $totalRecords !== null) {
+            if ($limit > 0 || $offset > 0 || $totalRecords !== null)
+            {
                 $result = [
                     'calendar_items' => $events,
                     'metadata' => []
                 ];
 
                 // Add total_records to metadata if available
-                if ($totalRecords !== null) {
+                if ($totalRecords !== null)
+                {
                     $result['metadata']['total_records'] = $totalRecords;
                 }
 
@@ -2068,7 +2070,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $timezone = $_ENV['BOOKING_SYSTEM_TIMEZONE'] ?? 'UTC';
 
-        if (strtolower($event['timezone']) !== strtolower($timezone) )
+        if (strtolower($event['timezone']) !== strtolower($timezone))
         {
             $dateTime = new \DateTime($event['start'], new \DateTimeZone($timezone));
             $event['start'] = $dateTime->setTimezone(new \DateTimeZone($timezone))->format('c');
