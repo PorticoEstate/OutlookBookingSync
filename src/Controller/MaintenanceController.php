@@ -11,7 +11,7 @@ class MaintenanceController
     private $db;
     private $logger;
 
-    public function __construct(PDO $db = null, $logger = null)
+    public function __construct(PDO $db, $logger = null)
     {
         $this->db = $db;
         $this->logger = $logger;
