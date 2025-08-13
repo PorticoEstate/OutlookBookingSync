@@ -344,7 +344,7 @@ cp .env.example .env
 # Edit .env with your credentials
 
 # Setup database
-./setup_bridge_database.sh
+scripts/setup_bridge_database.sh
 
 # Start bridge service
 docker compose up -d
