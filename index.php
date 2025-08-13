@@ -429,6 +429,9 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /alerts/stats' => 'Get alert statistics (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD)',
                 'POST /alerts/{id}/acknowledge' => 'Acknowledge an alert by ID',
                 'DELETE /alerts/old' => 'Clear old alerts (optional query: ?before=YYYY-MM-DD)'
+            ],
+            'maintenance' => [
+                'POST /maintenance/cleanup-logs' => 'Cleanup old sync logs (optional query: ?days=int, default 30)'
             ]
         ],
         'documentation' => 'See README_BRIDGE.md for complete API documentation'
