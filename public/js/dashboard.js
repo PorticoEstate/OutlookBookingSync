@@ -1024,6 +1024,10 @@ function renderSyncActions() {
                 <button class="action-button" onclick="viewCancelledEvents()">📋 View Cancelled Events</button>
             </div>
             <div style="margin-bottom: 15px;">
+                <h4>Maintenance:</h4>
+                <button class="action-button" onclick="cleanupLogs()">🧹 Cleanup Sync Logs</button>
+            </div>
+            <div style="margin-bottom: 15px;">
                 <h4>Monitoring & Statistics:</h4>
                 <button class="action-button" onclick="viewSyncStats()">📊 View Sync Statistics</button>
                 <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
@@ -1032,6 +1036,43 @@ function renderSyncActions() {
             <div id="actionStatus" style="margin-top: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem; min-height: 20px;"></div>
         </div>
     `;
+}
+
+// Maintenance action: cleanup old sync logs
+async function cleanupLogs() {
+    let days = window.prompt('Cleanup sync logs older than N days (default 30):', '30');
+    if (days === null) {
+        setActionStatus('Cleanup cancelled.', 'info');
+        return;
+    }
+    days = parseInt(days, 10);
+    if (!Number.isFinite(days) || days < 1) {
+        setActionStatus('Please enter a valid number of days (>= 1).', 'error');
+        return;
+    }
+    setActionStatus(`Cleaning up sync logs older than ${days} days...`, 'info');
+    try {
+        const response = await fetch(`/maintenance/cleanup-logs?days=${encodeURIComponent(days)}`, {
+            method: 'POST',
+            headers: { ...authHeaders() }
+        });
+        if (!response.ok) {
+            if (response.status === 401) {
+                promptForApiKey('Unauthorized (401). Enter a valid API key:');
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const result = await response.json();
+        if (result && result.success) {
+            const kept = typeof result.days_kept !== 'undefined' ? result.days_kept : days;
+            const deleted = result.deleted ?? 0;
+            setActionStatus(`✅ Cleanup complete: deleted ${deleted} rows (kept ${kept} days).`, 'success');
+        } else {
+            setActionStatus('❌ Cleanup failed: ' + (result && result.error ? result.error : 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        setActionStatus('❌ Cleanup failed: ' + error.message, 'error');
+    }
 }
 
 // Initialize dashboard

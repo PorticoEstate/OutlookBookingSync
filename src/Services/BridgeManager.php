@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Bridge\AbstractCalendarBridge;
+use App\Services\SyncLogService;
 use Psr\Log\LoggerInterface;
 use PDO;
 
@@ -11,11 +12,13 @@ class BridgeManager
     private $bridges = [];
     private $logger;
     private $db;
+    private $syncLog;
     
-    public function __construct(LoggerInterface $logger, PDO $db)
+    public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog)
     {
         $this->logger = $logger;
         $this->db = $db;
+        $this->syncLog = $syncLog;
     }
     
     /**
@@ -223,6 +226,31 @@ class BridgeManager
                 'errors' => count($results['errors'])
             ]
         ]));
+
+        // Persist sync summary to bridge_sync_logs for health metrics
+        try {
+            $processedCount = (int)(($results['created'] ?? 0) + ($results['updated'] ?? 0));
+            $status = (count($results['errors'] ?? []) > 0) ? 'error' : 'success';
+            $this->syncLog->write(
+                ($options['dry_run'] ?? false) ? 'dry_run' : 'sync',
+                (string)$sourceBridge,
+                (string)$targetBridge,
+                $status,
+                $processedCount,
+                [
+                    'source_calendar_id' => $sourceCalendarId,
+                    'target_calendar_id' => $targetCalendarId,
+                    'date_range' => [$startDate, $endDate],
+                    'created' => $results['created'] ?? 0,
+                    'updated' => $results['updated'] ?? 0,
+                    'deleted' => $results['deleted'] ?? 0,
+                    'skipped' => $results['skipped'] ?? 0,
+                    'failed_events' => count($results['errors'] ?? [])
+                ]
+            );
+        } catch (\Throwable $e) {
+            $this->logger->warning('Failed to write bridge_sync_logs summary', ['error' => $e->getMessage()]);
+        }
         
         return $results;
     }

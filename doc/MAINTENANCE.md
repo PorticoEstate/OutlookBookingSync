@@ -71,6 +71,9 @@ Operational guidance for running, monitoring, and troubleshooting the Calendar B
 - Process pending syncs: every 5 minutes
 - Deletion queue: every 2–5 minutes
 - Clear old alerts: daily
+- Cleanup sync logs: daily (POST /maintenance/cleanup-logs?days=30)
+  - Configure retention via env var CLEANUP_DAYS (default 30)
+  - Cron is pre-wired in docker entrypoint at 03:00
 
 ## Troubleshooting
 

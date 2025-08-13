@@ -118,6 +118,18 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - The dashboard prompts for the API key on first load and stores it in your browser. Press Ctrl+K to update it.
 - For curl or scripts, send the header: `api_key: <your key>`.
 
+### Maintenance: sync log retention
+
+- Endpoint: `POST /maintenance/cleanup-logs?days=30` removes old rows from `bridge_sync_logs` (defaults to 30 days if omitted).
+- Example:
+
+```bash
+curl -s -X POST "http://localhost:8082/maintenance/cleanup-logs?days=30" \
+  -H "api_key: change-me-strong-random"
+```
+
+- Cron: The container runs this daily at 03:00. Override retention via `CLEANUP_DAYS` in `.env.compose`.
+
 ## 🛡️ Production readiness
 
 Use this checklist before exposing the service in production.

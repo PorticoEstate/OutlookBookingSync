@@ -135,6 +135,12 @@ $container->set('logger', function ()
     return $logger;
 });
 
+// Register SyncLogService
+$container->set('syncLog', function () use ($container)
+{
+    return new \App\Services\SyncLogService($container->get('db'));
+});
+
 // Register controllers in the container
 
 $container->set(\App\Controller\HealthController::class, function () use ($container)
@@ -145,6 +151,11 @@ $container->set(\App\Controller\HealthController::class, function () use ($conta
 $container->set(\App\Controller\AlertController::class, function () use ($container)
 {
     return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
+});
+
+$container->set(\App\Controller\MaintenanceController::class, function () use ($container)
+{
+    return new \App\Controller\MaintenanceController($container->get('db'), $container->get('logger'));
 });
 
 AppFactory::setContainer($container);
@@ -209,12 +220,15 @@ $app->post('/alerts/{id}/acknowledge', [\App\Controller\AlertController::class, 
 // Clear old alerts
 $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAlerts']);
 
+// Maintenance routes
+$app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::class, 'cleanupLogs']);
+
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
 
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
-    $manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'));
+    $manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'), $container->get('syncLog'));
 
     // Register Outlook bridge
     $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
@@ -241,7 +255,7 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
     return new \App\Controller\BridgeController(
         $container->get('bridgeManager'),
         $container->get('logger'),
-        $container->get('db')
+    $container->get('db')
     );
 });
 

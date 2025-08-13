@@ -17,8 +17,10 @@ touch /var/log/bridge-cron.log
 chmod 666 /var/log/bridge-cron.log
 
 # Create the crontab file for www-data user with better logging
-# Ensure API_KEY is available to cron jobs
+# Ensure API_KEY is available to cron jobs and configure cleanup days (default 30)
 echo "API_KEY=${API_KEY}" > /tmp/crontab
+CLEANUP_DAYS=${CLEANUP_DAYS:-30}
+echo "CLEANUP_DAYS=${CLEANUP_DAYS}" >> /tmp/crontab
 
 cat >> /tmp/crontab << 'EOF'
 # Generic Calendar Bridge Cron Jobs - Production Ready with sync_method tracking
@@ -54,6 +56,8 @@ cat >> /tmp/crontab << 'EOF'
 # Clean up old alerts weekly on Sunday at 2 AM
 0 2 * * 0 curl -s -X DELETE "http://localhost/alerts/old?days=7" -H "api_key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
 
+# Cleanup old sync logs daily at 03:00 (keeps ${CLEANUP_DAYS} days)
+0 3 * * * curl -s -X POST "http://localhost/maintenance/cleanup-logs?days=${CLEANUP_DAYS}" -H "api_key: $API_KEY" | sed 's/^/[cleanup] /' >> /var/log/bridge-cron.log 2>&1
 # 5. RESOURCE MAPPING MAINTENANCE
 # Validate resource mappings weekly on Monday at 1 AM
 0 1 * * 1 curl -s -X GET "http://localhost/mappings/resources" -H "api_key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
