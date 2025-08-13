@@ -112,6 +112,15 @@ APP_BASE_URL=http://localhost:8082
 API_KEY=your_api_key
 ```
 
+If you’re running with Docker Compose, you can also set the API key in `.env.compose` which is injected into the container at runtime:
+
+```dotenv
+# .env.compose
+API_KEY=change-me-strong-random
+```
+
+Then include the header `api_key: <your key>` in all client calls. The dashboard will prompt for this key on first load and store it in your browser.
+
 3. **Setup database:**
 ```bash
 ./setup_bridge_database.sh
@@ -899,13 +908,27 @@ Content-Type: application/json
 
 ### Authentication
 
-Include API key in requests:
+All protected endpoints require an API key sent as header `api_key`.
+
+Examples:
 
 ```http
-Authorization: Bearer your_api_key
-Content-Type: application/json
-Accept: application/json
+GET /bridges/health
+api_key: your_api_key
 ```
+
+```bash
+curl -H "api_key: your_api_key" http://localhost:8082/bridges/health
+curl -X POST -H "Content-Type: application/json" -H "api_key: your_api_key" \
+  -d '{"start_date":"2025-06-14","end_date":"2025-06-21"}' \
+  http://localhost:8082/bridges/sync/outlook/booking_system
+```
+
+Dashboard usage:
+
+- Open /dashboard. You’ll be prompted for the API key once; it’s stored in your browser (localStorage).
+- To update the key later, press Ctrl+K on the dashboard.
+- The dashboard automatically includes the `api_key` header on all API calls.
 
 ### Error Handling
 
@@ -1129,22 +1152,22 @@ class BookingSystemApiController
 
 ### Testing Your API
 
-Use these curl commands to test your booking system API:
+Use these curl commands to test the bridge endpoints (replace with your values). If you’re testing your own booking system API, use whatever auth your API requires; the bridge itself uses `api_key` header.
 
 ```bash
 # Test resource listing
-curl -H "Authorization: Bearer your_api_key" \
-     http://your-booking-system/api/resources
+curl -H "api_key: your_api_key" \
+  http://localhost:8082/bridges/outlook/available-resources
 
 # Test getting events
-curl -H "Authorization: Bearer your_api_key" \
-     "http://your-booking-system/api/resources/123/events?start_date=2025-06-14&end_date=2025-06-21"
+curl -H "api_key: your_api_key" \
+  "http://localhost:8082/bridges/outlook/resources/room1@company.com/calendar-items?startDate=2025-06-14&endDate=2025-06-21"
 
 # Test creating an event
-curl -X POST -H "Authorization: Bearer your_api_key" \
-     -H "Content-Type: application/json" \
-     -d '{"title":"Test Meeting","start_time":"2025-06-15T10:00:00Z","end_time":"2025-06-15T11:00:00Z"}' \
-     http://your-booking-system/api/resources/123/events
+curl -X POST -H "api_key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"source_calendar_id":"room1@company.com","target_calendar_id":"123","start_date":"2025-06-14","end_date":"2025-06-21"}' \
+  http://localhost:8082/bridges/sync/outlook/booking_system
 ```
 
 ## 🔧 Resource Mapping Management

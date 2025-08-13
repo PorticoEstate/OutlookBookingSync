@@ -171,11 +171,11 @@ docker logs portico_outlook --tail 50
 
 ### API Health Check
 ```bash
-# Basic connectivity
-curl http://localhost:8082/sync/stats
+# Basic connectivity (include API key)
+curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/health
 
 # Test specific endpoint
-curl -X POST http://localhost:8082/sync/populate-mapping
+curl -X POST -H "api_key: change-me-strong-random" http://localhost:8082/bridges/sync-deletions
 ```
 
 ## Troubleshooting
@@ -244,7 +244,7 @@ docker exec portico_outlook php -i | grep -i xdebug
 - Network isolation via Docker networks
 
 ### API Security
-- Optional API key authentication
+- API key authentication (header: `api_key`)
 - Rate limiting recommended for production
 - HTTPS termination recommended (reverse proxy)
 
@@ -252,3 +252,7 @@ docker exec portico_outlook php -i | grep -i xdebug
 - Environment variables for sensitive data
 - No secrets in container images
 - Database credentials properly secured
+
+### Dashboard Authentication
+- The dashboard prompts for the API key on first load and stores it in the browser.
+- Press Ctrl+K on the dashboard to update the stored key.

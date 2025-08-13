@@ -89,17 +89,17 @@ php -S localhost:8082 index.php
 
 ```bash
 # Check bridge health
-curl http://localhost:8082/bridges/health
+curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/health
 
 # List available bridges
-curl http://localhost:8082/bridges
+curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges
 
 # Test resource discovery (example with outlook bridge)
-curl http://localhost:8082/bridges/outlook/available-resources
-curl http://localhost:8082/bridges/outlook/available-groups
+curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/outlook/available-resources
+curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/outlook/available-groups
 
 # Test resource mapping API
-curl http://localhost:8082/mappings/resources
+curl -H "api_key: change-me-strong-random" http://localhost:8082/mappings/resources
 ```
 
 ### 6. Setup Your Booking System API
@@ -112,6 +112,12 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - Development guide: [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md)
 - Maintenance runbook: [doc/MAINTENANCE.md](doc/MAINTENANCE.md)
 
+### Authentication and Dashboard
+
+- Set an API key via `.env` (development) or `.env.compose` (Docker). The application checks `$_ENV['API_KEY']`.
+- The dashboard prompts for the API key on first load and stores it in your browser. Press Ctrl+K to update it.
+- For curl or scripts, send the header: `api_key: <your key>`.
+
 ### Example: Bridge-Based Deletion Handling
 
 ```bash
@@ -123,7 +129,7 @@ curl -X PUT http://your-booking-system/api/events/123 \
   -d '{"status": "inactive"}'
 
 # 2. Run deletion detection to sync to Outlook
-curl -X POST http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: change-me-strong-random" http://localhost:8082/bridges/sync-deletions
 
 # Example: Handle Outlook deletion
 # When an Outlook event is deleted, webhooks or polling will detect it
