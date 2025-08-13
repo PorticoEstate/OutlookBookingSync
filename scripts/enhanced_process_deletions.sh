@@ -54,11 +54,28 @@ api_call() {
     fi
 }
 
+# Detect whether the bridge exposes multi-tenant routes
+supports_tenant_routes() {
+    # Consider 200/401/403 as route exists (auth may be required)
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$BRIDGE_URL/tenants" \
+        -H "Content-Type: application/json" $API_KEY_HEADER || true)
+    [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]
+}
+
 # Main deletion processing workflow
 main() {
     log "🚀 Starting deletion sync processing (Mode: $TENANT_MODE)"
     
     local errors=0
+
+    # If multi-tenant mode is requested but routes are not available, fallback gracefully
+    if [[ "$TENANT_MODE" == "multi" ]]; then
+        if ! supports_tenant_routes; then
+            log "ℹ️  Tenant routes not available on $BRIDGE_URL. Falling back to single-tenant mode."
+            TENANT_MODE="single"
+        fi
+    fi
     
     if [[ "$TENANT_MODE" == "multi" ]]; then
         if [[ -n "$SPECIFIC_TENANT" ]]; then
@@ -130,7 +147,7 @@ process_all_tenants() {
     local errors=0
     
     # Get list of active tenants
-    local tenants_response=$(curl -s -X GET "$BRIDGE_URL/tenants" -H "Content-Type: application/json")
+    local tenants_response=$(curl -s -X GET "$BRIDGE_URL/tenants" -H "Content-Type: application/json" $API_KEY_HEADER)
     
     if ! echo "$tenants_response" | jq -e '.tenants' > /dev/null 2>&1; then
         log "❌ Failed to get tenant list"

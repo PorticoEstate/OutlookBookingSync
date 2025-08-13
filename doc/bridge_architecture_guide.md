@@ -297,9 +297,9 @@ $bridgeManager->registerBridge('google_calendar', new GoogleCalendarBridge($conf
 
 3. **Configure endpoints**: The same API endpoints work with any bridge type
 
-### **Multi-Tenant Support**
+### **Multi-Tenant Support (Planned)**
 
-The system supports multiple tenants/organizations:
+This feature is planned and not yet implemented. Proposed routes (subject to change):
 
 ```
 POST   /tenants/{tenant}/bridges/sync/{source}/{target}
