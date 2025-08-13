@@ -5,6 +5,47 @@
 
 let refreshInterval;
 
+// Simple API key management for the dashboard
+const API_KEY_STORAGE_KEY = 'dashboard_api_key';
+
+function getApiKey() {
+    try {
+        return localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function setApiKey(key) {
+    try {
+        if (key) {
+            localStorage.setItem(API_KEY_STORAGE_KEY, key);
+        }
+    } catch (_) {
+        // ignore
+    }
+}
+
+function clearApiKey() {
+    try { localStorage.removeItem(API_KEY_STORAGE_KEY); } catch (_) {}
+}
+
+function promptForApiKey(message = 'Enter API key for the API (header: api_key):') {
+    const key = window.prompt(message, '');
+    if (key && key.trim()) {
+        setApiKey(key.trim());
+        setActionStatus('API key saved for this browser (localStorage).', 'success');
+        return key.trim();
+    }
+    setActionStatus('API key not set. Some actions may fail with 401 Unauthorized.', 'warning');
+    return '';
+}
+
+function authHeaders() {
+    const key = getApiKey();
+    return key ? { 'api_key': key } : {};
+}
+
 /**
  * Fetch data from API endpoint with proper error handling
  * @param {string} endpoint - API endpoint to fetch from
@@ -12,15 +53,13 @@ let refreshInterval;
  */
 async function fetchData(endpoint) {
     try {
-        const headers = {};
-        
-        // Only add API key for bridge endpoints, not health endpoints
-        if (endpoint.startsWith('/bridges/') && !endpoint.startsWith('/bridges/health')) {
-            headers['X-API-Key'] = 'your-api-key-here';
-        }
-        
+        const headers = authHeaders();
         const response = await fetch(endpoint, { headers });
         if (!response.ok) {
+            if (response.status === 401) {
+                // Offer to set the API key when unauthorized
+                promptForApiKey('Unauthorized (401). Enter a valid API key:');
+            }
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         return await response.json();
@@ -728,7 +767,7 @@ async function triggerSync(sourceBridge, targetBridge) {
     try {
         const response = await fetch(`/bridges/sync/${sourceBridge}/${targetBridge}`, { 
             method: 'POST',
-            headers: { 'X-API-Key': 'your-api-key-here' }
+            headers: { ...authHeaders() }
         });
         const result = await response.json();
         if (result.success) {
@@ -751,7 +790,7 @@ async function triggerDeletionSync() {
     try {
         const response = await fetch('/bridges/sync-deletions', { 
             method: 'POST',
-            headers: { 'X-API-Key': 'your-api-key-here' }
+            headers: { ...authHeaders() }
         });
         const result = await response.json();
         if (result.success) {
@@ -769,7 +808,7 @@ async function detectCancellations() {
     try {
         const response = await fetch('/bridges/sync-deletions', { 
             method: 'POST',
-            headers: { 'X-API-Key': 'your-api-key-here' }
+            headers: { ...authHeaders() }
         });
         const result = await response.json();
         if (result.success) {
@@ -826,7 +865,7 @@ async function processPendingSyncs() {
     try {
         const response = await fetch('/bridges/process-pending-syncs', { 
             method: 'POST',
-            headers: { 'X-API-Key': 'your-api-key-here' }
+            headers: { ...authHeaders() }
         });
         const result = await response.json();
         if (result.success) {
@@ -863,7 +902,7 @@ async function reEnableFailedEvents() {
     try {
         const response = await fetch('/bridges/re-enable-failed', { 
             method: 'POST',
-            headers: { 'X-API-Key': 'your-api-key-here' }
+            headers: { ...authHeaders() }
         });
         const result = await response.json();
         if (result.success) {
@@ -997,10 +1036,24 @@ function renderSyncActions() {
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
+    // Ensure we have an API key saved; prompt on first load
+    if (!getApiKey()) {
+        promptForApiKey();
+    }
+
     loadDashboard();
-    
+
     // Auto-refresh every 30 seconds
     refreshInterval = setInterval(loadDashboard, 30000);
+
+    // Shortcut to reset API key: Ctrl+K
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+            e.preventDefault();
+            clearApiKey();
+            promptForApiKey('Update API key:');
+        }
+    });
 });
 
 // Cleanup on page unload
