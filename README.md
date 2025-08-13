@@ -65,6 +65,7 @@ cd OutlookBookingSync
 
 ```bash
 cp .env.example .env
+cp .env.compose.example .env.compose
 # Edit .env with your database and Microsoft Graph credentials
 ```
 
@@ -72,8 +73,12 @@ cp .env.example .env
 
 ```bash
 # Create bridge database schema
-./setup_bridge_database.sh
+scripts/setup_bridge_database.sh
 ```
+or just apply the database script directly in your PostgreSQL client.
+
+database/bridge_schema.sql
+
 
 ### 4. Start the Bridge
 
