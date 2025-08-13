@@ -155,7 +155,7 @@ $container->set(\App\Controller\AlertController::class, function () use ($contai
 
 $container->set(\App\Controller\MaintenanceController::class, function () use ($container)
 {
-    return new \App\Controller\MaintenanceController($container->get('db'), $container->get('logger'));
+    return new \App\Controller\MaintenanceController($container->get('db'), $container->get('logger'), $container->get('bridgeManager'));
 });
 
 AppFactory::setContainer($container);
@@ -222,6 +222,8 @@ $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAl
 
 // Maintenance routes
 $app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::class, 'cleanupLogs']);
+// Renew expiring webhook subscriptions
+$app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceController::class, 'renewSubscriptions']);
 
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
 
@@ -281,6 +283,8 @@ $app->post('/bridges/sync/{sourceBridge}/{targetBridge}', [\App\Controller\Bridg
 
 // Handle webhook from any bridge
 $app->post('/bridges/webhook/{bridgeName}', [\App\Controller\BridgeController::class, 'handleWebhook']);
+// GET alias for Microsoft Graph validation (validationToken)
+$app->get('/bridges/webhook/{bridgeName}', [\App\Controller\BridgeController::class, 'handleWebhook']);
 
 // Create webhook subscriptions for a bridge
 $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeController::class, 'createSubscriptions']);
@@ -431,7 +435,8 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'DELETE /alerts/old' => 'Clear old alerts (optional query: ?before=YYYY-MM-DD)'
             ],
             'maintenance' => [
-                'POST /maintenance/cleanup-logs' => 'Cleanup old sync logs (optional query: ?days=int, default 30)'
+                'POST /maintenance/cleanup-logs' => 'Cleanup old sync logs (optional query: ?days=int, default 30)',
+                'POST /maintenance/renew-subscriptions' => 'Renew expiring webhook subscriptions (query: ?bridge=outlook&renew_before_minutes=int&limit=int)'
             ]
         ],
         'documentation' => 'See README_BRIDGE.md for complete API documentation'

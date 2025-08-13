@@ -390,18 +390,27 @@ Response:
 
 #### Handle Bridge Webhook
 
+ 
 ```http
 POST /bridges/webhook/{bridgeName}
 ```
 
 Used by calendar systems to notify of changes. Automatically queues sync operations.
 
+#### Notes
+
+- Microsoft Graph performs a validation handshake with a GET and validationToken. This service also accepts GET on the same path and returns the token per Graph requirements.
+- Security: Webhook authentication uses Microsoft Graph clientState validation (the ApiKeyMiddleware is bypassed for this path).
+- Queueing: Notifications are enqueued (Redis if available; database fallback) to ensure durability.
+
 #### Create Webhook Subscriptions
+ 
 ```http
 POST /bridges/{bridgeName}/subscriptions
 ```
 
 Request body:
+ 
 ```json
 {
   "webhook_url": "https://your-bridge.com/bridges/webhook/outlook",
@@ -409,14 +418,46 @@ Request body:
 }
 ```
 
+#### Register Webhooks
+
+- Endpoint: POST /bridges/{bridgeName}/subscriptions
+- Auth: Send header api_key: YOUR_API_KEY
+- Body (optional):
+  - webhook_url: override the callback; defaults to APP_BASE_URL/bridges/webhook/{bridgeName}
+  - calendar_ids: array of calendar IDs; if omitted, the bridge subscribes all discovered calendars
+
+Example (Outlook):
+
+```bash
+curl -s -X POST "https://bridge.example.com/bridges/outlook/subscriptions" \
+  -H "Content-Type: application/json" \
+  -H "api_key: $API_KEY" \
+  -d '{
+    "webhook_url": "https://bridge.example.com/bridges/webhook/outlook",
+    "calendar_ids": ["room1@company.com", "room2@company.com"]
+  }'
+```
+
+Response includes subscriptions: [{ calendar_id, subscription_id, webhook_url }] and any errors.
+
+#### Renew Webhook Subscriptions
+
+Microsoft Graph subscriptions expire and must be renewed periodically.
+
+- Maintenance endpoint: POST /maintenance/renew-subscriptions?bridge=outlook&renew_before_minutes=1440&limit=100
+- The container runs an hourly cron to renew expiring subscriptions; control the threshold with env RENEW_MINUTES (default 1440 = 24h).
+- Successful renewals update expires_at and last_renewed_at in bridge_subscriptions.
+
 ### Health & Monitoring
 
 #### Check Bridge Health
+ 
 ```http
 GET /bridges/health
 ```
 
 Response:
+ 
 ```json
 {
   "success": true,

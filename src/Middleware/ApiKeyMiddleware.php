@@ -9,6 +9,12 @@ class ApiKeyMiddleware
 {
     public function __invoke(Request $request, Handler $handler): Response
     {
+        // Allow unauthenticated access for webhook validation/notifications
+        $path = $request->getUri()->getPath();
+        if (preg_match('#^/bridges/webhook/#', $path) || preg_match('#^/webhook/outlook-notifications$#', $path)) {
+            return $handler->handle($request);
+        }
+
         $apiKey = $request->getHeaderLine('api_key');
         $validKey = $_ENV['API_KEY'] ?? '';
 

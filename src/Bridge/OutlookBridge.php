@@ -410,9 +410,20 @@ class OutlookBridge extends AbstractCalendarBridge
             $subscription->setClientState('outlook-bridge-' . uniqid());
             
             $createdSubscription = $this->graphServiceClient->subscriptions()->post($subscription)->wait();
-            
-            // Store subscription info in database
-            $this->storeSubscription($createdSubscription->getId(), $calendarId, $webhookUrl, $createdSubscription->getAdditionalData());
+
+            // Determine expiration from SDK model
+            $expirationDt = method_exists($createdSubscription, 'getExpirationDateTime') && $createdSubscription->getExpirationDateTime()
+                ? $createdSubscription->getExpirationDateTime()->format('Y-m-d H:i:s')
+                : (new \DateTime('+1 day'))->format('Y-m-d H:i:s');
+
+            // Store subscription info in database (with explicit expiration)
+            $this->storeSubscription(
+                $createdSubscription->getId(),
+                $calendarId,
+                $webhookUrl,
+                $createdSubscription->getAdditionalData(),
+                $expirationDt
+            );
             
             return $createdSubscription->getId();
         } catch (\Exception $e) {
@@ -433,6 +444,75 @@ class OutlookBridge extends AbstractCalendarBridge
             return true;
         } catch (\Exception $e) {
             throw new \Exception("Failed to delete subscription: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Renew an existing Microsoft Graph webhook subscription
+     * Extends expiration window and persists the new expiration in DB
+     *
+     * @param string $subscriptionId
+     * @param string $extendInterval DateInterval spec string (default P1D = +1 day)
+     * @return array{success:bool, subscription_id:string, new_expires_at?:string, error?:string}
+     */
+    public function renewSubscription($subscriptionId, $extendInterval = 'P1D'): array
+    {
+        $this->logOperation('renew_subscription', ['subscription_id' => $subscriptionId]);
+
+        try {
+            $nowUtc = new \DateTime('now', new \DateTimeZone('UTC'));
+            $newExpiration = (clone $nowUtc)->add(new \DateInterval($extendInterval));
+
+            // Prepare subscription update
+            $update = new \Microsoft\Graph\Generated\Models\Subscription();
+            $update->setExpirationDateTime($newExpiration);
+
+            // Send PATCH to extend the subscription
+            $updated = $this->graphServiceClient
+                ->subscriptions()
+                ->bySubscriptionId($subscriptionId)
+                ->patch($update)
+                ->wait();
+
+            // Prefer expiration returned by Graph if present
+            $graphExpiration = null;
+            if ($updated && method_exists($updated, 'getExpirationDateTime')) {
+                $graphExpiration = $updated->getExpirationDateTime();
+            }
+            $effectiveExpiration = $graphExpiration instanceof \DateTime ? $graphExpiration : $newExpiration;
+
+            // Persist new expiration
+            $stmt = $this->db->prepare("UPDATE bridge_subscriptions 
+                SET expires_at = :expires_at, last_renewed_at = CURRENT_TIMESTAMP, is_active = TRUE 
+                WHERE subscription_id = :id AND bridge_type = :bridge");
+            $stmt->execute([
+                ':expires_at' => $effectiveExpiration->format('Y-m-d H:i:s'),
+                ':id' => $subscriptionId,
+                ':bridge' => $this->getBridgeType()
+            ]);
+
+            $this->logger->info('Subscription renewed', [
+                'bridge' => $this->getBridgeType(),
+                'subscription_id' => $subscriptionId,
+                'new_expires_at' => $effectiveExpiration->format(DATE_ATOM)
+            ]);
+
+            return [
+                'success' => true,
+                'subscription_id' => $subscriptionId,
+                'new_expires_at' => $effectiveExpiration->format(DATE_ATOM)
+            ];
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to renew subscription', [
+                'bridge' => $this->getBridgeType(),
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage()
+            ]);
+            return [
+                'success' => false,
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage()
+            ];
         }
     }
     
@@ -564,7 +644,7 @@ class OutlookBridge extends AbstractCalendarBridge
     /**
      * Store subscription in database
      */
-    private function storeSubscription($subscriptionId, $calendarId, $webhookUrl, $subscriptionData)
+    private function storeSubscription($subscriptionId, $calendarId, $webhookUrl, $subscriptionData, $expiresAt = null)
     {
         $sql = "
             INSERT INTO bridge_subscriptions (
@@ -581,13 +661,27 @@ class OutlookBridge extends AbstractCalendarBridge
         ";
         
         $stmt = $this->db->prepare($sql);
+        // Compute expiration value
+        $expiresValue = $expiresAt;
+        if ($expiresValue === null) {
+            if (is_array($subscriptionData) && isset($subscriptionData['expirationDateTime'])) {
+                $expiresValue = $subscriptionData['expirationDateTime'];
+            } elseif (is_object($subscriptionData) && method_exists($subscriptionData, 'getExpirationDateTime')) {
+                $dt = $subscriptionData->getExpirationDateTime();
+                $expiresValue = $dt instanceof \DateTime ? $dt->format('Y-m-d H:i:s') : null;
+            }
+        }
+        if ($expiresValue === null) {
+            $expiresValue = (new \DateTime('+1 day'))->format('Y-m-d H:i:s');
+        }
+
         $stmt->execute([
             ':bridge_type' => $this->getBridgeType(),
             ':subscription_id' => $subscriptionId,
             ':calendar_id' => $calendarId,
             ':webhook_url' => $webhookUrl,
             ':subscription_data' => json_encode($subscriptionData),
-            ':expires_at' => $subscriptionData['expirationDateTime']
+            ':expires_at' => $expiresValue
         ]);
     }
     

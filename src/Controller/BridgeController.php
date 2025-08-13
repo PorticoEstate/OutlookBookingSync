@@ -309,6 +309,20 @@ class BridgeController
                 $response->getBody()->write($queryParams['validationToken']);
                 return $response->withHeader('Content-Type', 'text/plain');
             }
+
+            // Validate clientState for Outlook notifications if configured
+            if ($bridgeName === 'outlook') {
+                $expectedClientState = $_ENV['GRAPH_CLIENT_STATE'] ?? null;
+                $clientState = $body['value'][0]['clientState'] ?? null;
+                if ($expectedClientState && $clientState && !hash_equals($expectedClientState, $clientState)) {
+                    $this->logger->warning('Webhook clientState mismatch', [
+                        'expected' => '***',
+                        'got' => $clientState
+                    ]);
+                    $response->getBody()->write(json_encode(['success' => false, 'error' => 'Invalid clientState']));
+                    return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+                }
+            }
             
             $this->logger->info('Webhook received', [
                 'bridge' => $bridgeName,
@@ -597,12 +611,24 @@ class BridgeController
      */
     private function queueToDatabase($sourceBridge, $targetBridge, $webhookData)
     {
-        // This would require database access - for now just log
-        $this->logger->info('Webhook queued for processing', [
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge,
-            'webhook_data' => $webhookData
-        ]);
+        try {
+            $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority) 
+                    VALUES ('bridge_sync', :source_bridge, :target_bridge, :payload, 1)";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':source_bridge' => $sourceBridge,
+                ':target_bridge' => $targetBridge,
+                ':payload' => json_encode($webhookData)
+            ]);
+            $this->logger->info('Webhook queued to DB', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error('DB queue insert failed', [
+                'error' => $e->getMessage()
+            ]);
+        }
     }
     
     /**
@@ -611,7 +637,7 @@ class BridgeController
     private function getDefaultWebhookUrl($bridgeName)
     {
         $baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
-        return "{$baseUrl}/webhook/bridge/{$bridgeName}";
+    return "{$baseUrl}/bridges/webhook/{$bridgeName}";
     }
     
     /**

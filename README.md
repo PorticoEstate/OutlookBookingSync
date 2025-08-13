@@ -283,6 +283,8 @@ curl -X DELETE "http://localhost:8082/mappings/resources/by-key/booking_system/r
 - `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID`, `OUTLOOK_GROUP_ID` - Microsoft Graph API
 - `APP_BASE_URL` - Base URL for this service (used in links/webhooks)
 - `API_KEY` - API key for endpoint security (send as header `api_key`)
+- `CLEANUP_DAYS` - Days to keep sync logs (used by daily cleanup cron)
+- `RENEW_MINUTES` - Renewal threshold in minutes for webhook subscriptions (hourly cron)
 
 ### Bridge Configuration
 
@@ -353,6 +355,11 @@ The bridges will be automatically available once the service starts.
 - `GET /alerts/stats` - Alert statistics
 - `POST /alerts/{id}/acknowledge` - Acknowledge an alert
 - `DELETE /alerts/old` - Clear old alerts
+
+### Maintenance
+
+- `POST /maintenance/cleanup-logs` - Cleanup old sync logs (query: `?days=int`, default 30)
+- `POST /maintenance/renew-subscriptions` - Renew expiring webhook subscriptions (query: `?bridge=outlook&renew_before_minutes=int&limit=int`)
 
 ### 📖 Documentation
 

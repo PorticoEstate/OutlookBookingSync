@@ -21,6 +21,8 @@ chmod 666 /var/log/bridge-cron.log
 echo "API_KEY=${API_KEY}" > /tmp/crontab
 CLEANUP_DAYS=${CLEANUP_DAYS:-30}
 echo "CLEANUP_DAYS=${CLEANUP_DAYS}" >> /tmp/crontab
+RENEW_MINUTES=${RENEW_MINUTES:-1440}
+echo "RENEW_MINUTES=${RENEW_MINUTES}" >> /tmp/crontab
 
 cat >> /tmp/crontab << 'EOF'
 # Generic Calendar Bridge Cron Jobs - Production Ready with sync_method tracking
@@ -58,6 +60,8 @@ cat >> /tmp/crontab << 'EOF'
 
 # Cleanup old sync logs daily at 03:00 (keeps ${CLEANUP_DAYS} days)
 0 3 * * * curl -s -X POST "http://localhost/maintenance/cleanup-logs?days=${CLEANUP_DAYS}" -H "api_key: $API_KEY" | sed 's/^/[cleanup] /' >> /var/log/bridge-cron.log 2>&1
+# Renew expiring webhook subscriptions hourly (renew anything expiring in next ${RENEW_MINUTES} minutes)
+0 * * * * curl -s -X POST "http://localhost/maintenance/renew-subscriptions?bridge=outlook&renew_before_minutes=${RENEW_MINUTES}&limit=100" -H "api_key: $API_KEY" | sed 's/^/[renew] /' >> /var/log/bridge-cron.log 2>&1
 # 5. RESOURCE MAPPING MAINTENANCE
 # Validate resource mappings weekly on Monday at 1 AM
 0 1 * * 1 curl -s -X GET "http://localhost/mappings/resources" -H "api_key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
