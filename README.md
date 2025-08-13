@@ -118,6 +118,45 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - The dashboard prompts for the API key on first load and stores it in your browser. Press Ctrl+K to update it.
 - For curl or scripts, send the header: `api_key: <your key>`.
 
+## 🛡️ Production readiness
+
+Use this checklist before exposing the service in production.
+
+Security
+- Set a strong, unique `API_KEY` (store in `.env.compose` or a secret manager). Rotate periodically.
+- Disable legacy endpoints: set `ENABLE_LEGACY_WEBHOOKS=false`.
+- Terminate TLS at a reverse proxy (nginx/Traefik) and prefer private network exposure.
+- Add proxy protections: rate limiting, request size limits, and optional IP allowlist for admin endpoints and `/dashboard`.
+
+Operations and resilience
+- Run with Docker restart policy and a container healthcheck.
+- Ensure PHP runs with production settings (display_errors off; error logging on).
+- Verify cron schedules do not overlap and timezone is correct; keep `API_KEY` available to cron (entrypoint already wires the header).
+
+Observability
+- Centralize logs (Apache/PHP/app) and alert on `/health/system` degradation.
+- Track cron success/failure and set up basic metrics dashboards.
+
+Data and database
+- Apply migrations on deploy; set up automated backups and retention.
+- Validate DB performance and connection limits under expected load.
+
+CI/CD quality gates
+- Add a minimal pipeline: `php -l`, static analysis (PHPStan), and a few unit/integration tests.
+
+Optional docker-compose hardening
+
+```yaml
+services:
+  portico_outlook:
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
 ### Example: Bridge-Based Deletion Handling
 
 ```bash
