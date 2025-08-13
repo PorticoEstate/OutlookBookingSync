@@ -10,7 +10,7 @@ Short, practical steps to develop and run the Calendar Bridge locally.
   - DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
   - API_KEY, APP_BASE_URL
   - OUTLOOK_CLIENT_ID/SECRET/TENANT_ID (if testing Outlook)
-- Initialize DB: `./setup_bridge_database.sh` (or apply `database/bridge_schema.sql`)
+- Initialize DB: `scripts/setup_bridge_database.sh` (or apply `database/bridge_schema.sql`)
 
 ## 2) Run
 
@@ -32,9 +32,7 @@ See the routes table in `README_BRIDGE.md` for the full list.
 
 ## 4) Scripts
 
-- `./test_bridge.sh` – basic API smoke
-- `./test_sync_method.sh` – sync method checks
-- `./test_sync_status.sh` – status/health checks
+- `./scripts/setup_bridge_database.sh` – Initialize the database schema
 - `./scripts/enhanced_process_deletions.sh` – batch deletion handling
 
 ## 5) Add a New Route
