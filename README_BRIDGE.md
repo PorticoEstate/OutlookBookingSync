@@ -59,7 +59,6 @@ OutlookBookingSync/
 │   └── bridge_schema.sql                   # Bridge database schema
 ├── scripts/
 │   ├── setup_bridge_database.sh           # Database setup
-│   ├── test_bridge.sh                     # Testing script
 │   └── enhanced_process_deletions.sh       # Automated deletion processing
 └── docker-compose.yml                      # Container orchestration
 ```
