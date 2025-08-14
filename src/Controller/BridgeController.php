@@ -57,7 +57,8 @@ class BridgeController
         $bridgeName = $args['bridgeName'];
         
         try {
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             $calendars = $bridge->getCalendars();
             
             $response->getBody()->write(json_encode([
@@ -137,25 +138,29 @@ class BridgeController
             ]);
 
             // Get all active mappings between these bridges (handle bidirectional)
-            $stmt = $this->db->prepare("
-                SELECT 
-                    source_calendar_id,
-                    target_calendar_id,
-                    sync_direction, 
-                    id,
-                    bridge_from,
-                    bridge_to
-                FROM bridge_resource_mappings 
-                WHERE (
-                    (bridge_from = ? AND bridge_to = ?) OR 
-                    (bridge_from = ? AND bridge_to = ? AND sync_direction IN ('bidirectional', 'target_to_source'))
-                )
-                AND is_active = TRUE AND sync_enabled = TRUE
-            ");
-            $stmt->execute([
-                $sourceBridge, $targetBridge, // Forward direction
-                $targetBridge, $sourceBridge  // Reverse direction (bidirectional)
-            ]);
+                $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+                $tenantClause = $tenantId !== '' ? " AND (tenant_id = :tenant_id OR tenant_id IS NULL)" : "";
+                $sql = "SELECT 
+                        source_calendar_id,
+                        target_calendar_id,
+                        sync_direction, 
+                        id,
+                        bridge_from,
+                        bridge_to
+                    FROM bridge_resource_mappings 
+                    WHERE (
+                        (bridge_from = :bf AND bridge_to = :bt) OR 
+                        (bridge_from = :bt AND bridge_to = :bf AND sync_direction IN ('bidirectional', 'target_to_source'))
+                    )
+                    AND is_active = TRUE AND sync_enabled = TRUE" . $tenantClause;
+
+                $stmt = $this->db->prepare($sql);
+                $params = [
+                    ':bf' => $sourceBridge,
+                    ':bt' => $targetBridge,
+                ];
+                if ($tenantClause) { $params[':tenant_id'] = $tenantId; }
+                $stmt->execute($params);
             $mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (empty($mappings)) {
@@ -200,8 +205,10 @@ class BridgeController
                     ]);
 
                     if ($options['dry_run']) {
-                        $results = $this->performDryRun($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                        $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+                        $results = $this->performDryRun($tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
                     } else {
+                        $options['tenant_id'] = (string)($request->getAttribute('tenant_id') ?? null);
                         $results = $this->bridgeManager->syncBetweenBridges(
                             $sourceBridge,
                             $targetBridge,
@@ -338,7 +345,8 @@ class BridgeController
             $targetBridge = $this->determineTargetBridge($bridgeName);
             
             // Queue the sync operation using Redis or database queue
-            $this->queueSyncOperation($bridgeName, $targetBridge, $body);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+            $this->queueSyncOperation($bridgeName, $targetBridge, $body, $tenantId);
             
             $response->getBody()->write(json_encode([
                 'success' => true,
@@ -401,18 +409,21 @@ class BridgeController
             'timestamp' => date('c')
         ];
 
-        try {
-            if (extension_loaded('redis') && class_exists('Redis')) {
-                $redis = new \Redis();
+    try {
+        if (extension_loaded('redis') && class_exists('\\Redis')) {
+        $redisClass = '\\Redis';
+        $redis = new $redisClass();
                 $redis->connect('127.0.0.1', 6379);
                 $redis->lpush('bridge_deletion_checks', json_encode($queueData));
                 $redis->close();
             } else {
                 // Fallback to database queue
-                $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, payload, priority) 
-                        VALUES ('deletion_check', 'outlook', :payload, 1)";
+        $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, payload, priority, tenant_id) 
+            VALUES ('deletion_check', 'outlook', :payload, 1, :tenant_id)";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([':payload' => json_encode($queueData)]);
+        $tenantId = null;
+        if (isset($_SERVER['HTTP_X_TENANT_ID'])) { $tenantId = (string)$_SERVER['HTTP_X_TENANT_ID']; }
+        $stmt->execute([':payload' => json_encode($queueData), ':tenant_id' => $tenantId]);
             }
             
             $this->logger->info('Deletion check queued', $queueData);
@@ -434,7 +445,8 @@ class BridgeController
         $body = json_decode($request->getBody()->getContents(), true);
         
         try {
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             $webhookUrl = $body['webhook_url'] ?? $this->getDefaultWebhookUrl($bridgeName);
             $calendarIds = $body['calendar_ids'] ?? [];
             
@@ -543,9 +555,9 @@ class BridgeController
     /**
      * Perform dry run sync to see what would happen
      */
-    private function performDryRun($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
+    private function performDryRun(string $tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
     {
-        $source = $this->bridgeManager->getBridge($sourceBridge);
+        $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
         $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
         
         return [
@@ -575,12 +587,13 @@ class BridgeController
     /**
      * Queue sync operation for async processing
      */
-    private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData)
+    private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         // Add to Redis queue if available, otherwise use database queue
         try {
-            if (extension_loaded('redis') && class_exists('Redis')) {
-                $redis = new \Redis();
+            if (extension_loaded('redis') && class_exists('\\Redis')) {
+                $redisClass = '\\Redis';
+                $redis = new $redisClass();
                 $redis->connect('localhost', 6379);
                 
                 $queueData = [
@@ -595,30 +608,31 @@ class BridgeController
                 $redis->zadd('bridge_sync_queue', time(), json_encode($queueData));
             } else {
                 // Fallback to database queue
-                $this->queueToDatabase($sourceBridge, $targetBridge, $webhookData);
+                $this->queueToDatabase($sourceBridge, $targetBridge, $webhookData, $tenantId);
             }
             
         } catch (\Exception $e) {
             $this->logger->warning('Redis not available, using database queue fallback', [
                 'error' => $e->getMessage()
             ]);
-            $this->queueToDatabase($sourceBridge, $targetBridge, $webhookData);
+            $this->queueToDatabase($sourceBridge, $targetBridge, $webhookData, $tenantId);
         }
     }
     
     /**
      * Fallback queue to database
      */
-    private function queueToDatabase($sourceBridge, $targetBridge, $webhookData)
+    private function queueToDatabase($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         try {
-            $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority) 
-                    VALUES ('bridge_sync', :source_bridge, :target_bridge, :payload, 1)";
+            $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority, tenant_id) 
+                    VALUES ('bridge_sync', :source_bridge, :target_bridge, :payload, 1, :tenant_id)";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 ':source_bridge' => $sourceBridge,
                 ':target_bridge' => $targetBridge,
-                ':payload' => json_encode($webhookData)
+                ':payload' => json_encode($webhookData),
+                ':tenant_id' => $tenantId
             ]);
             $this->logger->info('Webhook queued to DB', [
                 'source_bridge' => $sourceBridge,
@@ -717,7 +731,8 @@ class BridgeController
     {
         try {
             $bridgeName = $args['bridgeName'];
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
 
             $queryParams = $request->getQueryParams();
             $nameFilter = $queryParams['query'] ?? null;
@@ -794,7 +809,8 @@ class BridgeController
     {
         try {
             $bridgeName = $args['bridgeName'];
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             
             $queryParams = $request->getQueryParams();
             $nameFilter = $queryParams['query'] ?? null;
@@ -872,7 +888,8 @@ class BridgeController
         try {
             $bridgeName = $args['bridgeName'];
             $resourceId = $args['resourceId'];
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             
             // Get query parameters
             $queryParams = $request->getQueryParams();
@@ -958,7 +975,8 @@ class BridgeController
             $bridgeName = $args['bridgeName'];
             
             // Get bridge instance
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             
             // Get session diagnostics if the bridge supports it
             $diagnostics = [];
@@ -1078,7 +1096,8 @@ class BridgeController
             
             if ($bridgeName) {
                 // Get stats for specific bridge
-                $bridge = $this->bridgeManager->getBridge($bridgeName);
+                $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+                $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
                 $stats = $bridge->getSyncStats();
                 
                 $response->getBody()->write(json_encode([
@@ -1123,7 +1142,8 @@ class BridgeController
             
             if ($bridgeName) {
                 // Get cancelled events for specific bridge
-                $bridge = $this->bridgeManager->getBridge($bridgeName);
+                $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+                $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
                 $cancelledEvents = $bridge->getCancelledEvents($bridgeName, 100);
                 
                 $response->getBody()->write(json_encode([
@@ -1166,7 +1186,8 @@ class BridgeController
     {
         try {
             $bridgeName = $args['bridgeName'];
-            $bridge = $this->bridgeManager->getBridge($bridgeName);
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
             
             $pendingEvents = $bridge->getEventsToSync($bridgeName, 3);
             

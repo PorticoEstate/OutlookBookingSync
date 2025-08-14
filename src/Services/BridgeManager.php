@@ -13,6 +13,8 @@ class BridgeManager
 	private $logger;
 	private $db;
 	private $syncLog;
+	/** @var array<string, array<string, AbstractCalendarBridge>> */
+	private $tenantBridgeCache = [];
 
 	public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog)
 	{
@@ -62,6 +64,52 @@ class BridgeManager
 		}
 
 		return $this->bridges[$name]['instance'];
+	}
+
+	/**
+	 * Get a bridge instance configured for a specific tenant.
+	 * Falls back to globally registered config when tenant-specific config is absent.
+	 */
+	public function getBridgeForTenant(string $tenantId, string $name): AbstractCalendarBridge
+	{
+		// Use cached per-tenant instance if available
+		if (isset($this->tenantBridgeCache[$tenantId][$name])) {
+			return $this->tenantBridgeCache[$tenantId][$name];
+		}
+
+		// Resolve base registration
+		if (!isset($this->bridges[$name])) {
+			throw new \Exception("Bridge '{$name}' not found");
+		}
+
+		$class = $this->bridges[$name]['class'];
+		$baseConfig = $this->bridges[$name]['config'] ?? [];
+
+		// Attempt to load tenant-specific override from DB bridge_configs
+	$tenantConfig = $this->loadTenantBridgeConfig($tenantId, $name);
+	$config = $tenantConfig ? array_replace_recursive($baseConfig, $tenantConfig) : $baseConfig;
+	// Inject context tenant id without colliding with bridge-specific config keys
+	$config['context_tenant_id'] = $tenantId;
+
+		$instance = new $class($config, $this->logger, $this->db);
+		$this->tenantBridgeCache[$tenantId][$name] = $instance;
+		return $instance;
+	}
+
+	private function loadTenantBridgeConfig(string $tenantId, string $bridgeName): ?array
+	{
+		try {
+			$stmt = $this->db->prepare("SELECT config_data FROM bridge_configs WHERE bridge_name = :name AND tenant_id = :tid LIMIT 1");
+			$stmt->execute(['name' => $bridgeName, 'tid' => $tenantId]);
+			$row = $stmt->fetch(PDO::FETCH_ASSOC);
+			if ($row && isset($row['config_data'])) {
+				$data = json_decode($row['config_data'], true);
+				return is_array($data) ? $data : null;
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('Failed to load tenant bridge config', ['tenant_id' => $tenantId, 'bridge' => $bridgeName, 'error' => $e->getMessage()]);
+		}
+		return null;
 	}
 
 	/**
@@ -124,8 +172,14 @@ class BridgeManager
 		$options = []
 	): array
 	{
-		$source = $this->getBridge($sourceBridge);
-		$target = $this->getBridge($targetBridge);
+		$tenantId = $options['tenant_id'] ?? null;
+		if ($tenantId !== null) {
+			$source = $this->getBridgeForTenant((string)$tenantId, $sourceBridge);
+			$target = $this->getBridgeForTenant((string)$tenantId, $targetBridge);
+		} else {
+			$source = $this->getBridge($sourceBridge);
+			$target = $this->getBridge($targetBridge);
+		}
 
 		$this->logger->info('Starting bridge sync', [
 			'source_bridge' => $sourceBridge,
@@ -264,7 +318,10 @@ class BridgeManager
 					'deleted' => $results['deleted'] ?? 0,
 					'skipped' => $results['skipped'] ?? 0,
 					'failed_events' => count($results['errors'] ?? [])
-				]
+				],
+				null,
+				null,
+				$options['tenant_id'] ?? null
 			);
 		}
 		catch (\Throwable $e)
@@ -643,37 +700,30 @@ class BridgeManager
 	 */
 	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId): array
 	{
-		$sql = "
-            SELECT *
-            FROM bridge_mappings
-            WHERE
-            (
-                source_bridge = :source_bridge
-                AND target_bridge = :target_bridge
-                AND source_calendar_id = :source_calendar_id
-                AND target_calendar_id = :target_calendar_id
-            )
-            OR
-            (
-                source_bridge = :target_bridge
-                AND target_bridge = :source_bridge
-                AND source_calendar_id = :target_calendar_id
-                AND target_calendar_id = :source_calendar_id
-            )
-            ORDER BY created_at DESC
-        ";
+		// Build a UNION query to get mappings in either orientation for the pair,
+		// then normalize so that source_* refers to the provided source/target.
+		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+
+		$baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
+		$reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
+		$tenantPredicate = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
+
+		$sql = "SELECT * FROM bridge_mappings WHERE $baseWhere$tenantPredicate
+				UNION ALL
+				SELECT * FROM bridge_mappings WHERE $reverseWhere$tenantPredicate
+				ORDER BY created_at DESC";
 
 		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
+		$params = [
 			':source_bridge'      => $sourceBridge,
 			':target_bridge'      => $targetBridge,
 			':source_calendar_id' => $sourceCalendarId,
 			':target_calendar_id' => $targetCalendarId,
-		]);
-
+		];
+		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+		$stmt->execute($params);
 		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-		// Normalize direction so source_* always matches current source
 		$normalized = [];
 		foreach ($rows as $row)
 		{
@@ -988,7 +1038,7 @@ class BridgeManager
 			$bridge = $this->getBridge($bridgeName);
 			if (method_exists($bridge, 'processPendingSyncs'))
 			{
-				$results[$bridgeName] = $bridge->processPendingSyncs($batchSize);
+				$results[$bridgeName] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
 			}
 		}
 		else
@@ -1001,7 +1051,7 @@ class BridgeManager
 					$bridge = $this->getBridge($name);
 					if (method_exists($bridge, 'processPendingSyncs'))
 					{
-						$results[$name] = $bridge->processPendingSyncs($batchSize);
+						$results[$name] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
 					}
 				}
 				catch (\Exception $e)

@@ -38,9 +38,10 @@ class BridgeBookingController
             $limit = isset($queryParams['limit']) ? (int)$queryParams['limit'] : 50;
             $sourceBridge = $queryParams['source_bridge'] ?? 'outlook';
             $targetBridge = $queryParams['target_bridge'] ?? 'booking_system';
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
             
             // Get pending sync operations from bridge queue
-            $pendingOps = $this->getPendingBridgeOperations($limit);
+            $pendingOps = $this->getPendingBridgeOperations($limit, null, $tenantId !== '' ? $tenantId : null);
             $processedCount = 0;
             $results = [];
             
@@ -92,7 +93,7 @@ class BridgeBookingController
     /**
      * Get pending bridge operations from queue
      */
-    private function getPendingBridgeOperations($limit = 50, $bridgeType = null): array
+    private function getPendingBridgeOperations($limit = 50, $bridgeType = null, ?string $tenantId = null): array
     {
         $sql = "
             SELECT id, queue_type, source_bridge, target_bridge, priority, 
@@ -107,9 +108,13 @@ class BridgeBookingController
             $sql .= " AND (source_bridge = :bridge_type OR target_bridge = :bridge_type)";
             $params['bridge_type'] = $bridgeType;
         }
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params['tenant_id'] = (string)$tenantId;
+        }
         
         $sql .= " ORDER BY priority ASC, scheduled_at ASC LIMIT :limit";
-        $params['limit'] = $limit;
+        $params['limit'] = (int)$limit;
         
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
@@ -159,7 +164,7 @@ class BridgeBookingController
             $targetCalendarId, 
             $startDate, 
             $endDate,
-            ['handle_deletions' => true]
+            ['handle_deletions' => true, 'tenant_id' => $payload['tenant_id'] ?? null]
         );
         
         return [
@@ -201,16 +206,17 @@ class BridgeBookingController
     {
         $eventId = $payload['event_id'] ?? '';
         $calendarId = $payload['calendar_id'] ?? '';
+        $tenantId = $payload['tenant_id'] ?? null;
         
         // Find mapping and delete from target bridge
-        $mapping = $this->findBridgeMapping($eventId, $calendarId);
+        $mapping = $this->findBridgeMapping($eventId, $calendarId, $tenantId);
         
         if ($mapping) {
-            $targetBridge = $this->bridgeManager->getBridge($mapping['target_bridge']);
+            $targetBridge = $tenantId ? $this->bridgeManager->getBridgeForTenant((string)$tenantId, $mapping['target_bridge']) : $this->bridgeManager->getBridge($mapping['target_bridge']);
             $targetBridge->deleteEvent($mapping['target_calendar_id'], $mapping['target_event_id']);
             
             // Remove mapping
-            $this->deleteBridgeMapping($mapping['id']);
+            $this->deleteBridgeMapping($mapping['id'], $tenantId);
         }
         
         return [
@@ -264,7 +270,7 @@ class BridgeBookingController
     /**
      * Find bridge mapping by event details
      */
-    private function findBridgeMapping($eventId, $calendarId): ?array
+    private function findBridgeMapping($eventId, $calendarId, ?string $tenantId = null): ?array
     {
         $sql = "
             SELECT * FROM bridge_mappings 
@@ -272,9 +278,11 @@ class BridgeBookingController
                OR (target_event_id = :event_id AND target_calendar_id = :calendar_id)
             LIMIT 1
         ";
-        
+        if ($tenantId !== null) { $sql = str_replace('LIMIT 1', ' AND (tenant_id IS NOT DISTINCT FROM :tenant_id) LIMIT 1', $sql); }
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(['event_id' => $eventId, 'calendar_id' => $calendarId]);
+        $params = ['event_id' => $eventId, 'calendar_id' => $calendarId];
+        if ($tenantId !== null) { $params['tenant_id'] = (string)$tenantId; }
+        $stmt->execute($params);
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result ?: null;
@@ -283,10 +291,12 @@ class BridgeBookingController
     /**
      * Delete bridge mapping
      */
-    private function deleteBridgeMapping($mappingId)
+    private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
     {
-        $sql = "DELETE FROM bridge_mappings WHERE id = :id";
+        $sql = "DELETE FROM bridge_mappings WHERE id = :id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(['id' => $mappingId]);
+        $params = ['id' => $mappingId];
+        if ($tenantId !== null) { $params['tenant_id'] = (string)$tenantId; }
+        $stmt->execute($params);
     }
 }

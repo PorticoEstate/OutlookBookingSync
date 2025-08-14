@@ -24,7 +24,8 @@ class SyncLogService
 		int $eventCount = 0,
 		array $details = [],
 		?int $durationMs = null,
-		?string $errorMessage = null
+		?string $errorMessage = null,
+		?string $tenantId = null
 	): void
 	{
 		if (!$this->db)
@@ -33,8 +34,8 @@ class SyncLogService
 		}
 
 		$sql = "INSERT INTO bridge_sync_logs 
-                (source_bridge, target_bridge, operation, status, event_count, details, error_message, duration_ms) 
-                VALUES (:source_bridge, :target_bridge, :operation, :status, :event_count, :details, :error_message, :duration_ms)";
+		(source_bridge, target_bridge, operation, status, event_count, details, error_message, duration_ms, tenant_id) 
+		VALUES (:source_bridge, :target_bridge, :operation, :status, :event_count, :details, :error_message, :duration_ms, :tenant_id)";
 
 		$stmt = $this->db->prepare($sql);
 		$stmt->execute([
@@ -46,6 +47,7 @@ class SyncLogService
 			':details' => empty($details) ? null : json_encode($details),
 			':error_message' => $errorMessage,
 			':duration_ms' => $durationMs,
+			':tenant_id' => $tenantId,
 		]);
 	}
 }

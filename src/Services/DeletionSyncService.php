@@ -24,7 +24,7 @@ class DeletionSyncService
 	/**
 	 * Process deletion check queue
 	 */
-	public function processDeletionChecks(): array
+	public function processDeletionChecks(?string $tenantId = null): array
 	{
 		$results = [
 			'processed' => 0,
@@ -35,7 +35,7 @@ class DeletionSyncService
 		try
 		{
 			// Get pending deletion checks from queue
-			$checks = $this->getDeletionChecks();
+			$checks = $this->getDeletionChecks($tenantId);
 
 			foreach ($checks as $check)
 			{
@@ -43,7 +43,7 @@ class DeletionSyncService
 				{
 					$checkData = json_decode($check['payload'], true);
 
-					if ($this->processOutlookDeletionCheck($checkData))
+					if ($this->processOutlookDeletionCheck($checkData, $tenantId))
 					{
 						$results['deletions_found']++;
 					}
@@ -79,7 +79,7 @@ class DeletionSyncService
 	/**
 	 * Process a single Outlook deletion check
 	 */
-	private function processOutlookDeletionCheck($checkData): bool
+	private function processOutlookDeletionCheck($checkData, ?string $tenantId = null): bool
 	{
 		$calendarId = $checkData['calendar_id'];
 		$eventId = $checkData['event_id'];
@@ -90,7 +90,7 @@ class DeletionSyncService
 		]);
 
 		// Try to fetch the event from Outlook to see if it still exists
-		$outlookBridge = $this->bridgeManager->getBridge('outlook');
+	$outlookBridge = $tenantId ? $this->bridgeManager->getBridgeForTenant($tenantId, 'outlook') : $this->bridgeManager->getBridge('outlook');
 
 		try
 		{
@@ -100,7 +100,7 @@ class DeletionSyncService
 			if ($event === null)
 			{
 				// Event doesn't exist in Outlook anymore - it was deleted
-				$this->handleDeletedOutlookEvent($calendarId, $eventId);
+				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
 				return true;
 			}
 
@@ -116,7 +116,7 @@ class DeletionSyncService
 			)
 			{
 
-				$this->handleDeletedOutlookEvent($calendarId, $eventId);
+				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
 				return true;
 			}
 
@@ -155,7 +155,7 @@ class DeletionSyncService
 	/**
 	 * Handle a deleted Outlook event by syncing the deletion to booking system
 	 */
-	private function handleDeletedOutlookEvent($calendarId, $eventId)
+	private function handleDeletedOutlookEvent($calendarId, $eventId, ?string $tenantId = null)
 	{
 		$this->logger->info('Outlook event deleted, syncing to booking system', [
 			'calendar_id' => $calendarId,
@@ -163,14 +163,14 @@ class DeletionSyncService
 		]);
 
 		// Find bridge mappings for this Outlook event
-		$mappings = $this->findMappingsForOutlookEvent($calendarId, $eventId);
+	$mappings = $this->findMappingsForOutlookEvent($calendarId, $eventId, $tenantId);
 
 		foreach ($mappings as $mapping)
 		{
 			try
 			{
 				// Get the target bridge (booking system)
-				$targetBridge = $this->bridgeManager->getBridge($mapping['target_bridge']);
+				$targetBridge = $tenantId ? $this->bridgeManager->getBridgeForTenant($tenantId, $mapping['target_bridge']) : $this->bridgeManager->getBridge($mapping['target_bridge']);
 
 				// Delete the event in the booking system
 				$success = $targetBridge->deleteEvent(
@@ -181,7 +181,7 @@ class DeletionSyncService
 				if ($success)
 				{
 					// Remove the bridge mapping since both events are now deleted
-					$this->deleteBridgeMapping($mapping['id']);
+					$this->deleteBridgeMapping($mapping['id'], $tenantId);
 
 					// Log the successful deletion sync
 					$this->logSyncOperation(
@@ -189,7 +189,8 @@ class DeletionSyncService
 						'outlook',
 						$mapping['target_bridge'],
 						'success',
-						['calendar_id' => $calendarId, 'event_id' => $eventId]
+						['calendar_id' => $calendarId, 'event_id' => $eventId],
+						$tenantId
 					);
 
 					$this->logger->info('Successfully synced deletion to booking system', [
@@ -219,7 +220,8 @@ class DeletionSyncService
 					'outlook',
 					$mapping['target_bridge'],
 					'error',
-					['error' => $e->getMessage()]
+					['error' => $e->getMessage()],
+					$tenantId
 				);
 			}
 		}
@@ -228,18 +230,17 @@ class DeletionSyncService
 	/**
 	 * Find bridge mappings for an Outlook event
 	 */
-	private function findMappingsForOutlookEvent($calendarId, $eventId): array
+	private function findMappingsForOutlookEvent($calendarId, $eventId, ?string $tenantId = null): array
 	{
 		$sql = "SELECT * FROM bridge_mappings 
-                WHERE source_bridge = 'outlook' 
-                AND source_calendar_id = :calendar_id 
-                AND source_event_id = :event_id";
+				WHERE source_bridge = 'outlook' 
+				AND source_calendar_id = :calendar_id 
+				AND source_event_id = :event_id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
 
 		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':calendar_id' => $calendarId,
-			':event_id' => $eventId
-		]);
+		$params = [ ':calendar_id' => $calendarId, ':event_id' => $eventId ];
+		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+		$stmt->execute($params);
 
 		return $stmt->fetchAll(PDO::FETCH_ASSOC);
 	}
@@ -247,21 +248,23 @@ class DeletionSyncService
 	/**
 	 * Delete a bridge mapping
 	 */
-	private function deleteBridgeMapping($mappingId)
+	private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
 	{
-		$sql = "DELETE FROM bridge_mappings WHERE id = :id";
+		$sql = "DELETE FROM bridge_mappings WHERE id = :id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
 		$stmt = $this->db->prepare($sql);
-		$stmt->execute([':id' => $mappingId]);
+		$params = [':id' => $mappingId];
+		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+		$stmt->execute($params);
 	}
 
 	/**
 	 * Log sync operation
 	 */
-	private function logSyncOperation($operation, $sourceBridge, $targetBridge, $status, $details = [])
+	private function logSyncOperation($operation, $sourceBridge, $targetBridge, $status, $details = [], ?string $tenantId = null)
 	{
 		$sql = "INSERT INTO bridge_sync_logs 
-                (source_bridge, target_bridge, operation, status, details) 
-                VALUES (:source, :target, :operation, :status, :details)";
+				(source_bridge, target_bridge, operation, status, details, tenant_id) 
+				VALUES (:source, :target, :operation, :status, :details, :tenant_id)";
 
 		$stmt = $this->db->prepare($sql);
 		$stmt->execute([
@@ -269,22 +272,25 @@ class DeletionSyncService
 			':target' => $targetBridge,
 			':operation' => $operation,
 			':status' => $status,
-			':details' => json_encode($details)
+			':details' => json_encode($details),
+			':tenant_id' => $tenantId
 		]);
 	}
 
 	/**
 	 * Get pending deletion checks from queue
 	 */
-	private function getDeletionChecks(): array
+	private function getDeletionChecks(?string $tenantId = null): array
 	{
 		$sql = "SELECT * FROM bridge_queue 
-                WHERE queue_type = 'deletion_check' 
-                AND status = 'pending' 
-                ORDER BY scheduled_at ASC 
-                LIMIT 50";
-
-		$stmt = $this->db->query($sql);
+				WHERE queue_type = 'deletion_check' 
+				AND status = 'pending' " . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . "
+				ORDER BY scheduled_at ASC 
+				LIMIT 50";
+		$stmt = $this->db->prepare($sql);
+		$params = [];
+		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+		$stmt->execute($params);
 		return $stmt->fetchAll(PDO::FETCH_ASSOC);
 	}
 
@@ -320,7 +326,7 @@ class DeletionSyncService
 	/**
 	 * Manual deletion sync - check all recent mappings for deleted Outlook events
 	 */
-	public function syncDeletedEvents(): array
+	public function syncDeletedEvents(?string $tenantId = null): array
 	{
 		$results = [
 			'checked' => 0,
@@ -329,13 +335,15 @@ class DeletionSyncService
 		];
 
 		// Get all recent Outlook to booking system mappings
-		$sql = "SELECT DISTINCT source_calendar_id, source_event_id 
+	$sql = "SELECT DISTINCT source_calendar_id, source_event_id 
                 FROM bridge_mappings 
                 WHERE source_bridge = 'outlook' 
-                AND last_synced_at > NOW() - INTERVAL '7 days'";
-
-		$stmt = $this->db->query($sql);
-		$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+		AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+	$stmt = $this->db->prepare($sql);
+	$params = [];
+	if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+	$stmt->execute($params);
+	$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 		foreach ($mappings as $mapping)
 		{
@@ -346,7 +354,7 @@ class DeletionSyncService
 					'event_id' => $mapping['source_event_id']
 				];
 
-				if ($this->processOutlookDeletionCheck($checkData))
+				if ($this->processOutlookDeletionCheck($checkData, $tenantId))
 				{
 					$results['deleted']++;
 				}

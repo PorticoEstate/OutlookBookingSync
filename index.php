@@ -5,6 +5,7 @@ use Slim\Factory\AppFactory;
 use DI\Container;
 use Dotenv\Dotenv;
 use App\Middleware\ApiKeyMiddleware;
+use App\Middleware\TenantResolverMiddleware;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -165,6 +166,8 @@ $app = AppFactory::create();
 $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
 // Register API key middleware globally
+// Resolve tenant first so auth can validate per-tenant keys
+$app->add(TenantResolverMiddleware::class);
 $app->add(ApiKeyMiddleware::class);
 
 // Middleware to inject db and logger objects into requests

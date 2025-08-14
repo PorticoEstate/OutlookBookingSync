@@ -23,18 +23,18 @@ class HealthController
     public function getSystemHealth(Request $request, Response $response, $args)
     {
         try {
-            $health = [
+        $health = [
                 'timestamp' => date('Y-m-d H:i:s'),
                 'status' => 'healthy',
                 'uptime' => $this->getSystemUptime(),
                 'checks' => [
-                    'database' => $this->checkDatabase(),
-                    'outlook_connectivity' => $this->checkOutlookConnectivity(),
-                    'cron_jobs' => $this->checkCronJobs(),
-                    'disk_space' => $this->checkDiskSpace(),
-                    'memory_usage' => $this->checkMemoryUsage(),
-                    'sync_status' => $this->checkSyncStatus(),
-                    'recent_errors' => $this->checkRecentErrors()
+            'database' => $this->checkDatabase($request->getAttribute('tenant_id')),
+            'outlook_connectivity' => $this->checkOutlookConnectivity($request->getAttribute('tenant_id')),
+            'cron_jobs' => $this->checkCronJobs($request->getAttribute('tenant_id')),
+            'disk_space' => $this->checkDiskSpace(),
+            'memory_usage' => $this->checkMemoryUsage(),
+            'sync_status' => $this->checkSyncStatus($request->getAttribute('tenant_id')),
+            'recent_errors' => $this->checkRecentErrors($request->getAttribute('tenant_id'))
                 ]
             ];
 
@@ -107,13 +107,14 @@ class HealthController
     public function getDashboardData(Request $request, Response $response, $args)
     {
         try {
-            $dashboard = [
+                $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+                $dashboard = [
                 'timestamp' => date('Y-m-d H:i:s'),
                 'system_overview' => $this->getSystemOverview(),
-                'sync_statistics' => $this->getAllSyncStatistics(),
-                'recent_activity' => $this->getRecentActivity(),
+                    'sync_statistics' => $this->getAllSyncStatistics($tenantId !== '' ? $tenantId : null),
+                    'recent_activity' => $this->getRecentActivity($tenantId !== '' ? $tenantId : null),
                 'performance_metrics' => $this->getPerformanceMetrics(),
-                'error_summary' => $this->getErrorSummary(),
+                    'error_summary' => $this->getErrorSummary($tenantId !== '' ? $tenantId : null),
                 'cron_status' => $this->getCronStatus()
             ];
 
@@ -136,7 +137,7 @@ class HealthController
     /**
      * Check database connectivity and performance
      */
-    private function checkDatabase()
+    private function checkDatabase(?string $tenantId = null)
     {
         try {
             $start = microtime(true);
@@ -148,7 +149,11 @@ class HealthController
             }
 
             // Test read performance
-            $stmt = $this->db->query('SELECT COUNT(*) as count FROM bridge_mappings');
+            $sql = 'SELECT COUNT(*) as count FROM bridge_mappings' . ($tenantId ? ' WHERE (tenant_id IS NOT DISTINCT FROM :tenant_id)' : '');
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             
             $responseTime = round((microtime(true) - $start) * 1000, 2);
@@ -193,7 +198,7 @@ class HealthController
     /**
      * Check Outlook connectivity
      */
-    private function checkOutlookConnectivity()
+    private function checkOutlookConnectivity(?string $tenantId = null)
     {
         try {
             // Check if Graph credentials are configured
@@ -208,13 +213,11 @@ class HealthController
             }
 
             // Check recent sync activity as proxy for connectivity
-            $stmt = $this->db->prepare("
-                SELECT COUNT(*) as recent_syncs 
-                FROM bridge_sync_logs 
-                WHERE created_at > NOW() - INTERVAL '1 hour'
-                AND (source_bridge = 'outlook' OR target_bridge = 'outlook')
-            ");
-            $stmt->execute();
+            $sql = "SELECT COUNT(*) as recent_syncs FROM bridge_sync_logs WHERE created_at > NOW() - INTERVAL '1 hour' AND (source_bridge = 'outlook' OR target_bridge = 'outlook')" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $status = $result['recent_syncs'] > 0 ? 'healthy' : 'warning';
@@ -240,7 +243,7 @@ class HealthController
     /**
      * Check cron job status
      */
-    private function checkCronJobs()
+    private function checkCronJobs(?string $tenantId = null)
     {
         try {
             // Check if cron daemon is running
@@ -251,15 +254,11 @@ class HealthController
             }
 
             // Check recent cron activity by looking at recent automated sync operations
-            $stmt = $this->db->prepare("
-                SELECT 
-                    COUNT(*) as recent_automated_syncs,
-                    MAX(created_at) as last_automated_sync
-                FROM bridge_sync_logs 
-                WHERE created_at > NOW() - INTERVAL '1 hour'
-                AND operation IN ('sync', 'update')
-            ");
-            $stmt->execute();
+            $sql = "SELECT COUNT(*) as recent_automated_syncs, MAX(created_at) as last_automated_sync FROM bridge_sync_logs WHERE created_at > NOW() - INTERVAL '1 hour' AND operation IN ('sync', 'update')" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $status = 'healthy';
@@ -362,19 +361,15 @@ class HealthController
     /**
      * Check sync status with detailed breakdown
      */
-    private function checkSyncStatus()
+    private function checkSyncStatus(?string $tenantId = null)
     {
         try {
             // Get sync status breakdown
-            $stmt = $this->db->prepare("
-                SELECT 
-                    sync_status,
-                    COUNT(*) as count,
-                    MAX(updated_at) as last_updated
-                FROM bridge_mappings 
-                GROUP BY sync_status
-            ");
-            $stmt->execute();
+            $sql = "SELECT sync_status, COUNT(*) as count, MAX(updated_at) as last_updated FROM bridge_mappings" . ($tenantId ? " WHERE (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . " GROUP BY sync_status";
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $stats = [];
@@ -419,13 +414,11 @@ class HealthController
             }
             
             // Check for stuck syncs (pending items older than 1 hour)
-            $stuckStmt = $this->db->prepare("
-                SELECT COUNT(*) as stuck_count
-                FROM bridge_mappings 
-                WHERE sync_status = 'pending' 
-                AND updated_at < NOW() - INTERVAL '1 hour'
-            ");
-            $stuckStmt->execute();
+            $sql2 = "SELECT COUNT(*) as stuck_count FROM bridge_mappings WHERE sync_status = 'pending' AND updated_at < NOW() - INTERVAL '1 hour'" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+            $stuckStmt = $this->db->prepare($sql2);
+            $params2 = [];
+            if ($tenantId) { $params2[':tenant_id'] = (string)$tenantId; }
+            $stuckStmt->execute($params2);
             $stuckResult = $stuckStmt->fetch(PDO::FETCH_ASSOC);
             $stuckCount = $stuckResult['stuck_count'];
             
@@ -462,16 +455,14 @@ class HealthController
     /**
      * Check recent errors
      */
-    private function checkRecentErrors()
+    private function checkRecentErrors(?string $tenantId = null)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT COUNT(*) as error_count
-                FROM bridge_sync_logs 
-                WHERE status = 'error' 
-                AND created_at > NOW() - INTERVAL '24 hours'
-            ");
-            $stmt->execute();
+            $sql = "SELECT COUNT(*) as error_count FROM bridge_sync_logs WHERE status = 'error' AND created_at > NOW() - INTERVAL '24 hours'" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $errorCount = $result['error_count'];
@@ -596,24 +587,15 @@ class HealthController
     /**
      * Get all sync statistics
      */
-    private function getAllSyncStatistics()
+    private function getAllSyncStatistics(?string $tenantId = null)
     {
         try {
             // Get stats from the last 24 hours from sync logs
-            $stmt = $this->db->prepare("
-                SELECT 
-                    source_bridge,
-                    target_bridge,
-                    operation,
-                    status,
-                    COUNT(*) as count,
-                    DATE_TRUNC('hour', created_at) as hour
-                FROM bridge_sync_logs 
-                WHERE created_at > NOW() - INTERVAL '24 hours'
-                GROUP BY source_bridge, target_bridge, operation, status, DATE_TRUNC('hour', created_at)
-                ORDER BY hour DESC
-            ");
-            $stmt->execute();
+            $sql = "SELECT source_bridge, target_bridge, operation, status, COUNT(*) as count, DATE_TRUNC('hour', created_at) as hour FROM bridge_sync_logs WHERE created_at > NOW() - INTERVAL '24 hours'" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . " GROUP BY source_bridge, target_bridge, operation, status, DATE_TRUNC('hour', created_at) ORDER BY hour DESC";
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -624,22 +606,14 @@ class HealthController
     /**
      * Get recent activity
      */
-    private function getRecentActivity()
+    private function getRecentActivity(?string $tenantId = null)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT 
-                    operation as reservation_type,
-                    CONCAT(source_bridge, ' → ', target_bridge) as sync_direction,
-                    status as sync_status,
-                    created_at as updated_at,
-                    error_message
-                FROM bridge_sync_logs 
-                WHERE created_at > NOW() - INTERVAL '2 hours'
-                ORDER BY created_at DESC
-                LIMIT 20
-            ");
-            $stmt->execute();
+            $sql = "SELECT operation as reservation_type, CONCAT(source_bridge, ' → ', target_bridge) as sync_direction, status as sync_status, created_at as updated_at, error_message FROM bridge_sync_logs WHERE created_at > NOW() - INTERVAL '2 hours'" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . " ORDER BY created_at DESC LIMIT 20";
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -669,23 +643,14 @@ class HealthController
     /**
      * Get error summary
      */
-    private function getErrorSummary()
+    private function getErrorSummary(?string $tenantId = null)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT 
-                    error_message,
-                    COUNT(*) as error_count,
-                    MAX(created_at) as last_occurrence
-                FROM bridge_sync_logs 
-                WHERE status = 'error' 
-                AND created_at > NOW() - INTERVAL '24 hours'
-                AND error_message IS NOT NULL
-                GROUP BY error_message
-                ORDER BY error_count DESC
-                LIMIT 10
-            ");
-            $stmt->execute();
+            $sql = "SELECT error_message, COUNT(*) as error_count, MAX(created_at) as last_occurrence FROM bridge_sync_logs WHERE status = 'error' AND created_at > NOW() - INTERVAL '24 hours' AND error_message IS NOT NULL" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . " GROUP BY error_message ORDER BY error_count DESC LIMIT 10";
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -980,20 +945,14 @@ class HealthController
     /**
      * Get sync performance metrics
      */
-    private function getSyncPerformanceMetrics()
+    private function getSyncPerformanceMetrics(?string $tenantId = null)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT 
-                    DATE(updated_at) as sync_date,
-                    sync_status,
-                    COUNT(*) as count
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '7 days'
-                GROUP BY DATE(updated_at), sync_status
-                ORDER BY sync_date DESC, sync_status
-            ");
-            $stmt->execute();
+            $sql = "SELECT DATE(updated_at) as sync_date, sync_status, COUNT(*) as count FROM bridge_mappings WHERE updated_at > NOW() - INTERVAL '7 days'" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . " GROUP BY DATE(updated_at), sync_status ORDER BY sync_date DESC, sync_status";
+            $stmt = $this->db->prepare($sql);
+            $params = [];
+            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
+            $stmt->execute($params);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $metrics = [

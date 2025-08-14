@@ -18,9 +18,26 @@ class ApiKeyMiddleware
 		}
 
 		$apiKey = $request->getHeaderLine('api_key');
-		$validKey = $_ENV['API_KEY'] ?? '';
+		$tenantId = $request->getAttribute('tenant_id');
 
-		if ($apiKey !== $validKey)
+		// 1) Per-tenant API key map via env var (JSON: {"tenantA":"key1"})
+		$tenantKeyValid = false;
+		$mapJson = $_ENV['TENANT_API_KEYS_JSON'] ?? '';
+		if ($tenantId && $mapJson) {
+			$map = json_decode($mapJson, true);
+			if (is_array($map) && isset($map[$tenantId])) {
+				$tenantKeyValid = hash_equals((string)$map[$tenantId], (string)$apiKey);
+			}
+		}
+
+		// 2) Fallback to global API key for backward compatibility
+		$globalValid = false;
+		$validKey = $_ENV['API_KEY'] ?? '';
+		if ($validKey !== '') {
+			$globalValid = hash_equals((string)$validKey, (string)$apiKey);
+		}
+
+		if (!($tenantKeyValid || $globalValid))
 		{
 			$response = new \Slim\Psr7\Response();
 			$response->getBody()->write(json_encode(['error' => 'Unauthorized']));

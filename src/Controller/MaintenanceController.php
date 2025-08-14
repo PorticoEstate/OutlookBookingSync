@@ -96,18 +96,19 @@ class MaintenanceController
 			$bridge = $query['bridge'] ?? 'outlook';
 			$minutes = isset($query['renew_before_minutes']) ? max(5, (int)$query['renew_before_minutes']) : 1440;
 			$limit = isset($query['limit']) ? max(1, (int)$query['limit']) : 50;
+			$tenantId = (string)($request->getAttribute('tenant_id') ?? '');
 
 			// Select active subscriptions expiring before the threshold
-			$stmt = $this->db->prepare(
-				"SELECT subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
-                 WHERE bridge_type = :bridge AND is_active = TRUE AND expires_at IS NOT NULL 
-                 AND expires_at < (NOW() + (:minutes || ' minutes')::interval)
-                 ORDER BY expires_at ASC
-                 LIMIT :limit"
-			);
+		  $sql = "SELECT subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
+			  WHERE bridge_type = :bridge AND is_active = TRUE AND expires_at IS NOT NULL 
+			  AND expires_at < (NOW() + (:minutes || ' minutes')::interval)" . ($tenantId !== '' ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . "
+			  ORDER BY expires_at ASC
+			  LIMIT :limit";
+		  $stmt = $this->db->prepare($sql);
 			$stmt->bindValue(':bridge', $bridge, \PDO::PARAM_STR);
 			$stmt->bindValue(':minutes', (string)$minutes, \PDO::PARAM_STR);
 			$stmt->bindValue(':limit', (int)$limit, \PDO::PARAM_INT);
+		  if ($tenantId !== '') { $stmt->bindValue(':tenant_id', (string)$tenantId, \PDO::PARAM_STR); }
 			$stmt->execute();
 			$rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
@@ -120,7 +121,7 @@ class MaintenanceController
 				{
 					throw new Exception('BridgeManager not available');
 				}
-				$bridgeInstance = $this->bridgeManager->getBridge($bridge);
+				$bridgeInstance = $tenantId !== '' ? $this->bridgeManager->getBridgeForTenant($tenantId, $bridge) : $this->bridgeManager->getBridge($bridge);
 
 				foreach ($rows as $row)
 				{

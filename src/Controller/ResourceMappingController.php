@@ -36,6 +36,13 @@ class ResourceMappingController
 			$sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
 			$params = [];
 
+			// Optional tenant scoping
+			$tenantId = $request->getAttribute('tenant_id');
+			if ($tenantId) {
+				$sql .= " AND (tenant_id = :tenant_id OR tenant_id IS NULL)";
+				$params['tenant_id'] = $tenantId;
+			}
+
 			if ($bridgeFrom)
 			{
 				$sql .= " AND bridge_from = :bridge_from";
@@ -128,14 +135,16 @@ class ResourceMappingController
                         WHERE bridge_from = :bridge_from 
                         AND bridge_to = :bridge_to 
                         AND source_calendar_id = :source_calendar_id 
-                        AND target_calendar_id = :target_calendar_id";
+						AND target_calendar_id = :target_calendar_id
+						AND (tenant_id = :tenant_id OR (tenant_id IS NULL AND :tenant_id IS NULL))";
 
 			$checkStmt = $this->db->prepare($checkSql);
 			$checkStmt->execute([
 				'bridge_from' => $data['bridge_from'],
 				'bridge_to' => $data['bridge_to'],
 				'source_calendar_id' => $data['source_calendar_id'],
-				'target_calendar_id' => $data['target_calendar_id']
+				'target_calendar_id' => $data['target_calendar_id'],
+				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
 
 			if ($checkStmt->fetch())
@@ -148,11 +157,11 @@ class ResourceMappingController
 			}
 
 			// Create new mapping
-			$sql = "INSERT INTO bridge_resource_mappings 
+	     $sql = "INSERT INTO bridge_resource_mappings 
                     (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
-                     source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled) 
+			source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled, tenant_id) 
                     VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
-                            :source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled)
+				:source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled, :tenant_id)
                     RETURNING id";
 
 			$stmt = $this->db->prepare($sql);
@@ -165,7 +174,8 @@ class ResourceMappingController
 				'target_calendar_name' => $data['target_calendar_name'] ?? null,
 				'sync_direction' => $data['sync_direction'] ?? 'bidirectional',
 				'is_active' => $data['is_active'] ?? true,
-				'sync_enabled' => $data['sync_enabled'] ?? true
+				'sync_enabled' => $data['sync_enabled'] ?? true,
+				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
 
 			$mappingId = $stmt->fetchColumn();
@@ -469,8 +479,8 @@ class ResourceMappingController
 			}
 
 			// Add sync job to queue
-			$queueSql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority)
-                        VALUES ('resource_sync', :source_bridge, :target_bridge, :payload, 1)";
+			$queueSql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority, tenant_id)
+						VALUES ('resource_sync', :source_bridge, :target_bridge, :payload, 1, :tenant_id)";
 
 			$queueStmt = $this->db->prepare($queueSql);
 			$queueStmt->execute([
@@ -481,7 +491,8 @@ class ResourceMappingController
 					'source_calendar_id' => $mapping['source_calendar_id'],
 					'target_calendar_id' => $mapping['target_calendar_id'],
 					'sync_direction' => $mapping['sync_direction']
-				])
+				]),
+				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
 
 			// Update last sync timestamp

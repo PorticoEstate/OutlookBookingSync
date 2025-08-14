@@ -19,20 +19,23 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     last_synced_at TIMESTAMP,
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id)
+    UNIQUE(source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
 );
 
 -- Bridge configurations table - stores bridge-specific settings
 CREATE TABLE IF NOT EXISTS bridge_configs (
     id SERIAL PRIMARY KEY,
-    bridge_name VARCHAR(50) NOT NULL UNIQUE,
+    bridge_name VARCHAR(50) NOT NULL,
     bridge_type VARCHAR(50) NOT NULL,
     config_data JSONB NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bridge_name, tenant_id)
 );
 
 -- Bridge sync logs - audit trail for all sync operations
@@ -46,6 +49,7 @@ CREATE TABLE IF NOT EXISTS bridge_sync_logs (
     details JSONB,
     error_message TEXT,
     duration_ms INTEGER,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -59,6 +63,7 @@ CREATE TABLE IF NOT EXISTS bridge_subscriptions (
     subscription_data JSONB,
     is_active BOOLEAN DEFAULT TRUE,
     expires_at TIMESTAMP,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_renewed_at TIMESTAMP
 );
@@ -77,6 +82,7 @@ CREATE TABLE IF NOT EXISTS bridge_queue (
     scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP,
     error_message TEXT,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -93,31 +99,44 @@ CREATE TABLE IF NOT EXISTS bridge_resource_mappings (
     is_active BOOLEAN DEFAULT TRUE,
     sync_enabled BOOLEAN DEFAULT TRUE,
     last_synced_at TIMESTAMP,
+    tenant_id VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bridge_from, bridge_to, source_calendar_id, target_calendar_id)
+    UNIQUE(bridge_from, bridge_to, source_calendar_id, target_calendar_id, tenant_id)
 );
 
 -- Indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_source ON bridge_resource_mappings(bridge_from, source_calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_target ON bridge_resource_mappings(bridge_to, target_calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_active ON bridge_resource_mappings(is_active, sync_enabled);
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_tenant ON bridge_resource_mappings(tenant_id);
+-- Optional: ensure uniqueness when tenant_id is NULL and non-NULL together
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_bridge_configs_name_tenant_expr ON bridge_configs (bridge_name, COALESCE(tenant_id, ''));
+EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_brm_bridge_cal_tenant_expr ON bridge_resource_mappings (bridge_from, bridge_to, source_calendar_id, target_calendar_id, COALESCE(tenant_id, ''));
+EXCEPTION WHEN others THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_synced_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync_status ON bridge_mappings(sync_status);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_retry ON bridge_mappings(retry_count) WHERE sync_status = 'error';
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_created ON bridge_sync_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_status ON bridge_sync_logs(status);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_bridges ON bridge_sync_logs(source_bridge, target_bridge);
+CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_tenant ON bridge_sync_logs(tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_bridge ON bridge_subscriptions(bridge_type, calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_expires ON bridge_subscriptions(expires_at) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_tenant ON bridge_subscriptions(tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_status ON bridge_queue(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_priority ON bridge_queue(priority, scheduled_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_bridge_queue_tenant ON bridge_queue(tenant_id);
 
 -- Views for easy querying
 
@@ -134,9 +153,12 @@ SELECT
     COUNT(bm.id) as mapped_events
 FROM bridge_resource_mappings brm
 LEFT JOIN bridge_mappings bm ON (
-    brm.source_calendar_id = bm.source_calendar_id AND brm.target_calendar_id = bm.target_calendar_id
-    OR brm.source_calendar_id = bm.target_calendar_id AND brm.target_calendar_id = bm.source_calendar_id
-)
+    (
+        brm.source_calendar_id = bm.source_calendar_id AND brm.target_calendar_id = bm.target_calendar_id
+    ) OR (
+        brm.source_calendar_id = bm.target_calendar_id AND brm.target_calendar_id = bm.source_calendar_id
+    )
+) AND (bm.tenant_id IS NOT DISTINCT FROM brm.tenant_id)
 WHERE brm.is_active = true
 GROUP BY brm.id, brm.bridge_from, brm.bridge_to, brm.source_calendar_id, brm.target_calendar_id, 
          brm.source_calendar_name, brm.target_calendar_name, brm.sync_direction, brm.sync_enabled, 
@@ -181,9 +203,9 @@ SELECT
     COUNT(bsl.id) FILTER (WHERE bsl.created_at > NOW() - INTERVAL '1 hour' AND bsl.status = 'success') as recent_successful_syncs,
     COUNT(bsl.id) FILTER (WHERE bsl.created_at > NOW() - INTERVAL '1 hour' AND bsl.status = 'error') as recent_failed_syncs
 FROM bridge_configs bc
-LEFT JOIN bridge_subscriptions bs ON bc.bridge_type = bs.bridge_type AND bs.is_active = true
+LEFT JOIN bridge_subscriptions bs ON bc.bridge_type = bs.bridge_type AND bs.is_active = true AND (bs.tenant_id IS NOT DISTINCT FROM bc.tenant_id)
 LEFT JOIN bridge_sync_logs bsl ON bc.bridge_name IN (bsl.source_bridge, bsl.target_bridge) 
-    AND bsl.created_at > NOW() - INTERVAL '24 hours'
+    AND bsl.created_at > NOW() - INTERVAL '24 hours' AND (bsl.tenant_id IS NOT DISTINCT FROM bc.tenant_id)
 GROUP BY bc.bridge_name, bc.bridge_type, bc.is_active;
 
 -- Functions for maintenance
@@ -246,7 +268,23 @@ CREATE TRIGGER trigger_update_bridge_config_timestamp
 INSERT INTO bridge_configs (bridge_name, bridge_type, config_data) VALUES
 ('outlook', 'outlook', '{"description": "Microsoft Outlook/Graph API Bridge", "capabilities": ["webhooks", "recurring", "attendees"]}'),
 ('booking_system', 'booking_system', '{"description": "Internal Booking System Bridge", "capabilities": ["direct_db", "rest_api"]}')
-ON CONFLICT (bridge_name) DO NOTHING;
+ON CONFLICT (bridge_name, tenant_id) DO NOTHING;
+
+-- Multi-tenancy registry (optional but recommended)
+CREATE TABLE IF NOT EXISTS tenants (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tenant_api_keys (
+    tenant_id VARCHAR(64) NOT NULL,
+    api_key_hash VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tenant_id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
 
 -- Sample data for testing (commented out)
 /*
