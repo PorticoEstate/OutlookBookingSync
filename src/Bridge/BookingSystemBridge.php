@@ -370,6 +370,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return 'booking_system';
     }
 
+    /**
+     * Report capabilities supported by the booking system bridge.
+     *
+     * @return array<string,mixed>
+     */
     public function getCapabilities(): array
     {
         return [
@@ -383,6 +388,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
         ];
     }
 
+    /**
+     * Fetch events for a resource in the booking system.
+     *
+     * @param string $resourceId Booking system resource identifier
+     * @param string $startDate ISO8601 start
+     * @param string $endDate ISO8601 end
+     * @return array List of generic events
+     */
     public function getEvents($resourceId, $startDate, $endDate): array
     {
         $this->logOperation('get_events', ['resource_id' => $resourceId]);
@@ -390,6 +403,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return $this->getEventsViaApi($resourceId, $startDate, $endDate);
     }
 
+    /**
+     * Get a single booking system event.
+     *
+     * @param string $calendarId Resource ID (kept for API parity)
+     * @param string $eventId Booking system event identifier (may be composite)
+     * @return array Generic event
+     */
     public function getEvent($calendarId, $eventId): array
     {
         $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
@@ -398,6 +418,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     /**
      * Create event in booking system (when BookingSystemBridge is target)
+     */
+    /**
+     * Create an event in the booking system when this bridge is the target.
+     *
+     * @param string $calendarId Resource ID in the booking system
+     * @param array $event Generic event payload
+     * @return string Composite booking system event ID
      */
     public function createEvent($calendarId, $event): string
     {
@@ -463,6 +490,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Update event in booking system (when BookingSystemBridge is target)
      */
+    /**
+     * Update an existing booking system event when this bridge is the target.
+     *
+     * @param string $calendarId Resource ID
+     * @param string $eventId Composite or original event ID
+     * @param array $event Generic event payload
+     * @return bool True on success
+     */
     public function updateEvent($calendarId, $eventId, $event): bool
     {
         try
@@ -517,6 +552,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Delete event in booking system (when BookingSystemBridge is target)
      * For events imported from Outlook, this sets active=0 instead of actual deletion
+     */
+    /**
+     * Delete or deactivate an event in the booking system.
+     * For Outlook-imported events, sets active=0 instead of deletion.
+     *
+     * @param string $calendarId Resource ID
+     * @param string $eventId Composite or original event ID
+     * @return bool True on success
      */
     public function deleteEvent($calendarId, $eventId): bool
     {

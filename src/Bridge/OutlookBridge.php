@@ -12,6 +12,15 @@ use Microsoft\Graph\Generated\Models\ODataErrors\ODataError;
 use Microsoft\Kiota\Abstractions\RequestInformation;
 use Microsoft\Kiota\Abstractions\HttpMethod;
 
+/**
+ * OutlookBridge integrates with Microsoft Graph to manage calendars and events.
+ *
+ * Responsibilities:
+ * - CRUD operations on Outlook events
+ * - Listing calendars/resources/groups
+ * - Webhook subscription lifecycle (create, renew, delete)
+ * - Utility helpers to map Outlook SDK models to the bridge's generic event shape
+ */
 class OutlookBridge extends AbstractCalendarBridge
 {
 	private $graphServiceClient;
@@ -75,11 +84,21 @@ class OutlookBridge extends AbstractCalendarBridge
 		$this->graphServiceClient = GraphServiceClient::createWithRequestAdapter($requestAdapter);
 	}
 
+	/**
+	 * Get the unique bridge type identifier.
+	 *
+	 * @return string 'outlook'
+	 */
 	public function getBridgeType(): string
 	{
 		return 'outlook';
 	}
 
+	/**
+	 * Report capabilities supported by the Outlook bridge.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public function getCapabilities(): array
 	{
 		return [
@@ -93,6 +112,15 @@ class OutlookBridge extends AbstractCalendarBridge
 		];
 	}
 
+	/**
+	 * Fetch events for a calendar within a time window.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier (UPN or ID)
+	 * @param string $startDate ISO8601 start
+	 * @param string $endDate ISO8601 end
+	 * @return array List of generic event arrays
+	 * @throws \Exception on API errors
+	 */
 	public function getEvents($calendarId, $startDate, $endDate): array
 	{
 		$this->logOperation('get_events', ['calendar_id' => $calendarId]);
@@ -117,6 +145,14 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Get a single event by ID.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $eventId Outlook event ID
+	 * @return array Generic event
+	 * @throws \Exception if not found or on API errors
+	 */
 	public function getEvent($calendarId, $eventId): array
 	{
 		$this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
@@ -138,6 +174,13 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Create an event in Outlook.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param array $event Generic event payload
+	 * @return string Created Outlook event ID
+	 */
 	public function createEvent($calendarId, $event): string
 	{
 		$this->logOperation('create_event', ['calendar_id' => $calendarId]);
@@ -198,6 +241,14 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Update an Outlook event.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $eventId Outlook event ID
+	 * @param array $event Generic event payload
+	 * @return bool True when updated
+	 */
 	public function updateEvent($calendarId, $eventId, $event): bool
 	{
 		$this->logOperation('update_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
@@ -246,6 +297,13 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Delete an Outlook event.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $eventId Outlook event ID
+	 * @return bool True when deleted
+	 */
 	public function deleteEvent($calendarId, $eventId): bool
 	{
 		$this->logOperation('delete_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
@@ -290,6 +348,12 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * List available calendars/resources for the tenant.
+	 * Uses group mode if configured, otherwise Places API for rooms.
+	 *
+	 * @return array List of calendars/resources
+	 */
 	public function getCalendars(): array
 	{
 		$this->logOperation('get_calendars');
@@ -326,6 +390,12 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	/**
 	 * Get calendars from a specific Outlook group
+	 */
+	/**
+	 * Get calendars from a specific Outlook group.
+	 *
+	 * @param string $groupId Microsoft 365 group ID
+	 * @return array List of calendars derived from group members
 	 */
 	private function getCalendarsFromGroup($groupId): array
 	{
@@ -438,6 +508,13 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Create a Microsoft Graph webhook subscription for a calendar's events.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $webhookUrl Publicly reachable webhook URL
+	 * @return string Subscription ID
+	 */
 	public function subscribeToChanges($calendarId, $webhookUrl): string
 	{
 		$this->logOperation('subscribe_to_changes', ['calendar_id' => $calendarId, 'webhook_url' => $webhookUrl]);
@@ -475,6 +552,12 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Delete an existing Microsoft Graph webhook subscription.
+	 *
+	 * @param string $subscriptionId Subscription identifier
+	 * @return bool True when removed
+	 */
 	public function unsubscribeFromChanges($subscriptionId): bool
 	{
 		$this->logOperation('unsubscribe_from_changes', ['subscription_id' => $subscriptionId]);
@@ -570,6 +653,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Map Outlook SDK Event object to generic format
 	 */
+	/**
+	 * Convert an Outlook SDK Event model to the bridge's generic event format.
+	 *
+	 * @param \Microsoft\Graph\Generated\Models\Event $outlookEvent
+	 * @return array Generic event
+	 */
 	private function mapOutlookSDKEventToGeneric(\Microsoft\Graph\Generated\Models\Event $outlookEvent): array
 	{
 		return $this->createGenericEvent([
@@ -597,6 +686,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	 */
 	/**
 	 * Map generic event to Outlook SDK Event object
+	 */
+	/**
+	 * Convert a generic event payload to an Outlook SDK Event model.
+	 *
+	 * @param array $event Generic event data
+	 * @return \Microsoft\Graph\Generated\Models\Event
 	 */
 	private function mapGenericEventToOutlookSDK($event): \Microsoft\Graph\Generated\Models\Event
 	{
@@ -681,6 +776,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Extract plain text from HTML content
 	 */
+	/**
+	 * Extract plain text from HTML content.
+	 *
+	 * @param string|null $html HTML body
+	 * @return string Plain text
+	 */
 	private function extractTextFromHtml($html): string
 	{
 		if (empty($html))
@@ -701,6 +802,16 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	/**
 	 * Store subscription in database
+	 */
+	/**
+	 * Persist a Graph subscription to database, upserting if exists.
+	 *
+	 * @param string $subscriptionId
+	 * @param string $calendarId
+	 * @param string $webhookUrl
+	 * @param mixed $subscriptionData SDK model or array
+	 * @param string|null $expiresAt Explicit expiration (Y-m-d H:i:s) or null to derive
+	 * @return void
 	 */
 	private function storeSubscription($subscriptionId, $calendarId, $webhookUrl, $subscriptionData, $expiresAt = null)
 	{
@@ -751,6 +862,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Remove subscription from database
 	 */
+	/**
+	 * Remove a subscription record from the database.
+	 *
+	 * @param string $subscriptionId
+	 * @return void
+	 */
 	private function removeSubscription($subscriptionId)
 	{
 		$sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id";
@@ -761,6 +878,14 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Get available resources (rooms/equipment) from Outlook
 	 * Uses the same method as OutlookController::getAvailableRooms()
+	 */
+	/**
+	 * List available resources (users/groups) within a configured group or via Places API fallback.
+	 *
+	 * @param string|null $nameFilter Optional substring filter
+	 * @param int $limit Server-side $top for group members
+	 * @param int $offset Server-side $skip for group members
+	 * @return array Resources and metadata (for group path) or array of resources (for places path)
 	 */
 	public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array
 	{
@@ -928,6 +1053,14 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * Get available groups/collections from Outlook
 	 * Uses the same method as OutlookController::getAvailableGroups()
 	 */
+	/**
+	 * Get available Microsoft 365 groups with basic details.
+	 *
+	 * @param string|null $nameFilter Optional name/mail filter
+	 * @param int $limit Server-side $top page size
+	 * @param int $offset Server-side $skip page offset
+	 * @return array Groups and metadata
+	 */
 	public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array
 	{
 		try
@@ -1055,6 +1188,16 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Get calendar items for a specific resource
 	 * Uses the same method as OutlookController for getting calendar events
+	 */
+	/**
+	 * Get calendar items for a specific resource (user mailbox).
+	 *
+	 * @param string $resourceId UPN or user ID
+	 * @param string|null $startDate Optional ISO8601 start
+	 * @param string|null $endDate Optional ISO8601 end
+	 * @param int $limit Optional page size
+	 * @param int $offset Optional page offset
+	 * @return array Events and optional metadata
 	 */
 	public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null, $limit = 0, $offset = 0): array
 	{
@@ -1208,6 +1351,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Debug method: Get raw group information
 	 */
+	/**
+	 * Debug helper to return raw group and member info.
+	 *
+	 * @param string|null $groupId Group ID; defaults to configured group_id
+	 * @return array Group and members or error
+	 */
 	public function debugGroupInfo($groupId = null): array
 	{
 		$targetGroupId = $groupId ?? $this->config['group_id'] ?? null;
@@ -1268,6 +1417,12 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	/**
 	 * Get resources from Microsoft Places API when no group_id is configured
+	 */
+	/**
+	 * Fallback: list resources (rooms) using Places API when no group is configured.
+	 *
+	 * @param string|null $nameFilter Optional substring filter
+	 * @return array List of resources
 	 */
 	private function getResourcesFromPlaces($nameFilter = null): array
 	{
@@ -1357,6 +1512,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Re-enable failed events for Outlook bridge
 	 */
+	/**
+	 * Re-enable mappings in error state for the Outlook bridge by setting them to pending.
+	 *
+	 * @param array $eventIds Optional list of event IDs to scope; empty for all
+	 * @return array Summary with re_enabled_count and any errors
+	 */
 	public function reEnableFailedEvents(array $eventIds = []): array
 	{
 		$results = [
@@ -1410,6 +1571,12 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	/**
 	 * Process pending synchronizations for Outlook bridge
+	 */
+	/**
+	 * Process pending sync mappings where Outlook is involved.
+	 *
+	 * @param int $batchSize Max mappings to process in this call
+	 * @return array Summary with processed and errors counts
 	 */
 	public function processPendingSyncs($batchSize = 50): array
 	{
@@ -1479,6 +1646,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Process pending sync where Outlook bridge is the source
 	 */
+	/**
+	 * Handle a pending sync when Outlook is the source.
+	 *
+	 * @param array $mapping Bridge mapping row
+	 * @return array Action taken and context
+	 */
 	private function processPendingSyncAsSource($mapping): array
 	{
 		// Get the current event from Outlook
@@ -1513,6 +1686,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Process pending sync where Outlook bridge is the target
 	 */
+	/**
+	 * Handle a pending sync when Outlook is the target.
+	 *
+	 * @param array $mapping Bridge mapping row
+	 * @return array Action taken and context
+	 */
 	private function processPendingSyncAsTarget($mapping): array
 	{
 		// For target processing, we would need the source bridge to provide the event
@@ -1527,6 +1706,13 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	/**
 	 * Get a single event by ID (helper for sync processing)
+	 */
+	/**
+	 * Helper to fetch and map a single Outlook event by ID.
+	 *
+	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $eventId Outlook event ID
+	 * @return array|null Generic event or null when missing
 	 */
 	private function getEventById($calendarId, $eventId): ?array
 	{
