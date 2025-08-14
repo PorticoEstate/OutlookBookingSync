@@ -388,9 +388,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Get calendars from a specific Outlook group
-	 */
+
 	/**
 	 * Get calendars from a specific Outlook group.
 	 *
@@ -650,9 +648,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Map Outlook SDK Event object to generic format
-	 */
+
 	/**
 	 * Convert an Outlook SDK Event model to the bridge's generic event format.
 	 *
@@ -681,12 +677,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		]);
 	}
 
-	/**
-	 * Map generic event to Outlook format
-	 */
-	/**
-	 * Map generic event to Outlook SDK Event object
-	 */
+
 	/**
 	 * Convert a generic event payload to an Outlook SDK Event model.
 	 *
@@ -773,9 +764,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		return $outlookEvent;
 	}
 
-	/**
-	 * Extract plain text from HTML content
-	 */
+
 	/**
 	 * Extract plain text from HTML content.
 	 *
@@ -800,9 +789,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		return $text;
 	}
 
-	/**
-	 * Store subscription in database
-	 */
+
 	/**
 	 * Persist a Graph subscription to database, upserting if exists.
 	 *
@@ -859,9 +846,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		]);
 	}
 
-	/**
-	 * Remove subscription from database
-	 */
+
 	/**
 	 * Remove a subscription record from the database.
 	 *
@@ -875,10 +860,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		$stmt->execute([':subscription_id' => $subscriptionId]);
 	}
 
-	/**
-	 * Get available resources (rooms/equipment) from Outlook
-	 * Uses the same method as OutlookController::getAvailableRooms()
-	 */
+
 	/**
 	 * List available resources (users/groups) within a configured group or via Places API fallback.
 	 *
@@ -1049,10 +1031,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Get available groups/collections from Outlook
-	 * Uses the same method as OutlookController::getAvailableGroups()
-	 */
+
 	/**
 	 * Get available Microsoft 365 groups with basic details.
 	 *
@@ -1185,10 +1164,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Get calendar items for a specific resource
-	 * Uses the same method as OutlookController for getting calendar events
-	 */
+
 	/**
 	 * Get calendar items for a specific resource (user mailbox).
 	 *
@@ -1348,9 +1324,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Debug method: Get raw group information
-	 */
+
 	/**
 	 * Debug helper to return raw group and member info.
 	 *
@@ -1415,9 +1389,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Get resources from Microsoft Places API when no group_id is configured
-	 */
+
 	/**
 	 * Fallback: list resources (rooms) using Places API when no group is configured.
 	 *
@@ -1509,9 +1481,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Re-enable failed events for Outlook bridge
-	 */
+
 	/**
 	 * Re-enable mappings in error state for the Outlook bridge by setting them to pending.
 	 *
@@ -1569,9 +1539,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		return $results;
 	}
 
-	/**
-	 * Process pending synchronizations for Outlook bridge
-	 */
+
 	/**
 	 * Process pending sync mappings where Outlook is involved.
 	 *
@@ -1643,9 +1611,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Process pending sync where Outlook bridge is the source
-	 */
+
 	/**
 	 * Handle a pending sync when Outlook is the source.
 	 *
@@ -1683,9 +1649,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		];
 	}
 
-	/**
-	 * Process pending sync where Outlook bridge is the target
-	 */
+
 	/**
 	 * Handle a pending sync when Outlook is the target.
 	 *
@@ -1704,9 +1668,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		];
 	}
 
-	/**
-	 * Get a single event by ID (helper for sync processing)
-	 */
+
 	/**
 	 * Helper to fetch and map a single Outlook event by ID.
 	 *
