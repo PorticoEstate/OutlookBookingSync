@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Admin • Bridge Configs</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <style>
+      .row { display: flex; gap: 12px; align-items: center; }
+      label { min-width: 120px; display: inline-block; }
+      textarea { width: 100%; height: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .note { color: #666; font-size: 0.9em; }
+      .error { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <h1>Per-tenant Bridge Configs</h1>
+    <p class="note">Configs here override defaults from environment variables. JSON must be valid.</p>
+
+    <section class="row">
+      <label for="tenantSelect">Tenant</label>
+      <select id="tenantSelect"></select>
+      <label for="bridgeName">Bridge</label>
+      <select id="bridgeName">
+        <option value="outlook">outlook</option>
+        <option value="booking_system">booking_system</option>
+      </select>
+      <button id="load">Load</button>
+      <button id="save">Save</button>
+    </section>
+
+    <section>
+      <h3>Config JSON</h3>
+      <textarea id="configBox" placeholder='{"client_id":"..."}'></textarea>
+      <div id="msg" class="note"></div>
+    </section>
+
+    <script>
+      function setMsg(text, isError=false){
+        const el = document.getElementById('msg');
+        el.textContent = text || ''; el.className = isError ? 'error' : 'note';
+      }
+      async function fetchJSON(url, opts={}){
+        const headers = opts.headers || {};
+        headers['api_key'] = localStorage.api_key || '';
+        if(!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+        opts.headers = headers;
+        const res = await fetch(url, opts);
+        let data; try { data = await res.json(); } catch { data = null; }
+        if(!res.ok){ throw new Error((data && data.error) || res.statusText); }
+        return data;
+      }
+      async function loadTenants(){
+        const data = await fetchJSON('/admin/tenants');
+        const sel = document.getElementById('tenantSelect');
+        sel.innerHTML = data.tenants.map(t => `<option value="${t.id}">${t.id} — ${t.name}</option>`).join('');
+      }
+      async function loadConfig(){
+        setMsg('');
+        const id = document.getElementById('tenantSelect').value;
+        const bridge = document.getElementById('bridgeName').value;
+        if(!id || !bridge){ setMsg('Select tenant and bridge', true); return; }
+        try{
+          const res = await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/configs/${encodeURIComponent(bridge)}`);
+          const cfg = res.config_data || {};
+          document.getElementById('configBox').value = JSON.stringify(cfg, null, 2);
+        }catch(e){
+          document.getElementById('configBox').value = '';
+          setMsg('No config found or error: ' + e.message);
+        }
+      }
+      async function saveConfig(){
+        setMsg('');
+        const id = document.getElementById('tenantSelect').value;
+        const bridge = document.getElementById('bridgeName').value;
+        let text = document.getElementById('configBox').value.trim();
+        if(!text) text = '{}';
+        let parsed; try { parsed = JSON.parse(text); } catch(e){ setMsg('Invalid JSON: ' + e.message, true); return; }
+        try{
+          await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/configs/${encodeURIComponent(bridge)}`, { method: 'PUT', body: JSON.stringify(parsed) });
+          setMsg('Saved successfully.');
+        }catch(e){ setMsg('Save failed: ' + e.message, true); }
+      }
+      document.getElementById('load').addEventListener('click', loadConfig);
+      document.getElementById('save').addEventListener('click', saveConfig);
+      loadTenants().then(loadConfig).catch(err => setMsg('Failed to load tenants: ' + err.message, true));
+    </script>
+  </body>
+  </html>

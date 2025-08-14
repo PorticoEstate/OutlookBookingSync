@@ -123,6 +123,49 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - The dashboard prompts for the API key on first load and stores it in your browser. Press Ctrl+K to update it.
 - For curl or scripts, send the header: `api_key: <your key>`.
 
+#### Multi-tenant authentication
+
+- Requests are scoped by a resolved `tenant_id` (from route `tenantId`, header `X-Tenant-Id`, or `DEFAULT_TENANT_ID`).
+- API keys can be:
+  - Global: the `API_KEY` from environment (backward compatible; also used for admin endpoints).
+  - Per-tenant: either configured via environment JSON map `TENANT_API_KEYS_JSON` (development) or securely stored hashed in DB (`tenant_api_keys`).
+- The middleware validates in this order: per-tenant env map → per-tenant DB hash (password_verify) → global API key.
+- Webhook endpoints are exempt from API key checks (Graph validation flow), all others require a key.
+
+#### Admin UI
+
+- Minimal admin pages are provided under `/public`:
+  - `/admin-tenants.html` — list/create/delete tenants and rotate keys (shortcut to rotation)
+  - `/admin-keys.html` — view key metadata and rotate keys (plaintext shown once)
+  - `/admin-configs.html` — view/edit per-tenant bridge configs (JSON)
+- These pages require the global admin API key in the browser: set once via dashboard (Ctrl+K) or console: `localStorage.api_key = 'your-admin-key'`.
+
+#### Admin API quick examples
+
+```bash
+# List tenants
+curl -H "api_key: $API_KEY" http://localhost:8082/admin/tenants | jq
+
+# Create tenant
+curl -X POST -H "api_key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"tenantA","name":"Tenant A","active":true}' \
+  http://localhost:8082/admin/tenants | jq
+
+# Rotate API key (plaintext returned once)
+curl -X POST -H "api_key: $API_KEY" http://localhost:8082/admin/tenants/tenantA/keys/rotate | jq
+
+# Get key metadata (no secret)
+curl -H "api_key: $API_KEY" http://localhost:8082/admin/tenants/tenantA/keys/metadata | jq
+
+# Upsert per-tenant bridge config
+curl -X PUT -H "api_key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"client_id":"xxx","client_secret":"yyy"}' \
+  http://localhost:8082/admin/tenants/tenantA/configs/outlook | jq
+
+# Get per-tenant bridge config
+curl -H "api_key: $API_KEY" http://localhost:8082/admin/tenants/tenantA/configs/outlook | jq
+```
+
 ### Maintenance: sync log retention
 
 - Endpoint: `POST /maintenance/cleanup-logs?days=30` removes old rows from `bridge_sync_logs` (defaults to 30 days if omitted).

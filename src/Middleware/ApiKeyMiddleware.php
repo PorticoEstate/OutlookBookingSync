@@ -27,6 +27,8 @@ class ApiKeyMiddleware
 
 		$apiKey = $request->getHeaderLine('api_key');
 		$tenantId = $request->getAttribute('tenant_id');
+		/** @var \PDO|null $db */
+		$db = $request->getAttribute('db');
 
 		// 1) Per-tenant API key map via env var (JSON: {"tenantA":"key1"})
 		$tenantKeyValid = false;
@@ -35,6 +37,20 @@ class ApiKeyMiddleware
 			$map = json_decode($mapJson, true);
 			if (is_array($map) && isset($map[$tenantId])) {
 				$tenantKeyValid = hash_equals((string)$map[$tenantId], (string)$apiKey);
+			}
+		}
+
+		// 1b) Check DB-stored hashed API key if available (tenant_api_keys)
+		if (!$tenantKeyValid && $tenantId && $db instanceof \PDO && $apiKey !== '') {
+			try {
+				$stmt = $db->prepare('SELECT api_key_hash FROM tenant_api_keys WHERE tenant_id = :id');
+				$stmt->execute([':id' => $tenantId]);
+				$row = $stmt->fetch(\PDO::FETCH_ASSOC);
+				if ($row && isset($row['api_key_hash'])) {
+					$tenantKeyValid = password_verify((string)$apiKey, (string)$row['api_key_hash']);
+				}
+			} catch (\Throwable $e) {
+				// On DB error, do not disclose details; fall back to other methods
 			}
 		}
 

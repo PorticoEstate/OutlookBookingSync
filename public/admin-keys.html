@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Admin • API Keys</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <style>
+      .row { display: flex; gap: 12px; align-items: center; }
+      label { min-width: 120px; display: inline-block; }
+      textarea { width: 100%; height: 120px; }
+      .note { color: #666; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <h1>Tenant API Keys</h1>
+    <p class="note">Use a global admin API key in your browser: localStorage.api_key must be set. You can set it on the dashboard (Ctrl+K) or via the console: <code>localStorage.api_key = 'your-admin-key'</code>.</p>
+
+    <section class="row">
+      <label for="tenantSelect">Tenant</label>
+      <select id="tenantSelect"></select>
+      <button id="refreshMeta">Refresh metadata</button>
+      <button id="rotate">Rotate key</button>
+    </section>
+
+    <section>
+      <h3>Key metadata</h3>
+      <pre id="meta">Select a tenant and click Refresh metadata…</pre>
+      <p class="note">The plaintext key is only shown once immediately after rotation. Copy and store it securely.</p>
+    </section>
+
+    <script>
+      async function fetchJSON(url, opts={}){
+        const headers = opts.headers || {};
+        headers['api_key'] = localStorage.api_key || '';
+        opts.headers = headers;
+        const res = await fetch(url, opts);
+        let data; try { data = await res.json(); } catch { data = null; }
+        if(!res.ok){ throw new Error((data && data.error) || res.statusText); }
+        return data;
+      }
+
+      async function loadTenants(){
+        const data = await fetchJSON('/admin/tenants');
+        const sel = document.getElementById('tenantSelect');
+        sel.innerHTML = data.tenants.map(t => `<option value="${t.id}">${t.id} — ${t.name}</option>`).join('');
+      }
+
+      async function refreshMetadata(){
+        const id = document.getElementById('tenantSelect').value;
+        if(!id) return;
+        try {
+          const meta = await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/keys/metadata`);
+          document.getElementById('meta').textContent = JSON.stringify(meta, null, 2);
+        } catch(e){
+          document.getElementById('meta').textContent = 'No key metadata found or error: ' + e.message;
+        }
+      }
+
+      async function rotate(){
+        const id = document.getElementById('tenantSelect').value;
+        if(!id) return;
+        if(!confirm(`Rotate API key for tenant ${id}? Old key will stop working immediately.`)) return;
+        const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/keys/rotate`, { method:'POST' });
+        alert('New API key (copy now):\n' + data.api_key);
+        refreshMetadata();
+      }
+
+      document.getElementById('refreshMeta').addEventListener('click', refreshMetadata);
+      document.getElementById('rotate').addEventListener('click', rotate);
+
+      loadTenants().then(refreshMetadata).catch(err => {
+        document.getElementById('meta').textContent = 'Failed to load tenants: ' + err.message;
+      });
+    </script>
+  </body>
+  </html>

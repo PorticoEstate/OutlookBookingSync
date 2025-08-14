@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Admin • Tenants</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+  </head>
+  <body>
+    <h1>Tenants</h1>
+    <nav>
+      <a href="/admin-keys.html">API Keys</a> ·
+      <a href="/admin-configs.html">Bridge Configs</a>
+    </nav>
+    <section>
+      <form id="createTenantForm">
+        <input name="id" placeholder="tenant id" required />
+        <input name="name" placeholder="name" required />
+        <label><input type="checkbox" name="active" checked /> Active</label>
+        <button type="submit">Create</button>
+      </form>
+    </section>
+    <section>
+      <table id="tenants"></table>
+    </section>
+    <script>
+      async function loadTenants(){
+        const res = await fetch('/admin/tenants', { headers: { 'api_key': localStorage.api_key || '' }});
+        const data = await res.json();
+        const tbl = document.getElementById('tenants');
+        tbl.innerHTML = '<tr><th>id</th><th>name</th><th>active</th><th>created</th><th>actions</th></tr>' +
+          data.tenants.map(t => `<tr><td>${t.id}</td><td>${t.name}</td><td>${t.active}</td><td>${t.created_at||''}</td><td>
+            <button onclick="rotate('${t.id}')">Rotate key</button>
+            <button onclick="delTenant('${t.id}')">Delete</button>
+          </td></tr>`).join('');
+      }
+      document.getElementById('createTenantForm').addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const body = { id: fd.get('id'), name: fd.get('name'), active: fd.get('active')==='on' };
+        await fetch('/admin/tenants', { method:'POST', headers: { 'Content-Type':'application/json','api_key': localStorage.api_key||'' }, body: JSON.stringify(body)});
+        loadTenants();
+      });
+      async function rotate(id){
+        const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers: { 'api_key': localStorage.api_key || '' }});
+        const data = await res.json();
+        alert('New API key (copy now):\n' + data.api_key);
+      }
+      async function delTenant(id){
+        if(!confirm('Delete tenant '+id+'?')) return;
+        await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers: { 'api_key': localStorage.api_key || '' }});
+        loadTenants();
+      }
+      loadTenants();
+    </script>
+  </body>
+</html>

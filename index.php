@@ -159,6 +159,11 @@ $container->set(\App\Controller\MaintenanceController::class, function () use ($
     return new \App\Controller\MaintenanceController($container->get('db'), $container->get('logger'), $container->get('bridgeManager'));
 });
 
+$container->set(\App\Controller\AdminController::class, function () use ($container)
+{
+    return new \App\Controller\AdminController($container->get('db'));
+});
+
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
@@ -227,6 +232,17 @@ $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAl
 $app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::class, 'cleanupLogs']);
 // Renew expiring webhook subscriptions
 $app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceController::class, 'renewSubscriptions']);
+
+// Admin API routes (CRUD tenants, rotate keys, manage configs)
+$app->get('/admin/tenants', [\App\Controller\AdminController::class, 'listTenants']);
+$app->post('/admin/tenants', [\App\Controller\AdminController::class, 'createTenant']);
+$app->get('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'getTenant']);
+$app->put('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'updateTenant']);
+$app->delete('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'deleteTenant']);
+$app->post('/admin/tenants/{tenantId}/keys/rotate', [\App\Controller\AdminController::class, 'rotateApiKey']);
+$app->get('/admin/tenants/{tenantId}/keys/metadata', [\App\Controller\AdminController::class, 'getKeyMetadata']);
+$app->put('/admin/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'upsertBridgeConfig']);
+$app->get('/admin/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'getBridgeConfig']);
 
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
 
