@@ -7,7 +7,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use PDO;
 
 /**
- * ResourceMappingController handles resource mapping between booking system and calendar systems
+ * ResourceMappingController handles resource mapping between booking system and calendar systems.
  */
 class ResourceMappingController
 {
@@ -19,8 +19,12 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Get all resource mappings
+	 * Get all resource mappings.
 	 * GET /mappings/resources
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @return Response
 	 */
 	public function getResourceMappings(Request $request, Response $response): Response
 	{
@@ -107,8 +111,12 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Create new resource mapping
+	 * Create new resource mapping.
 	 * POST /mappings/resources
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @return Response
 	 */
 	public function createResourceMapping(Request $request, Response $response): Response
 	{
@@ -201,8 +209,13 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Update existing resource mapping
+	 * Update existing resource mapping.
 	 * PUT /mappings/resources/{id}
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args Must include id
+	 * @return Response
 	 */
 	public function updateResourceMapping(Request $request, Response $response, array $args): Response
 	{
@@ -301,8 +314,13 @@ class ResourceMappingController
 
 
 	/**
-	 * Delete resource mapping by composite key (bridge_from, source_calendar_id, target_calendar_id)
+	 * Delete resource mapping by composite key (bridge_from, source_calendar_id, target_calendar_id).
 	 * DELETE /mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args Must include bridge_from, source_calendar_id, target_calendar_id
+	 * @return Response
 	 */
 	public function deleteResourceMappingByKey(Request $request, Response $response, array $args): Response
 	{
@@ -407,8 +425,13 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Get resource mapping by booking system resource ID
+	 * Get resource mapping by booking system resource ID.
 	 * GET /mappings/resources/by-resource/{source_calendar_id}
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args Must include source_calendar_id
+	 * @return Response
 	 */
 	public function getResourceMappingByResource(Request $request, Response $response, array $args): Response
 	{
@@ -454,8 +477,13 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Sync resource mapping - trigger sync for specific resource
+	 * Sync resource mapping - trigger sync for specific resource.
 	 * POST /mappings/resources/{id}/sync
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args Must include id
+	 * @return Response
 	 */
 	public function syncResourceMapping(Request $request, Response $response, array $args): Response
 	{
@@ -521,8 +549,13 @@ class ResourceMappingController
 	}
 
 	/**
-	 * Legacy method for backward compatibility
+	 * Legacy method for backward compatibility.
 	 * GET /mappings (redirects to /mappings/resources)
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args
+	 * @return Response
 	 */
 	public function getMapping(Request $request, Response $response, array $args): Response
 	{

@@ -4,17 +4,33 @@ namespace App\Services;
 
 use PDO;
 
+/**
+ * SyncLogService persists operational sync metrics and events to bridge_sync_logs.
+ */
 class SyncLogService
 {
 	private PDO $db;
 
+	/**
+	 * @param PDO $db Database connection
+	 */
 	public function __construct(PDO $db)
 	{
 		$this->db = $db;
 	}
 
 	/**
-	 * Write a sync log entry to bridge_sync_logs
+	 * Write a sync log entry to bridge_sync_logs.
+	 *
+	 * @param string $operation E.g., sync, dry_run, update, delete
+	 * @param string $sourceBridge
+	 * @param string $targetBridge
+	 * @param string $status success|error|pending
+	 * @param int $eventCount Count of events processed
+	 * @param array $details Arbitrary details to persist (JSON)
+	 * @param int|null $durationMs Optional duration in ms
+	 * @param string|null $errorMessage Optional error text
+	 * @param string|null $tenantId Optional tenant identifier
 	 */
 	public function write(
 		string $operation,

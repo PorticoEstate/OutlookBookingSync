@@ -6,11 +6,18 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use PDO;
 use Exception;
 
+/**
+ * HealthController exposes endpoints and helpers for system health, metrics, and monitoring.
+ */
 class HealthController
 {
     private $db;
     private $logger;
 
+    /**
+     * @param PDO $db Database connection
+     * @param mixed|null $logger PSR-3 logger (optional)
+     */
     public function __construct(PDO $db, $logger = null)
     {
         $this->db = $db;
@@ -18,7 +25,12 @@ class HealthController
     }
 
     /**
-     * Comprehensive system health check
+     * Comprehensive system health check.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function getSystemHealth(Request $request, Response $response, $args)
     {
@@ -72,7 +84,12 @@ class HealthController
     }
 
     /**
-     * Quick health check for load balancers
+     * Quick health check for load balancers.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function getQuickHealth(Request $request, Response $response, $args)
     {
@@ -102,7 +119,12 @@ class HealthController
     }
 
     /**
-     * Get system monitoring dashboard data
+     * Get system monitoring dashboard data.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function getDashboardData(Request $request, Response $response, $args)
     {
@@ -135,7 +157,10 @@ class HealthController
     }
 
     /**
-     * Check database connectivity and performance
+     * Check database connectivity and performance.
+     *
+     * @param string|null $tenantId Tenant identifier for scoping counts (optional)
+     * @return array{status:string,response_time_ms?:float,total_mappings?:int,active_queries?:int,warnings?:array,message?:string}
      */
     private function checkDatabase(?string $tenantId = null)
     {
@@ -196,7 +221,10 @@ class HealthController
     }
 
     /**
-     * Check Outlook connectivity
+     * Check Outlook connectivity.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array{status:string,message?:string,recent_syncs?:int,credentials_configured?:bool}
      */
     private function checkOutlookConnectivity(?string $tenantId = null)
     {
@@ -241,7 +269,10 @@ class HealthController
     }
 
     /**
-     * Check cron job status
+     * Check cron job status.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array{status:string,cron_daemon_running?:bool,recent_automated_syncs?:int,last_automated_sync?:string,warnings?:array,message?:string}
      */
     private function checkCronJobs(?string $tenantId = null)
     {
@@ -291,7 +322,9 @@ class HealthController
     }
 
     /**
-     * Check disk space
+     * Check disk space.
+     *
+     * @return array{status:string,usage_percent?:float,free_space_gb?:float,total_space_gb?:float,message?:string}
      */
     private function checkDiskSpace()
     {
@@ -324,7 +357,9 @@ class HealthController
     }
 
     /**
-     * Check memory usage
+     * Check memory usage.
+     *
+     * @return array{status:string,usage_percent?:float,current_usage_mb?:float,memory_limit?:string,message?:string}
      */
     private function checkMemoryUsage()
     {
@@ -359,7 +394,10 @@ class HealthController
     }
 
     /**
-     * Check sync status with detailed breakdown
+     * Check sync status with detailed breakdown.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function checkSyncStatus(?string $tenantId = null)
     {
@@ -453,7 +491,10 @@ class HealthController
     }
 
     /**
-     * Check recent errors
+     * Check recent errors.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function checkRecentErrors(?string $tenantId = null)
     {
@@ -491,7 +532,9 @@ class HealthController
     }
 
     /**
-     * Get system uptime
+     * Get system uptime.
+     *
+     * @return string
      */
     private function getSystemUptime()
     {
@@ -504,7 +547,9 @@ class HealthController
     }
 
     /**
-     * Get system overview
+     * Get system overview.
+     *
+     * @return array
      */
     private function getSystemOverview()
     {
@@ -585,7 +630,10 @@ class HealthController
     }
 
     /**
-     * Get all sync statistics
+     * Get all sync statistics.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function getAllSyncStatistics(?string $tenantId = null)
     {
@@ -604,7 +652,10 @@ class HealthController
     }
 
     /**
-     * Get recent activity
+     * Get recent activity.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function getRecentActivity(?string $tenantId = null)
     {
@@ -622,7 +673,9 @@ class HealthController
     }
 
     /**
-     * Get performance metrics
+     * Get performance metrics.
+     *
+     * @return array
      */
     private function getPerformanceMetrics()
     {
@@ -641,7 +694,10 @@ class HealthController
     }
 
     /**
-     * Get error summary
+     * Get error summary.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function getErrorSummary(?string $tenantId = null)
     {
@@ -659,7 +715,9 @@ class HealthController
     }
 
     /**
-     * Get cron status
+     * Get cron status.
+     *
+     * @return array
      */
     private function getCronStatus()
     {
@@ -685,7 +743,9 @@ class HealthController
     }
 
     /**
-     * Get database connections
+     * Get database connections.
+     *
+     * @return int Active database connections count
      */
     private function getDatabaseConnections()
     {
@@ -703,7 +763,9 @@ class HealthController
     }
 
     /**
-     * Get sync throughput
+     * Get sync throughput.
+     *
+     * @return array{syncs_last_hour:int,syncs_per_minute:float}
      */
     private function getSyncThroughput()
     {
@@ -724,7 +786,10 @@ class HealthController
     }
 
     /**
-     * Convert memory limit string to bytes
+     * Convert memory limit string to bytes.
+     *
+     * @param string $memoryLimit e.g., 512M, 2G
+     * @return int Bytes
      */
     private function convertToBytes($memoryLimit)
     {
@@ -745,7 +810,12 @@ class HealthController
     }
 
     /**
-     * Get detailed sync status for monitoring
+     * Get detailed sync status for monitoring.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function getSyncStatusDetails(Request $request, Response $response, $args)
     {
@@ -776,7 +846,12 @@ class HealthController
     }
     
     /**
-     * Re-enable failed events endpoint
+     * Re-enable failed events endpoint.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function reEnableFailedEvents(Request $request, Response $response, $args)
     {
@@ -833,7 +908,9 @@ class HealthController
     }
     
     /**
-     * Get bridge-specific sync stats
+     * Get bridge-specific sync stats.
+     *
+     * @return array
      */
     private function getBridgeSyncStats()
     {
@@ -873,7 +950,9 @@ class HealthController
     }
     
     /**
-     * Get retry analysis
+     * Get retry analysis.
+     *
+     * @return array
      */
     private function getRetryAnalysis()
     {
@@ -914,7 +993,9 @@ class HealthController
     }
     
     /**
-     * Get cancellation statistics
+     * Get cancellation statistics.
+     *
+     * @return array
      */
     private function getCancellationStats()
     {
@@ -943,7 +1024,10 @@ class HealthController
     }
     
     /**
-     * Get sync performance metrics
+     * Get sync performance metrics.
+     *
+     * @param string|null $tenantId Tenant identifier (optional)
+     * @return array
      */
     private function getSyncPerformanceMetrics(?string $tenantId = null)
     {

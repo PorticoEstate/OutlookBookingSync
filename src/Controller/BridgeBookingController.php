@@ -15,12 +15,21 @@ use PDO;
  * booking system integration using the generic bridge pattern instead of
  * direct database table access.
  */
+/**
+ * BridgeBookingController orchestrates queue processing and operations using
+ * the generic BridgeManager against the booking system.
+ */
 class BridgeBookingController
 {
     private $bridgeManager;
     private $logger;
     private $db;
     
+    /**
+     * @param BridgeManager $bridgeManager
+     * @param LoggerInterface $logger
+     * @param PDO $db
+     */
     public function __construct(BridgeManager $bridgeManager, LoggerInterface $logger, PDO $db)
     {
         $this->bridgeManager = $bridgeManager;
@@ -29,7 +38,12 @@ class BridgeBookingController
     }
     
     /**
-     * Process pending bridge sync operations (replaces processImportedEvents)
+     * Process pending bridge sync operations (replaces processImportedEvents).
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function processPendingSyncs(Request $request, Response $response, $args)
     {
@@ -91,7 +105,12 @@ class BridgeBookingController
     
     
     /**
-     * Get pending bridge operations from queue
+     * Get pending bridge operations from queue.
+     *
+     * @param int $limit
+     * @param string|null $bridgeType
+     * @param string|null $tenantId
+     * @return array
      */
     private function getPendingBridgeOperations($limit = 50, $bridgeType = null, ?string $tenantId = null): array
     {
@@ -123,7 +142,10 @@ class BridgeBookingController
     }
     
     /**
-     * Process a single bridge operation
+     * Process a single bridge operation.
+     *
+     * @param array $operation
+     * @return array
      */
     private function processBridgeOperation($operation): array
     {
@@ -145,7 +167,11 @@ class BridgeBookingController
     }
     
     /**
-     * Process sync operation using bridge manager
+     * Process sync operation using bridge manager.
+     *
+     * @param array $operation
+     * @param array $payload
+     * @return array
      */
     private function processSyncOperation($operation, $payload): array
     {
@@ -177,7 +203,11 @@ class BridgeBookingController
     }
     
     /**
-     * Process webhook operation
+     * Process webhook operation.
+     *
+     * @param array $operation
+     * @param array $payload
+     * @return array
      */
     private function processWebhookOperation($operation, $payload): array
     {
@@ -200,7 +230,11 @@ class BridgeBookingController
     }
     
     /**
-     * Process deletion operation
+     * Process deletion operation.
+     *
+     * @param array $operation
+     * @param array $payload
+     * @return array
      */
     private function processDeletionOperation($operation, $payload): array
     {
@@ -228,7 +262,11 @@ class BridgeBookingController
     }
     
     /**
-     * Mark operation as completed
+     * Mark operation as completed.
+     *
+     * @param int $operationId
+     * @param array $result
+     * @return void
      */
     private function markOperationCompleted($operationId, $result)
     {
@@ -245,7 +283,11 @@ class BridgeBookingController
     }
     
     /**
-     * Mark operation as failed
+     * Mark operation as failed.
+     *
+     * @param int $operationId
+     * @param string $errorMessage
+     * @return void
      */
     private function markOperationFailed($operationId, $errorMessage)
     {
@@ -268,7 +310,12 @@ class BridgeBookingController
  
 
     /**
-     * Find bridge mapping by event details
+     * Find bridge mapping by event details.
+     *
+     * @param string $eventId
+     * @param string $calendarId
+     * @param string|null $tenantId
+     * @return array|null
      */
     private function findBridgeMapping($eventId, $calendarId, ?string $tenantId = null): ?array
     {
@@ -289,7 +336,11 @@ class BridgeBookingController
     }
     
     /**
-     * Delete bridge mapping
+     * Delete bridge mapping.
+     *
+     * @param int $mappingId
+     * @param string|null $tenantId
+     * @return void
      */
     private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
     {

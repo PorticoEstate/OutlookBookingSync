@@ -5,11 +5,18 @@ namespace App\Services;
 use PDO;
 use Exception;
 
+/**
+ * AlertService handles creation, detection, persistence, and notification of system alerts.
+ */
 class AlertService
 {
 	private $db;
 	private $logger;
 
+	/**
+	 * @param PDO $db Database connection instance
+	 * @param mixed|null $logger Optional PSR-3 compatible logger
+	 */
 	public function __construct(PDO $db, $logger = null)
 	{
 		$this->db = $db;
@@ -17,7 +24,9 @@ class AlertService
 	}
 
 	/**
-	 * Check system health and trigger alerts if needed
+	 * Check system health and trigger alerts if needed.
+	 *
+	 * @return array{success:bool,alerts_triggered?:int,alerts?:array,error?:string} Summary of alert checks
 	 */
 	public function checkAndAlert()
 	{
@@ -83,7 +92,9 @@ class AlertService
 	}
 
 	/**
-	 * Check error rate over the last hour
+	 * Check error rate over the last hour.
+	 *
+	 * @return array|null Structured alert on elevated error rates, or null when healthy
 	 */
 	private function checkErrorRate()
 	{
@@ -143,7 +154,9 @@ class AlertService
 	}
 
 	/**
-	 * Check for stalled sync operations
+	 * Check for stalled sync operations.
+	 *
+	 * @return array|null Structured alert when stalled operations exceed threshold, otherwise null
 	 */
 	private function checkStalledSyncs()
 	{
@@ -181,7 +194,9 @@ class AlertService
 	}
 
 	/**
-	 * Check database health
+	 * Check database health.
+	 *
+	 * @return array|null Structured alert when DB is slow/unavailable, otherwise null
 	 */
 	private function checkDatabaseHealth()
 	{
@@ -230,7 +245,9 @@ class AlertService
 	}
 
 	/**
-	 * Check cron job activity
+	 * Check cron job activity.
+	 *
+	 * @return array|null Structured alert when no automated activity is detected, otherwise null
 	 */
 	private function checkCronActivity()
 	{
@@ -270,7 +287,10 @@ class AlertService
 	}
 
 	/**
-	 * Process an individual alert
+	 * Process an individual alert.
+	 *
+	 * @param array $alert The alert payload with type, severity, message, and optional data
+	 * @return void
 	 */
 	private function processAlert($alert)
 	{
@@ -313,7 +333,10 @@ class AlertService
 	}
 
 	/**
-	 * Store alert in database
+	 * Store alert in database.
+	 *
+	 * @param array $alert Alert payload to persist
+	 * @return void
 	 */
 	private function storeAlert($alert)
 	{
@@ -352,7 +375,10 @@ class AlertService
 	}
 
 	/**
-	 * Send critical alert notifications
+	 * Send critical alert notifications.
+	 *
+	 * @param array $alert Alert payload
+	 * @return void
 	 */
 	private function sendCriticalAlert($alert)
 	{
@@ -371,7 +397,10 @@ class AlertService
 	}
 
 	/**
-	 * Send warning alert notifications
+	 * Send warning alert notifications.
+	 *
+	 * @param array $alert Alert payload
+	 * @return void
 	 */
 	private function sendWarningAlert($alert)
 	{
@@ -389,7 +418,11 @@ class AlertService
 	}
 
 	/**
-	 * Send webhook notification
+	 * Send webhook notification.
+	 *
+	 * @param array $alert Alert payload
+	 * @param string $urgency Notification urgency channel
+	 * @return void
 	 */
 	private function sendWebhookNotification($alert, $urgency)
 	{
@@ -453,7 +486,10 @@ class AlertService
 	}
 
 	/**
-	 * Get recent alerts
+	 * Get recent alerts.
+	 *
+	 * @param int $hours Window in hours to look back
+	 * @return array{success:bool,alerts?:array,error?:string}
 	 */
 	public function getRecentAlerts($hours = 24)
 	{
@@ -496,7 +532,10 @@ class AlertService
 	}
 
 	/**
-	 * Clear old alerts
+	 * Clear old alerts.
+	 *
+	 * @param int $days Days to retain alerts; older entries are deleted
+	 * @return array{success:bool,deleted_count?:int,error?:string}
 	 */
 	public function clearOldAlerts($days = 7)
 	{

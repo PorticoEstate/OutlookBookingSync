@@ -8,12 +8,21 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
 use PDO;
 
+/**
+ * BridgeController provides endpoints to interact with bridges: listing, syncing,
+ * webhook handling, subscriptions, resources, diagnostics, and metrics.
+ */
 class BridgeController
 {
     private $bridgeManager;
     private $logger;
     private $db;
     
+    /**
+     * @param BridgeManager $bridgeManager Bridge orchestrator
+     * @param LoggerInterface $logger Logger
+     * @param PDO $db Database connection
+     */
     public function __construct(BridgeManager $bridgeManager, LoggerInterface $logger, PDO $db)
     {
         $this->bridgeManager = $bridgeManager;
@@ -22,7 +31,12 @@ class BridgeController
     }
     
     /**
-     * List all available bridges
+     * List all available bridges.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function listBridges(Request $request, Response $response, $args)
     {
@@ -50,7 +64,12 @@ class BridgeController
     }
     
     /**
-     * Get calendars for a specific bridge
+    * Get calendars for a specific bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function getCalendars(Request $request, Response $response, $args)
     {
@@ -87,7 +106,12 @@ class BridgeController
     }
     
     /**
-     * Sync between two bridges
+    * Sync between two bridges.
+    *
+    * @param Request $request Body or query may include start_date, end_date, dry_run, handle_deletions
+    * @param Response $response
+    * @param array $args Must include sourceBridge and targetBridge
+    * @return Response
      */
     public function syncBridges(Request $request, Response $response, $args)
     {
@@ -302,7 +326,12 @@ class BridgeController
     }
     
     /**
-     * Handle webhook from any bridge
+    * Handle webhook from any bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function handleWebhook(Request $request, Response $response, $args)
     {
@@ -374,7 +403,10 @@ class BridgeController
     }
 
     /**
-     * Process Microsoft Graph webhook notifications for deletions
+     * Process Microsoft Graph webhook notifications for deletions.
+     *
+     * @param array $notifications Raw Graph notification payloads
+     * @return void
      */
     private function processMicrosoftGraphNotifications($notifications)
     {
@@ -398,7 +430,11 @@ class BridgeController
     }
 
     /**
-     * Queue a deletion check operation
+     * Queue a deletion check operation.
+     *
+     * @param string $calendarId Outlook calendar/user ID
+     * @param string $eventId Outlook event ID
+     * @return void
      */
     private function queueDeletionCheck($calendarId, $eventId)
     {
@@ -437,7 +473,12 @@ class BridgeController
     }
     
     /**
-     * Create webhook subscriptions for a bridge
+    * Create webhook subscriptions for a bridge.
+    *
+    * @param Request $request JSON body may include webhook_url and calendar_ids[]
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function createSubscriptions(Request $request, Response $response, $args)
     {
@@ -502,7 +543,12 @@ class BridgeController
     }
     
     /**
-     * Get health status of all bridges
+    * Get health status of all bridges.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function getHealthStatus(Request $request, Response $response, $args)
     {
@@ -553,7 +599,16 @@ class BridgeController
     }
     
     /**
-     * Perform dry run sync to see what would happen
+    * Perform dry run sync to see what would happen.
+    *
+    * @param string $tenantId Tenant identifier
+    * @param string $sourceBridge Source bridge name
+    * @param string $targetBridge Target bridge name
+    * @param string $sourceCalendarId Source calendar/resource ID
+    * @param string $targetCalendarId Target calendar/resource ID
+    * @param string $startDate ISO date
+    * @param string $endDate ISO date
+    * @return array
      */
     private function performDryRun(string $tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
     {
@@ -571,8 +626,11 @@ class BridgeController
     }
     
     /**
-     * Determine target bridge for webhook
-     */
+    * Determine target bridge for webhook.
+    *
+    * @param string $sourceBridge
+    * @return string|null Target bridge name or null if unknown
+    */
     private function determineTargetBridge($sourceBridge)
     {
         // Simple mapping - can be made configurable
@@ -585,8 +643,14 @@ class BridgeController
     }
     
     /**
-     * Queue sync operation for async processing
-     */
+    * Queue sync operation for async processing.
+    *
+    * @param string $sourceBridge
+    * @param string|null $targetBridge
+    * @param array $webhookData Payload
+    * @param string|null $tenantId Tenant identifier
+    * @return void
+    */
     private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         // Add to Redis queue if available, otherwise use database queue
@@ -620,8 +684,14 @@ class BridgeController
     }
     
     /**
-     * Fallback queue to database
-     */
+    * Fallback queue to database.
+    *
+    * @param string $sourceBridge
+    * @param string|null $targetBridge
+    * @param array $webhookData
+    * @param string|null $tenantId Tenant identifier
+    * @return void
+    */
     private function queueToDatabase($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         try {
@@ -646,8 +716,11 @@ class BridgeController
     }
     
     /**
-     * Get default webhook URL for a bridge
-     */
+    * Get default webhook URL for a bridge.
+    *
+    * @param string $bridgeName
+    * @return string
+    */
     private function getDefaultWebhookUrl($bridgeName)
     {
         $baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
@@ -655,8 +728,13 @@ class BridgeController
     }
     
     /**
-     * Trigger manual deletion sync check
-     * POST /bridges/sync-deletions
+    * Trigger manual deletion sync check.
+    * POST /bridges/sync-deletions
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function syncDeletions(Request $request, Response $response, $args)
     {
@@ -690,8 +768,13 @@ class BridgeController
     }
 
     /**
-     * Process deletion check queue
-     * POST /bridges/process-deletion-queue
+    * Process deletion check queue.
+    * POST /bridges/process-deletion-queue
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function processDeletionQueue(Request $request, Response $response, $args)
     {
@@ -725,7 +808,12 @@ class BridgeController
     }
     
     /**
-     * Get available resources for a specific bridge
+    * Get available resources for a specific bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function getAvailableResources(Request $request, Response $response, $args)
     {
@@ -803,7 +891,12 @@ class BridgeController
     }
     
     /**
-     * Get available groups/collections for a specific bridge
+    * Get available groups/collections for a specific bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function getAvailableGroups(Request $request, Response $response, $args)
     {
@@ -881,7 +974,12 @@ class BridgeController
     }
     
     /**
-     * Get calendar items for a specific resource on a bridge
+    * Get calendar items for a specific resource on a bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName and resourceId
+    * @return Response
      */
     public function getResourceCalendarItems(Request $request, Response $response, $args)
     {
@@ -967,7 +1065,12 @@ class BridgeController
     }
 
     /**
-     * Get session diagnostics for debugging
+    * Get session diagnostics for debugging.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function getSessionDiagnostics(Request $request, Response $response, $args)
     {
@@ -1015,7 +1118,12 @@ class BridgeController
     }
 
     /**
-     * Process pending syncs for a specific bridge or all bridges
+    * Process pending syncs for a specific bridge or all bridges.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function processPendingSyncs(Request $request, Response $response, $args)
     {
@@ -1051,7 +1159,12 @@ class BridgeController
     }
     
     /**
-     * Re-enable failed events for a bridge
+    * Re-enable failed events for a bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args May include bridgeName
+    * @return Response
      */
     public function reEnableFailedEvents(Request $request, Response $response, $args)
     {
@@ -1087,7 +1200,12 @@ class BridgeController
     }
     
     /**
-     * Get sync statistics for all bridges
+    * Get sync statistics for all bridges.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args May include bridgeName
+    * @return Response
      */
     public function getSyncStats(Request $request, Response $response, $args)
     {
@@ -1133,7 +1251,12 @@ class BridgeController
     }
     
     /**
-     * Get cancelled events for cleanup
+    * Get cancelled events for cleanup.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args May include bridgeName
+    * @return Response
      */
     public function getCancelledEvents(Request $request, Response $response, $args)
     {
@@ -1180,7 +1303,12 @@ class BridgeController
     }
     
     /**
-     * Get events pending sync for a bridge
+    * Get events pending sync for a bridge.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include bridgeName
+    * @return Response
      */
     public function getPendingSyncEvents(Request $request, Response $response, $args)
     {

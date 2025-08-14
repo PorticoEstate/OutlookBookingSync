@@ -7,11 +7,18 @@ use App\Services\AlertService;
 use PDO;
 use Exception;
 
+/**
+ * AlertController exposes endpoints to run and inspect operational alerts.
+ */
 class AlertController
 {
     private $db;
     private $logger;
 
+    /**
+     * @param PDO $db
+     * @param mixed|null $logger
+     */
     public function __construct(PDO $db, $logger = null)
     {
         $this->db = $db;
@@ -19,7 +26,12 @@ class AlertController
     }
 
     /**
-     * Run alert checks
+     * Run alert checks.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
      */
     public function runAlertChecks(Request $request, Response $response, $args)
     {
@@ -40,7 +52,12 @@ class AlertController
     }
 
     /**
-     * Get recent alerts
+    * Get recent alerts.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function getRecentAlerts(Request $request, Response $response, $args)
     {
@@ -64,7 +81,12 @@ class AlertController
     }
 
     /**
-     * Acknowledge an alert
+    * Acknowledge an alert.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args Must include id
+    * @return Response
      */
     public function acknowledgeAlert(Request $request, Response $response, $args)
     {
@@ -115,7 +137,12 @@ class AlertController
     }
 
     /**
-     * Clear old alerts
+    * Clear old alerts.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function clearOldAlerts(Request $request, Response $response, $args)
     {
@@ -139,7 +166,12 @@ class AlertController
     }
 
     /**
-     * Get alert statistics
+    * Get alert statistics.
+    *
+    * @param Request $request
+    * @param Response $response
+    * @param array $args
+    * @return Response
      */
     public function getAlertStats(Request $request, Response $response, $args)
     {

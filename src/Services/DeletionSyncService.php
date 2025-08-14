@@ -6,14 +6,24 @@ use PDO;
 use Psr\Log\LoggerInterface;
 
 /**
- * DeletionSyncService handles detecting and syncing deleted events between bridges
+ * DeletionSyncService handles detecting and syncing deleted events between bridges.
  */
 class DeletionSyncService
 {
-	private PDO $db;
-	private LoggerInterface $logger;
-	private $bridgeManager;
+	 /** @var PDO Database connection */
+	 private PDO $db;
+	 /** @var LoggerInterface Logger instance */
+	 private LoggerInterface $logger;
+	 /** @var mixed BridgeManager orchestrator */
+	 private $bridgeManager;
 
+	 /**
+	  * Constructor.
+	  *
+	  * @param PDO $db Database connection
+	  * @param LoggerInterface $logger Logger
+	  * @param mixed $bridgeManager BridgeManager instance
+	  */
 	public function __construct(PDO $db, LoggerInterface $logger, $bridgeManager)
 	{
 		$this->db = $db;
@@ -22,7 +32,10 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Process deletion check queue
+	  * Process deletion check queue.
+	  *
+	  * @param string|null $tenantId Tenant scope to process, or null for all
+	  * @return array{processed:int,deletions_found:int,errors:array}
 	 */
 	public function processDeletionChecks(?string $tenantId = null): array
 	{
@@ -77,7 +90,11 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Process a single Outlook deletion check
+	 * Process a single Outlook deletion check.
+	 *
+	 * @param array $checkData Must contain keys: calendar_id, event_id
+	 * @param string|null $tenantId Tenant identifier
+	 * @return bool True if deletion detected and processed, false otherwise
 	 */
 	private function processOutlookDeletionCheck($checkData, ?string $tenantId = null): bool
 	{
@@ -126,7 +143,13 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Get a specific event from Outlook
+	 * Get a specific event from Outlook.
+	 *
+	 * @param mixed $outlookBridge Outlook bridge instance
+	 * @param string $calendarId Outlook user or calendar ID
+	 * @param string $eventId Outlook event ID
+	 * @return array|null Event data if found, null if 404/not found
+	 * @throws \Exception On non-404 errors from Graph
 	 */
 	private function getOutlookEvent($outlookBridge, $calendarId, $eventId)
 	{
@@ -153,7 +176,12 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Handle a deleted Outlook event by syncing the deletion to booking system
+	 * Handle a deleted Outlook event by syncing the deletion to the booking system and cleaning mappings.
+	 *
+	 * @param string $calendarId Outlook calendar ID
+	 * @param string $eventId Outlook event ID
+	 * @param string|null $tenantId Tenant identifier
+	 * @return void
 	 */
 	private function handleDeletedOutlookEvent($calendarId, $eventId, ?string $tenantId = null)
 	{
@@ -228,7 +256,12 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Find bridge mappings for an Outlook event
+	 * Find bridge mappings for an Outlook event.
+	 *
+	 * @param string $calendarId Outlook calendar ID
+	 * @param string $eventId Outlook event ID
+	 * @param string|null $tenantId Tenant identifier
+	 * @return array<int,array<string,mixed>> Matching mapping rows
 	 */
 	private function findMappingsForOutlookEvent($calendarId, $eventId, ?string $tenantId = null): array
 	{
@@ -246,7 +279,11 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Delete a bridge mapping
+	 * Delete a bridge mapping.
+	 *
+	 * @param int $mappingId Mapping primary key ID
+	 * @param string|null $tenantId Tenant identifier
+	 * @return void
 	 */
 	private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
 	{
@@ -258,7 +295,15 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Log sync operation
+	 * Log sync operation.
+	 *
+	 * @param string $operation Operation type (e.g., delete, sync)
+	 * @param string $sourceBridge Source bridge name
+	 * @param string $targetBridge Target bridge name
+	 * @param string $status Status string (success|error|pending)
+	 * @param array $details Arbitrary details to persist
+	 * @param string|null $tenantId Tenant identifier
+	 * @return void
 	 */
 	private function logSyncOperation($operation, $sourceBridge, $targetBridge, $status, $details = [], ?string $tenantId = null)
 	{
@@ -278,7 +323,10 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Get pending deletion checks from queue
+	 * Get pending deletion checks from queue.
+	 *
+	 * @param string|null $tenantId Tenant identifier to filter by
+	 * @return array<int,array<string,mixed>> Queue rows
 	 */
 	private function getDeletionChecks(?string $tenantId = null): array
 	{
@@ -295,7 +343,10 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Mark queue item as processed
+	 * Mark queue item as processed.
+	 *
+	 * @param int $queueId Queue row ID
+	 * @return void
 	 */
 	private function markQueueItemProcessed($queueId)
 	{
@@ -308,7 +359,11 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Mark queue item as failed
+	 * Mark queue item as failed.
+	 *
+	 * @param int $queueId Queue row ID
+	 * @param string $errorMessage Error message
+	 * @return void
 	 */
 	private function markQueueItemFailed($queueId, $errorMessage)
 	{
@@ -324,7 +379,10 @@ class DeletionSyncService
 	}
 
 	/**
-	 * Manual deletion sync - check all recent mappings for deleted Outlook events
+	 * Manual deletion sync - check all recent mappings for deleted Outlook events.
+	 *
+	 * @param string|null $tenantId Tenant identifier
+	 * @return array{checked:int,deleted:int,errors:array}
 	 */
 	public function syncDeletedEvents(?string $tenantId = null): array
 	{

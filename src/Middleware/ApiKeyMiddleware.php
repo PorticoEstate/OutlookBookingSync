@@ -6,8 +6,16 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Psr\Http\Message\ResponseInterface as Response;
 
+/**
+ * ApiKeyMiddleware authenticates requests using per-tenant or global API keys.
+ */
 class ApiKeyMiddleware
 {
+	/**
+	 * @param Request $request
+	 * @param Handler $handler
+	 * @return Response
+	 */
 	public function __invoke(Request $request, Handler $handler): Response
 	{
 		// Allow unauthenticated access for webhook validation/notifications

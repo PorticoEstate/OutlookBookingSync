@@ -1,12 +1,15 @@
 <?php
 
 /**
- * Simple template loader for rendering HTML templates with variable substitution
+ * Simple template loader for rendering HTML templates with variable substitution.
  */
 class TemplateLoader
 {
 	private string $templateDir;
 
+	/**
+	 * @param string|null $templateDir Base directory containing HTML templates; defaults to public/
+	 */
 	public function __construct(string|null $templateDir = null)
 	{
 		if ($templateDir === null)
@@ -18,7 +21,7 @@ class TemplateLoader
 	}
 
 	/**
-	 * Load and render a template with variable substitution
+	 * Load and render a template with variable substitution.
 	 * 
 	 * @param string $templateName Name of the template file (without .html extension)
 	 * @param array $variables Associative array of variables to substitute
@@ -47,7 +50,7 @@ class TemplateLoader
 	}
 
 	/**
-	 * Check if a template file exists
+	 * Check if a template file exists.
 	 * 
 	 * @param string $templateName Name of the template file (without .html extension)
 	 * @return bool True if template exists, false otherwise

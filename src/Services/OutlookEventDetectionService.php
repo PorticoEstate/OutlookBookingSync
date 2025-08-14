@@ -269,7 +269,10 @@ class OutlookEventDetectionService
 	}
 
 	/**
-	 * Queue deletion operation for bridge processing
+	 * Queue deletion operation for bridge processing.
+	 *
+	 * @param array $mapping Bridge mapping containing source/target context
+	 * @return void
 	 */
 	private function queueDeletionOperation($mapping)
 	{
@@ -326,7 +329,7 @@ class OutlookEventDetectionService
 	}
 
 	/**
-	 * Log detected event change
+	 * Log detected event change.
 	 * 
 	 * @param string $calendarId
 	 * @param string $eventId
@@ -334,6 +337,7 @@ class OutlookEventDetectionService
 	 * @param string $processingStatus
 	 * @param string|null $errorMessage
 	 * @param array|null $processingResult
+	 * @return void
 	 */
 	private function logEventChange($calendarId, $eventId, $changeType, $processingStatus = 'pending', $errorMessage = null, $processingResult = null)
 	{
@@ -616,7 +620,10 @@ class OutlookEventDetectionService
 	}
 
 	/**
-	 * Find bridge mapping by Outlook event ID (replaces legacy mapping lookup)
+	 * Find bridge mapping by Outlook event ID (replaces legacy mapping lookup).
+	 *
+	 * @param string $outlookEventId
+	 * @return array|null
 	 */
 	private function findBridgeMappingByOutlookEvent($outlookEventId): ?array
 	{

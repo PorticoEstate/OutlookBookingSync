@@ -7,12 +7,23 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use PDO;
 use Exception;
 
+/**
+ * Maintenance controller for operational endpoints like log cleanup and subscription renewals.
+ */
 class MaintenanceController
 {
+	/** @var PDO */
 	private $db;
+	/** @var mixed */
 	private $logger;
+	/** @var mixed */
 	private $bridgeManager;
 
+	/**
+	 * @param PDO $db Database connection
+	 * @param mixed $logger PSR-3 compatible logger (optional)
+	 * @param mixed $bridgeManager BridgeManager instance (optional)
+	 */
 	public function __construct(PDO $db, $logger = null, $bridgeManager = null)
 	{
 		$this->db = $db;
@@ -22,6 +33,11 @@ class MaintenanceController
 
 	/**
 	 * Cleanup old bridge sync logs using DB function cleanup_old_bridge_logs(days)
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args
+	 * @return Response
 	 */
 	public function cleanupLogs(Request $request, Response $response, $args)
 	{
@@ -78,6 +94,11 @@ class MaintenanceController
 	 *  - bridge (optional, default 'outlook')
 	 *  - renew_before_minutes (optional, default 1440 = 24h)
 	 *  - limit (optional, default 50)
+	*
+	* @param Request $request
+	* @param Response $response
+	* @param array $args
+	* @return Response
 	 */
 	public function renewSubscriptions(Request $request, Response $response, $args)
 	{

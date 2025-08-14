@@ -7,6 +7,9 @@ use App\Services\SyncLogService;
 use Psr\Log\LoggerInterface;
 use PDO;
 
+/**
+ * BridgeManager coordinates bridge registration, instantiation, and sync orchestration.
+ */
 class BridgeManager
 {
 	private $bridges = [];
@@ -16,6 +19,11 @@ class BridgeManager
 	/** @var array<string, array<string, AbstractCalendarBridge>> */
 	private $tenantBridgeCache = [];
 
+    /**
+     * @param LoggerInterface $logger
+     * @param PDO $db
+     * @param SyncLogService $syncLog
+     */
 	public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog)
 	{
 		$this->logger = $logger;
@@ -24,7 +32,11 @@ class BridgeManager
 	}
 
 	/**
-	 * Register a calendar bridge
+	 * Register a calendar bridge.
+	 *
+	 * @param string $name Bridge name
+	 * @param string $bridgeClass FQCN extending AbstractCalendarBridge
+	 * @param array $config Default configuration
 	 */
 	public function registerBridge($name, $bridgeClass, $config)
 	{
@@ -46,7 +58,10 @@ class BridgeManager
 	}
 
 	/**
-	 * Get a bridge instance
+	 * Get a bridge instance.
+	 *
+	 * @param string $name Bridge name
+	 * @return AbstractCalendarBridge
 	 */
 	public function getBridge($name): AbstractCalendarBridge
 	{
@@ -69,6 +84,10 @@ class BridgeManager
 	/**
 	 * Get a bridge instance configured for a specific tenant.
 	 * Falls back to globally registered config when tenant-specific config is absent.
+	 *
+	 * @param string $tenantId Tenant identifier
+	 * @param string $name Bridge name
+	 * @return AbstractCalendarBridge
 	 */
 	public function getBridgeForTenant(string $tenantId, string $name): AbstractCalendarBridge
 	{
@@ -113,7 +132,10 @@ class BridgeManager
 	}
 
 	/**
-	 * Get bridge information
+	 * Get bridge information.
+	 *
+	 * @param string $name
+	 * @return array
 	 */
 	public function getBridgeInfo($name): array
 	{
@@ -134,7 +156,9 @@ class BridgeManager
 	}
 
 	/**
-	 * Get information about all bridges
+	 * Get information about all bridges.
+	 *
+	 * @return array
 	 */
 	public function getAllBridgesInfo(): array
 	{
@@ -160,7 +184,16 @@ class BridgeManager
 	}
 
 	/**
-	 * Sync events between two bridges
+	 * Sync events between two bridges.
+	 *
+	 * @param string $sourceBridge
+	 * @param string $targetBridge
+	 * @param string $sourceCalendarId
+	 * @param string $targetCalendarId
+	 * @param string $startDate
+	 * @param string $endDate
+	 * @param array $options ['handle_deletions'=>bool,'skip_updates'=>bool,'dry_run'=>bool,'sync_method'=>string,'tenant_id'=>string|null]
+	 * @return array
 	 */
 	public function syncBetweenBridges(
 		$sourceBridge,

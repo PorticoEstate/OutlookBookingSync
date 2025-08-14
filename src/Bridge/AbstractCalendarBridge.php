@@ -5,6 +5,10 @@ namespace App\Bridge;
 use Psr\Log\LoggerInterface;
 use PDO;
 
+/**
+ * Base class for calendar bridge implementations, providing common utilities
+ * for event normalization, logging, session handling, and tenant-aware helpers.
+ */
 abstract class AbstractCalendarBridge
 {
     protected $config;
@@ -16,6 +20,11 @@ abstract class AbstractCalendarBridge
     protected $sessionFile = null;
     protected $isCliMode = null;
 
+    /**
+     * @param array $config Bridge configuration; may include context_tenant_id for scoping
+     * @param LoggerInterface $logger
+     * @param PDO $db
+     */
     public function __construct($config, LoggerInterface $logger, PDO $db)
     {
         $this->config = $config;
@@ -27,18 +36,29 @@ abstract class AbstractCalendarBridge
     }
 
     // Abstract methods that each bridge must implement
+    /** @param string $calendarId @param string $startDate @param string $endDate @return array<int,array<string,mixed>> */
     abstract public function getEvents($calendarId, $startDate, $endDate): array;
+    /** @param string $calendarId @param array $event @return string Newly created event ID */
     abstract public function createEvent($calendarId, $event): string;
+    /** @param string $calendarId @param string $eventId @param array $event @return bool */
     abstract public function updateEvent($calendarId, $eventId, $event): bool;
+    /** @param string $calendarId @param string $eventId @return bool */
     abstract public function deleteEvent($calendarId, $eventId): bool;
+    /** @return array<int,array<string,mixed>> */
     abstract public function getCalendars(): array;
+    /** @param string $calendarId @param string $webhookUrl @return string Subscription ID */
     abstract public function subscribeToChanges($calendarId, $webhookUrl): string;
+    /** @param string $subscriptionId @return bool */
     abstract public function unsubscribeFromChanges($subscriptionId): bool;
+    /** @return string Bridge name/type identifier */
     abstract public function getBridgeType(): string;
 
     // Resource discovery methods
+    /** @param string|null $nameFilter @param int $limit @param int $offset @return array */
     abstract public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array;
+    /** @param string|null $nameFilter @param int $limit @param int $offset @return array */
     abstract public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array;
+    /** @param string $resourceId @param string|null $startDate @param string|null $endDate @return array */
     abstract public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array;
 
     // Optional helpers
@@ -59,6 +79,9 @@ abstract class AbstractCalendarBridge
     public function formatEventForBridge($genericEvent): array { return $genericEvent; }
     public function formatEventFromBridge($bridgeEvent): array { return $bridgeEvent; }
 
+    /**
+     * @return array{supports_webhooks:bool,supports_recurring:bool,supports_all_day:bool,supports_attendees:bool,supports_attachments:bool,max_events_per_request:int,rate_limit_per_minute:int}
+     */
     public function getCapabilities(): array
     {
         return [
@@ -72,6 +95,7 @@ abstract class AbstractCalendarBridge
         ];
     }
 
+    /** @param string $operation @param array $data */
     protected function logOperation($operation, $data = [])
     {
         $this->logger->info("Bridge operation: {$operation}", [
@@ -79,6 +103,7 @@ abstract class AbstractCalendarBridge
         ]);
     }
 
+    /** @param string $operation @param string|array $error @param array $data */
     protected function logError($operation, $error, $data = [])
     {
         $this->logger->error("Bridge operation failed: {$operation}", [
@@ -86,6 +111,7 @@ abstract class AbstractCalendarBridge
         ]);
     }
 
+    /** @param string $dateString */
     protected function isValidDateTime($dateString): bool
     {
         $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
@@ -95,6 +121,7 @@ abstract class AbstractCalendarBridge
         try { new \DateTime($dateString); return true; } catch (\Exception $e) { return false; }
     }
 
+    /** @param string $dateString */
     protected function normalizeDateTime($dateString): string
     {
         $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
@@ -102,9 +129,12 @@ abstract class AbstractCalendarBridge
         return $date->format('c');
     }
 
+    /** Hook for bridge-specific initialization. */
     protected function initialize() { }
+    /** Hook for bridge-specific validation. */
     protected function validateConfig() { }
 
+    /** Basic health probe for the bridge. */
     public function healthCheck(): array
     {
         try {
@@ -126,6 +156,7 @@ abstract class AbstractCalendarBridge
         }
     }
 
+    /** @param array $data @return array Generic normalized event */
     protected function createGenericEvent($data): array
     {
         return [
