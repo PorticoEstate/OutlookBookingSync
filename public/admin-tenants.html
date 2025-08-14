@@ -23,6 +23,12 @@
       <table id="tenants"></table>
     </section>
     <script>
+      let CSRF = '';
+      async function ensureCsrf(){
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': localStorage.api_key || '' }});
+        const data = await res.json();
+        CSRF = data.csrf_token || '';
+      }
       async function loadTenants(){
         const res = await fetch('/admin/tenants', { headers: { 'api_key': localStorage.api_key || '' }});
         const data = await res.json();
@@ -37,20 +43,20 @@
         e.preventDefault();
         const fd = new FormData(e.target);
         const body = { id: fd.get('id'), name: fd.get('name'), active: fd.get('active')==='on' };
-        await fetch('/admin/tenants', { method:'POST', headers: { 'Content-Type':'application/json','api_key': localStorage.api_key||'' }, body: JSON.stringify(body)});
+        await fetch('/admin/tenants', { method:'POST', headers: { 'Content-Type':'application/json','api_key': localStorage.api_key||'', 'X-CSRF-Token': CSRF }, body: JSON.stringify(body)});
         loadTenants();
       });
       async function rotate(id){
-        const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers: { 'api_key': localStorage.api_key || '' }});
+        const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers: { 'api_key': localStorage.api_key || '', 'X-CSRF-Token': CSRF }});
         const data = await res.json();
         alert('New API key (copy now):\n' + data.api_key);
       }
       async function delTenant(id){
         if(!confirm('Delete tenant '+id+'?')) return;
-        await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers: { 'api_key': localStorage.api_key || '' }});
+        await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers: { 'api_key': localStorage.api_key || '', 'X-CSRF-Token': CSRF }});
         loadTenants();
       }
-      loadTenants();
+      ensureCsrf().then(loadTenants);
     </script>
   </body>
 </html>

@@ -6,6 +6,8 @@ use DI\Container;
 use Dotenv\Dotenv;
 use App\Middleware\ApiKeyMiddleware;
 use App\Middleware\TenantResolverMiddleware;
+use App\Middleware\AdminRoleMiddleware;
+use App\Middleware\CsrfMiddleware;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -174,6 +176,9 @@ $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 // Resolve tenant first so auth can validate per-tenant keys
 $app->add(TenantResolverMiddleware::class);
 $app->add(ApiKeyMiddleware::class);
+// Admin route protections
+$app->add(new CsrfMiddleware());
+$app->add(new AdminRoleMiddleware());
 
 // Middleware to inject db and logger objects into requests
 $app->add(function ($request, $handler) use ($container)
@@ -233,16 +238,26 @@ $app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::
 // Renew expiring webhook subscriptions
 $app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceController::class, 'renewSubscriptions']);
 
+// CSRF token endpoint (GET only) - creates/returns token in session
+$app->get('/admin/csrf', function (Request $request, Response $response) {
+    if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+    if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+    $response->getBody()->write(json_encode(['csrf_token' => $_SESSION['csrf_token']], JSON_PRETTY_PRINT));
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
 // Admin API routes (CRUD tenants, rotate keys, manage configs)
-$app->get('/admin/tenants', [\App\Controller\AdminController::class, 'listTenants']);
-$app->post('/admin/tenants', [\App\Controller\AdminController::class, 'createTenant']);
-$app->get('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'getTenant']);
-$app->put('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'updateTenant']);
-$app->delete('/admin/tenants/{tenantId}', [\App\Controller\AdminController::class, 'deleteTenant']);
-$app->post('/admin/tenants/{tenantId}/keys/rotate', [\App\Controller\AdminController::class, 'rotateApiKey']);
-$app->get('/admin/tenants/{tenantId}/keys/metadata', [\App\Controller\AdminController::class, 'getKeyMetadata']);
-$app->put('/admin/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'upsertBridgeConfig']);
-$app->get('/admin/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'getBridgeConfig']);
+$app->group('/admin', function ($group) {
+    $group->get('/tenants', [\App\Controller\AdminController::class, 'listTenants']);
+    $group->post('/tenants', [\App\Controller\AdminController::class, 'createTenant']);
+    $group->get('/tenants/{tenantId}', [\App\Controller\AdminController::class, 'getTenant']);
+    $group->put('/tenants/{tenantId}', [\App\Controller\AdminController::class, 'updateTenant']);
+    $group->delete('/tenants/{tenantId}', [\App\Controller\AdminController::class, 'deleteTenant']);
+    $group->post('/tenants/{tenantId}/keys/rotate', [\App\Controller\AdminController::class, 'rotateApiKey']);
+    $group->get('/tenants/{tenantId}/keys/metadata', [\App\Controller\AdminController::class, 'getKeyMetadata']);
+    $group->put('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'upsertBridgeConfig']);
+    $group->get('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'getBridgeConfig']);
+});
 
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
 
@@ -402,6 +417,18 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
         'status_code' => 404,
         'timestamp' => date('c'),
         'available_endpoints' => [
+            'admin' => [
+                'GET /admin/csrf' => 'Get CSRF token for admin UI (returns {csrf_token})',
+                'GET /admin/tenants' => 'List tenants',
+                'POST /admin/tenants' => 'Create tenant',
+                'GET /admin/tenants/{tenantId}' => 'Get tenant by id',
+                'PUT /admin/tenants/{tenantId}' => 'Update tenant',
+                'DELETE /admin/tenants/{tenantId}' => 'Delete tenant',
+                'POST /admin/tenants/{tenantId}/keys/rotate' => 'Rotate per-tenant API key (plaintext returned once)',
+                'GET /admin/tenants/{tenantId}/keys/metadata' => 'Get key metadata (created_at)',
+                'PUT /admin/tenants/{tenantId}/configs/{bridgeName}' => 'Upsert per-tenant bridge config JSON',
+                'GET /admin/tenants/{tenantId}/configs/{bridgeName}' => 'Get per-tenant bridge config JSON'
+            ],
             'bridge_operations' => [
                 'GET /bridges' => 'List all available bridges',
                 'GET /bridges/{bridge}/calendars' => 'Get calendars for specific bridge (optional query: ?limit=int&offset=int)',

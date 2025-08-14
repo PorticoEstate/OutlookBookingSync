@@ -39,6 +39,12 @@
         const el = document.getElementById('msg');
         el.textContent = text || ''; el.className = isError ? 'error' : 'note';
       }
+      let CSRF = '';
+      async function ensureCsrf(){
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': localStorage.api_key || '' }});
+        const data = await res.json();
+        CSRF = data.csrf_token || '';
+      }
       async function fetchJSON(url, opts={}){
         const headers = opts.headers || {};
         headers['api_key'] = localStorage.api_key || '';
@@ -76,13 +82,13 @@
         if(!text) text = '{}';
         let parsed; try { parsed = JSON.parse(text); } catch(e){ setMsg('Invalid JSON: ' + e.message, true); return; }
         try{
-          await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/configs/${encodeURIComponent(bridge)}`, { method: 'PUT', body: JSON.stringify(parsed) });
+      await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/configs/${encodeURIComponent(bridge)}`, { method: 'PUT', headers: { 'X-CSRF-Token': CSRF }, body: JSON.stringify(parsed) });
           setMsg('Saved successfully.');
         }catch(e){ setMsg('Save failed: ' + e.message, true); }
       }
       document.getElementById('load').addEventListener('click', loadConfig);
       document.getElementById('save').addEventListener('click', saveConfig);
-      loadTenants().then(loadConfig).catch(err => setMsg('Failed to load tenants: ' + err.message, true));
+    ensureCsrf().then(loadTenants).then(loadConfig).catch(err => setMsg('Failed to load tenants: ' + err.message, true));
     </script>
   </body>
   </html>

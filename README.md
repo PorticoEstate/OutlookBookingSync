@@ -140,6 +140,12 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
   - `/admin-configs.html` — view/edit per-tenant bridge configs (JSON)
 - These pages require the global admin API key in the browser: set once via dashboard (Ctrl+K) or console: `localStorage.api_key = 'your-admin-key'`.
 
+#### Admin security (CSRF and IP allowlist)
+
+- CSRF protection is enforced on all unsafe admin operations (POST/PUT/PATCH/DELETE). The UI obtains a token from `GET /admin/csrf` and sends it in the `X-CSRF-Token` header. Tokens are session-based, so the browser must keep cookies for the site.
+- Admin endpoints require the global API key (header `api_key: <GLOBAL_API_KEY>`). Per-tenant keys are not accepted for admin.
+- You can optionally restrict admin access to specific IPs/CIDRs via the environment variable `ADMIN_IP_ALLOWLIST` (comma-separated values, e.g., `192.168.1.10,10.0.0.0/8`). If set, requests from non-allowed IPs will be rejected for admin routes.
+
 #### Admin API quick examples
 
 ```bash

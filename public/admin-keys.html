@@ -29,6 +29,12 @@
     </section>
 
     <script>
+      let CSRF = '';
+      async function ensureCsrf(){
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': localStorage.api_key || '' }});
+        const data = await res.json();
+        CSRF = data.csrf_token || '';
+      }
       async function fetchJSON(url, opts={}){
         const headers = opts.headers || {};
         headers['api_key'] = localStorage.api_key || '';
@@ -60,7 +66,7 @@
         const id = document.getElementById('tenantSelect').value;
         if(!id) return;
         if(!confirm(`Rotate API key for tenant ${id}? Old key will stop working immediately.`)) return;
-        const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/keys/rotate`, { method:'POST' });
+        const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/keys/rotate`, { method:'POST', headers: { 'X-CSRF-Token': CSRF }});
         alert('New API key (copy now):\n' + data.api_key);
         refreshMetadata();
       }
@@ -68,7 +74,7 @@
       document.getElementById('refreshMeta').addEventListener('click', refreshMetadata);
       document.getElementById('rotate').addEventListener('click', rotate);
 
-      loadTenants().then(refreshMetadata).catch(err => {
+  ensureCsrf().then(loadTenants).then(refreshMetadata).catch(err => {
         document.getElementById('meta').textContent = 'Failed to load tenants: ' + err.message;
       });
     </script>
