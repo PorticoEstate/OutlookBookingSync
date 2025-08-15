@@ -17,6 +17,15 @@
             <span id="lastUpdate">Loading...</span> | Auto-refresh every 30 seconds
         </div>
 
+        <div class="tenant-switcher" style="margin: 8px 0; display:flex; align-items:center; gap:8px;">
+            <label for="tenantIdSelect">Tenant</label>
+            <select id="tenantIdSelect" style="padding:4px 6px; min-width:220px;">
+                <option value="">Loading tenants…</option>
+            </select>
+            <button id="clearTenantBtn" title="Clear tenant and use DEFAULT_TENANT_ID if configured">Clear</button>
+            <small class="note" id="tenantHint" style="color:#666;">All requests include X-Tenant-Id when set.</small>
+        </div>
+
         <div id="systemOverview" class="overview-stats">
             <div class="loading">Loading system overview</div>
         </div>

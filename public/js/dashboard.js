@@ -7,6 +7,7 @@ let refreshInterval;
 
 // Simple API key management for the dashboard
 const API_KEY_STORAGE_KEY = 'dashboard_api_key';
+const TENANT_STORAGE_KEY = 'dashboard_tenant_id';
 
 function getApiKey() {
     try {
@@ -43,7 +44,14 @@ function promptForApiKey(message = 'Enter API key for the API (header: api_key):
 
 function authHeaders() {
     const key = getApiKey();
-    return key ? { 'api_key': key } : {};
+    const hdrs = key ? { 'api_key': key } : {};
+    try {
+        const tenant = localStorage.getItem(TENANT_STORAGE_KEY);
+        if (tenant && tenant.trim()) {
+            hdrs['X-Tenant-Id'] = tenant.trim();
+        }
+    } catch (_) { /* ignore */ }
+    return hdrs;
 }
 
 /**
@@ -1077,6 +1085,49 @@ async function cleanupLogs() {
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tenant selector (dropdown)
+    (async () => {
+        const sel = document.getElementById('tenantIdSelect');
+        const clr = document.getElementById('clearTenantBtn');
+        if (!sel) return;
+        const stored = localStorage.getItem(TENANT_STORAGE_KEY) || '';
+        try {
+            // Load tenants via admin endpoint (requires global admin key in localStorage.dashboard_api_key)
+            const adminKey = localStorage.getItem('dashboard_api_key') || '';
+            const res = await fetch('/admin/tenants', { headers: adminKey ? { 'api_key': adminKey, 'X-API-Key': adminKey } : {} });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const tenants = (data && data.tenants) || [];
+            if (tenants.length === 0) {
+                sel.innerHTML = `<option value="">No tenants</option>`;
+            } else {
+                sel.innerHTML = `<option value="">(none)</option>` + tenants.map(t => `<option value="${t.id}">${t.id} — ${t.name}</option>`).join('');
+                if (stored) sel.value = stored;
+            }
+        } catch (e) {
+            sel.innerHTML = `<option value="">(enter manually via Ctrl+T)</option>`;
+            document.getElementById('tenantHint')?.appendChild(document.createTextNode(' · Unable to load tenants (set admin key or use Ctrl+T).'));
+        }
+        sel.addEventListener('change', () => {
+            const tid = sel.value || '';
+            if (tid) {
+                localStorage.setItem(TENANT_STORAGE_KEY, tid);
+                setActionStatus(`Tenant set to: ${tid}`, 'success');
+            } else {
+                localStorage.removeItem(TENANT_STORAGE_KEY);
+                setActionStatus('Tenant cleared. Using DEFAULT_TENANT_ID if configured.', 'info');
+            }
+            loadDashboard();
+        });
+        if (clr) {
+            clr.addEventListener('click', () => {
+                sel.value = '';
+                localStorage.removeItem(TENANT_STORAGE_KEY);
+                setActionStatus('Tenant cleared. Using DEFAULT_TENANT_ID if configured.', 'info');
+                loadDashboard();
+            });
+        }
+    })();
     // Ensure we have an API key saved; prompt on first load
     if (!getApiKey()) {
         promptForApiKey();
@@ -1093,6 +1144,25 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             clearApiKey();
             promptForApiKey('Update API key:');
+        }
+    });
+    // Shortcut to set tenant manually: Ctrl+T
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && (e.key === 't' || e.key === 'T')) {
+            e.preventDefault();
+            const current = (localStorage.getItem(TENANT_STORAGE_KEY) || '');
+            const tid = window.prompt('Set X-Tenant-Id (leave empty to clear):', current) || '';
+            if (tid.trim()) {
+                localStorage.setItem(TENANT_STORAGE_KEY, tid.trim());
+                setActionStatus(`Tenant set to: ${tid.trim()}`, 'success');
+                const sel = document.getElementById('tenantIdSelect'); if (sel) sel.value = tid.trim();
+                loadDashboard();
+            } else {
+                localStorage.removeItem(TENANT_STORAGE_KEY);
+                setActionStatus('Tenant cleared. Using DEFAULT_TENANT_ID if configured.', 'info');
+                const sel = document.getElementById('tenantIdSelect'); if (sel) sel.value = '';
+                loadDashboard();
+            }
         }
     });
 });
