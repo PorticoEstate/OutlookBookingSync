@@ -226,6 +226,63 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - Browser header issues with underscores: the UI also sends `X-API-Key`.
 - If you’re using a reverse proxy, ensure it forwards custom headers and doesn’t strip underscores, or rely on the hyphenated header.
 
+#### Bidirectional configuration (per tenant)
+
+Bidirectional sync is configured via the `bridge_resource_mappings` table and the `sync_direction` field. For one tenant, you typically define a single mapping row per calendar pair and set `sync_direction` according to your needs:
+
+- `bidirectional` — a single row enables both flows (booking_system → outlook and outlook → booking_system)
+- `source_to_target` — only forward flow from `bridge_from` to `bridge_to`
+- `target_to_source` — only reverse flow (useful when you want to allow just the opposite direction)
+
+Recommended model per tenant:
+
+- Keep the columns semantic: use `bridge_from = booking_system`, `bridge_to = outlook`,
+  - `source_calendar_id` = your booking system resource ID
+  - `target_calendar_id` = the Outlook calendar address/ID
+  - `sync_direction = bidirectional` when you want two-way sync
+
+At runtime, the bridge uses this single row to handle both directions. When syncing the reverse direction, the controller flips which calendar is treated as the source versus target based on the API you call.
+
+Example: create a bidirectional mapping for a tenant
+
+- Scope the write with `X-Tenant-Id: tenantA` and authenticate with that tenant’s API key (or the global admin key if operating centrally):
+
+```http
+POST /mappings/resources
+X-Tenant-Id: tenantA
+api_key: <tenant-or-admin-key>
+Content-Type: application/json
+
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "bidirectional"
+}
+```
+
+Then you can trigger either direction using the same mapping row:
+
+- Booking system → Outlook
+  - `POST /bridges/sync/booking_system/outlook` with JSON body `{ "source_calendar_id": "room_123", "target_calendar_id": "conference-room-a@company.com" }`
+
+- Outlook → Booking system
+  - `POST /bridges/sync/outlook/booking_system` with JSON body `{ "source_calendar_id": "conference-room-a@company.com", "target_calendar_id": "room_123" }`
+
+One-way scenarios:
+
+- Only booking → Outlook: set `sync_direction = source_to_target` on the mapping above.
+- Only Outlook → booking: either
+  - define the mapping with `bridge_from = outlook`, `bridge_to = booking_system`, `sync_direction = source_to_target`, or
+  - keep the semantic mapping (booking_system → outlook) and set `sync_direction = target_to_source`.
+
+Notes:
+
+- All mappings and sync operations are tenant-scoped. Include `X-Tenant-Id` on reads and writes.
+- You generally don’t need two rows for the same pair; prefer a single row with the appropriate `sync_direction`.
+- The app also exposes a convenience view `v_active_resource_mappings` that shows only active/enabled rows with some derived stats.
+
 #### Admin UI
 
 - Minimal admin pages are provided under `/public`:

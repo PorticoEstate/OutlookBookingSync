@@ -1230,9 +1230,10 @@ GET /mappings/resources?bridge_from=booking_system&bridge_to=outlook&active_only
       "id": 1,
       "bridge_from": "booking_system",
       "bridge_to": "outlook", 
-      "resource_id": "123",
-      "calendar_id": "room1@company.com",
-      "calendar_name": "Conference Room 1",
+  "source_calendar_id": "123",
+  "target_calendar_id": "room1@company.com",
+  "source_calendar_name": "Room 123",
+  "target_calendar_name": "Conference Room 1",
       "sync_direction": "bidirectional",
       "is_active": true,
       "sync_enabled": true,
@@ -1255,9 +1256,10 @@ POST /mappings/resources
 {
   "bridge_from": "booking_system",
   "bridge_to": "outlook",
-  "resource_id": "123",
-  "calendar_id": "room1@company.com", 
-  "calendar_name": "Conference Room 1",
+  "source_calendar_id": "123",
+  "target_calendar_id": "room1@company.com", 
+  "source_calendar_name": "Room 123",
+  "target_calendar_name": "Conference Room 1",
   "sync_direction": "bidirectional"
 }
 ```
@@ -1294,12 +1296,12 @@ This endpoint is particularly useful for your booking system to check if a resou
 ```json
 {
   "success": true,
-  "resource_id": "123",
+  "source_calendar_id": "123",
   "mappings": [
     {
       "id": 1,
       "bridge_to": "outlook",
-      "calendar_id": "room1@company.com",
+      "target_calendar_id": "room1@company.com",
       "sync_direction": "bidirectional",
       "is_active": true
     }
@@ -1307,6 +1309,37 @@ This endpoint is particularly useful for your booking system to check if a resou
   "count": 1
 }
 ```
+
+#### Bidirectional configuration (per tenant)
+
+Use the `sync_direction` field to control flow. For most cases, use a single semantic row per pair under a tenant:
+
+- `bridge_from = booking_system`, `bridge_to = outlook`
+- `source_calendar_id` = booking resource ID
+- `target_calendar_id` = Outlook calendar address/ID
+- `sync_direction = bidirectional` for two-way sync
+
+Create mapping (tenant-scoped):
+
+```http
+POST /mappings/resources
+X-Tenant-Id: tenantA
+api_key: <tenant-or-admin-key>
+Content-Type: application/json
+
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "bidirectional"
+}
+```
+
+Trigger either direction using the same mapping row:
+
+- Booking → Outlook: `POST /bridges/sync/booking_system/outlook` with `{ "source_calendar_id": "room_123", "target_calendar_id": "conference-room-a@company.com" }`
+- Outlook → Booking: `POST /bridges/sync/outlook/booking_system` with `{ "source_calendar_id": "conference-room-a@company.com", "target_calendar_id": "room_123" }`
 
 #### **5. Trigger Resource Sync**
 ```http

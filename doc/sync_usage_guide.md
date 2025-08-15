@@ -154,6 +154,44 @@ curl -X POST "http://your-bridge/bridges/sync/outlook/booking_system" \
   }'
 ```
 
+## Bidirectional configuration (per tenant)
+
+Bidirectional behavior is controlled by your resource mappings and the `sync_direction` field. For a single tenant, you normally create one mapping row per pair and set the desired direction:
+
+- `bidirectional` — enables both flows using one row
+- `source_to_target` — only from `bridge_from` to `bridge_to`
+- `target_to_source` — only the opposite direction
+
+Recommended: keep columns semantic (`bridge_from = booking_system`, `bridge_to = outlook`; `source_calendar_id` = booking resource; `target_calendar_id` = Outlook calendar) and choose `sync_direction = bidirectional` for two-way sync.
+
+Create a bidirectional mapping for a tenant:
+
+```http
+POST /mappings/resources
+X-Tenant-Id: tenantA
+api_key: <tenant-or-admin-key>
+Content-Type: application/json
+
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "bidirectional"
+}
+```
+
+Then you can trigger either direction using the same row:
+
+- Booking → Outlook: `POST /bridges/sync/booking_system/outlook` with `{ "source_calendar_id": "room_123", "target_calendar_id": "conference-room-a@company.com" }`
+- Outlook → Booking: `POST /bridges/sync/outlook/booking_system` with `{ "source_calendar_id": "conference-room-a@company.com", "target_calendar_id": "room_123" }`
+
+Notes
+
+- Always include `X-Tenant-Id` to scope reads/writes to the correct tenant.
+- Prefer one row per pair with the appropriate `sync_direction` instead of duplicating rows.
+- The convenience view `v_active_resource_mappings` lists active/enabled rows and derived stats.
+
 ## Priority Filtering Implementation
 
 The bridge system implements **intelligent priority filtering** to handle overlapping reservations across different calendar systems.
