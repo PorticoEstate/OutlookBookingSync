@@ -132,6 +132,100 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - The middleware validates in this order: per-tenant env map → per-tenant DB hash (password_verify) → global API key.
 - Webhook endpoints are exempt from API key checks (Graph validation flow), all others require a key.
 
+#### How to configure multi-tenant (step-by-step)
+
+1. Prerequisites
+
+- Apply the database schema (ensures `tenants`, `tenant_api_keys`, `bridge_configs` exist): see `database/bridge_schema.sql` and `database/migrations/`.
+- Set a global admin API key for management operations:
+  - Docker Compose: set `API_KEY` in `.env.compose` (the container reads this).
+  - Bare metal/dev: set `API_KEY` in `.env`.
+- Start the app and open the dashboard at `/dashboard`.
+
+1. Admin access in the browser
+
+- In your browser console, store the global admin key:
+
+  ```js
+  localStorage.dashboard_api_key = 'your-global-admin-key'
+  ```
+
+- The admin UI sends this as `api_key` (and `X-API-Key`) for all `/admin/...` requests.
+- Admin endpoints always use the global admin key (per-tenant keys are not accepted for admin).
+
+1. Create tenants and rotate per-tenant keys
+
+- Navigate to `/admin-tenants` (or `/admin-tenants.html` if pretty URLs aren’t enabled).
+- Create each tenant (id, name). Use the “Rotate key” action to generate a tenant key.
+  - The plaintext key is shown once; copy and store it securely. The hash is stored in `tenant_api_keys`.
+
+1. Move per-tenant configs from .env to the database
+
+- Use `/admin-configs` to manage JSON configs per tenant and per bridge.
+- For each tenant, create configs like:
+
+  Outlook bridge (`bridgeName = outlook`)
+
+  ```json
+  {
+    "client_id": "<OUTLOOK_CLIENT_ID>",
+    "client_secret": "<OUTLOOK_CLIENT_SECRET>",
+    "tenant_id": "<OUTLOOK_TENANT_ID>",
+    "group_id": "<OUTLOOK_GROUP_ID>",
+    "timezone": "Europe/Oslo"
+  }
+  ```
+
+  Booking system bridge (`bridgeName = booking_system`)
+
+  ```json
+  {
+    "api_base_url": "<BOOKING_SYSTEM_API_URL>",
+    "login": "<BOOKING_SYSTEM_LOGIN>",
+    "password": "<BOOKING_SYSTEM_PASSWORD>",
+    "domain": "<BOOKING_SYSTEM_DOMAIN>",
+    "proxy": "<BOOKING_SYSTEM_PROXY>",
+    "timezone": "<BOOKING_SYSTEM_TIMEZONE>",
+    "defaults": {
+      "agegroup_id": 1,
+      "targetaudience_id": 7,
+      "activity_id": 1
+    }
+  }
+  ```
+
+- What to keep in `.env` (global):
+  - DB_*, SESSION_*, APP_BASE_URL, `API_KEY` (global admin), container-level proxies.
+  - `BOOKING_SYSTEM_THROW_ON_FAILURE`.
+  - `WEBHOOK_BASE_URL`, `WEBHOOK_CLIENT_SECRET` can remain global; move per-tenant later only if each tenant needs its own values.
+
+- What to move into per-tenant DB configs:
+  - Outlook: `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID`, `OUTLOOK_GROUP_ID`.
+  - Booking system: `BOOKING_SYSTEM_API_URL`, `BOOKING_SYSTEM_LOGIN`, `BOOKING_SYSTEM_PASSWORD`, `BOOKING_SYSTEM_DOMAIN`, `BOOKING_SYSTEM_PROXY`, `BOOKING_SYSTEM_TIMEZONE`, default IDs.
+
+1. Calling APIs with a tenant context
+
+- Provide a tenant in one of these ways (TenantResolver):
+  - Header: `X-Tenant-Id: <tenant_id>`
+  - Route parameter (endpoints that include `{tenantId}`)
+  - Fallback: set `DEFAULT_TENANT_ID` in the environment (optional)
+- Authenticate with either:
+  - Per-tenant key: `api_key: <tenant-key>` (recommended for tenant-scoped endpoints)
+  - Global key: `api_key: <global-admin-key>` (primarily for admin and backward compatibility)
+
+1. Verifying
+
+- GET `/admin/tenants` with the global key should list tenants.
+- GET `/admin/tenants/{id}/configs/outlook` should return that tenant’s Outlook config JSON.
+- Non-admin endpoints should work with `X-Tenant-Id` and the tenant’s API key.
+
+1. Troubleshooting
+
+- 401 Unauthorized: check you sent `api_key` and the right tenant via `X-Tenant-Id`.
+- 403 Admin access required: admin calls need the global `API_KEY`.
+- Browser header issues with underscores: the UI also sends `X-API-Key`.
+- If you’re using a reverse proxy, ensure it forwards custom headers and doesn’t strip underscores, or rely on the hyphenated header.
+
 #### Admin UI
 
 - Minimal admin pages are provided under `/public`:
