@@ -15,7 +15,7 @@ The Generic Calendar Bridge transforms calendar synchronization from a single-pu
 
 ## 🏗️ Architecture
 
-```
+```text
 ┌─────────────────┐    REST API    ┌─────────────────┐    REST API    ┌─────────────────┐
 │                 │◄──────────────►│                 │◄──────────────►│                 │
 │ Booking System  │                │ Calendar Bridge │                │ Microsoft Graph │
@@ -34,7 +34,7 @@ The Generic Calendar Bridge transforms calendar synchronization from a single-pu
 
 ## 📁 Project Structure
 
-```
+```text
 OutlookBookingSync/
 ├── src/
 │   ├── Bridge/
@@ -75,19 +75,22 @@ OutlookBookingSync/
 ### Installation
 
 1. **Clone and setup dependencies:**
+
 ```bash
 git clone <repository>
 cd OutlookBookingSync
 composer install
 ```
 
-2. **Configure environment variables:**
+1. **Configure environment variables:**
+
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
 ```
 
 Required environment variables:
+
 ```env
 # Database
 DB_HOST=localhost
@@ -113,19 +116,19 @@ API_KEY=your_api_key
 
 If you’re running with Docker Compose, you can also set the API key in `.env.compose` which is injected into the container at runtime:
 
-```dotenv
+```env
 # .env.compose
 API_KEY=change-me-strong-random
 ```
 
 Then include the header `api_key: <your key>` in all client calls. The dashboard will prompt for this key on first load and store it in your browser.
 
-3. **Setup database:**
+1. **Setup database:**
 ```bash
 ./setup_bridge_database.sh
 ```
 
-4. **Start the service:**
+1. **Start the service:**
 ```bash
 # Development
 php -S localhost:8082 -t . index.php
@@ -511,7 +514,7 @@ class GoogleCalendarBridge extends AbstractCalendarBridge
 }
 ```
 
-2. **Register the bridge:**
+1. **Register the bridge:**
 
 ```php
 // In index.php
@@ -521,7 +524,7 @@ $manager->registerBridge('google_calendar', \App\Bridge\GoogleCalendarBridge::cl
 ]);
 ```
 
-3. **Use the new bridge:**
+1. **Use the new bridge:**
 
 ```bash
 # Sync from Google Calendar to Outlook
