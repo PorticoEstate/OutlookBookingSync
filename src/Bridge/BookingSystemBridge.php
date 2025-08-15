@@ -1096,6 +1096,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $mappings = $this->fieldMappings['to_booking_system'];
         $bookingEvent = [];
+    $defaults = is_array($this->config['defaults'] ?? null) ? $this->config['defaults'] : [];
 
         // For new events from Outlook: DO NOT set ID - let booking system generate it
         // For updates: Only use booking system composite IDs (format: "type_id")
@@ -1145,14 +1146,27 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $bookingEvent['source'] = 'calendar_bridge';
         $bookingEvent['bridge_import'] = true;
 
-        $bookingEvent['agegroups'] = [[
-            'agegroup_id' => $_ENV['BOOKING_SYSTEM_DEFAULT_AGEGROUP_ID'],
-            'male' => count($event['attendees'] ?? 1),
-            'female' => 0
-        ]];
+        $agegroupId = $defaults['agegroup_id'] ?? ($_ENV['BOOKING_SYSTEM_DEFAULT_AGEGROUP_ID'] ?? null);
+        $targetAudienceId = $defaults['targetaudience_id'] ?? ($_ENV['BOOKING_SYSTEM_DEFAULT_TARGETAUDIENCE_ID'] ?? null);
+        $activityId = $defaults['activity_id'] ?? ($_ENV['BOOKING_SYSTEM_DEFAULT_ACTIVITY_ID'] ?? null);
 
-        $bookingEvent['audience'] = [$_ENV['BOOKING_SYSTEM_DEFAULT_TARGETAUDIENCE_ID']];
-        $bookingEvent['activity_id'] = $_ENV['BOOKING_SYSTEM_DEFAULT_ACTIVITY_ID'];
+        if ($agegroupId !== null) {
+            $attendees = $event['attendees'] ?? [];
+            $maleCount = is_array($attendees) ? count($attendees) : (empty($attendees) ? 0 : 1);
+            $bookingEvent['agegroups'] = [[
+                'agegroup_id' => $agegroupId,
+                'male' => $maleCount,
+                'female' => 0
+            ]];
+        }
+
+        if ($targetAudienceId !== null) {
+            $bookingEvent['audience'] = [$targetAudienceId];
+        }
+
+        if ($activityId !== null) {
+            $bookingEvent['activity_id'] = $activityId;
+        }
 
         return $bookingEvent;
     }

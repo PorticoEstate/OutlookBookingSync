@@ -505,31 +505,81 @@ curl -X DELETE "http://localhost:8082/mappings/resources/by-key/booking_system/r
 - `API_KEY` - API key for endpoint security (send as header `api_key`)
 - `CLEANUP_DAYS` - Days to keep sync logs (used by daily cleanup cron)
 - `RENEW_MINUTES` - Renewal threshold in minutes for webhook subscriptions (hourly cron)
+- `TENANT_MODE` - `single` or `multi` (enables tenant scoping and per-tenant configs; default: `single`)
+- `DEFAULT_TENANT_ID` - Optional fallback tenant id when requests don’t include `X-Tenant-Id`
+- `TENANT_API_KEYS_JSON` - Dev-only JSON map of `{ "tenantId": "plaintextKey" }` used before DB keys are set
 
 ### Bridge Configuration
 
-Bridges are automatically registered on service startup using environment variables. Configure your credentials in the `.env` file:
+Multi-tenant (recommended): store bridge credentials per-tenant in the database via admin APIs. See “How to configure multi-tenant” above for the full flow. Quick examples:
+
+Outlook bridge (per-tenant):
+
+```http
+PUT /admin/tenants/{tenantId}/configs/outlook
+Content-Type: application/json
+
+{
+  "client_id": "<OUTLOOK_CLIENT_ID>",
+  "client_secret": "<OUTLOOK_CLIENT_SECRET>",
+  "tenant_id": "<OUTLOOK_TENANT_ID>",
+  "group_id": "<OUTLOOK_GROUP_ID>",
+  "timezone": "Europe/Oslo"
+}
+```
+
+Booking system bridge (per-tenant):
+
+```http
+PUT /admin/tenants/{tenantId}/configs/booking_system
+Content-Type: application/json
+
+{
+  "api_base_url": "http://your-booking-system/api",
+  "system_login": "your_username",
+  "system_password": "your_password",
+  "system_domain": "your_domain",
+  "system_proxy": "none", // optional; use proxy URI or "none" to disable
+  "timezone": "Europe/Oslo",
+  "throw_on_api_failure": true,
+  "defaults": {
+    "agegroup_id": 1,
+    "targetaudience_id": 7,
+    "activity_id": 1
+  }
+}
+```
+
+Single-tenant or local dev (optional): you can supply base defaults via environment variables; tenant configs (if present) override them. Keep only global values in `.env`:
 
 ```env
-# Microsoft Graph API
+# App & DB
+APP_BASE_URL=https://bridge.example.com
+API_KEY=replace_me
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=bridge
+DB_USER=bridge
+DB_PASS=secret
+
+# Outlook (optional defaults)
 OUTLOOK_CLIENT_ID=your_client_id
 OUTLOOK_CLIENT_SECRET=your_client_secret
 OUTLOOK_TENANT_ID=your_tenant_id
 OUTLOOK_GROUP_ID=your_group_id
 
-# Booking System API (Session-based authentication)
+# Booking system (optional defaults)
 BOOKING_SYSTEM_API_URL=http://your-booking-system/api
 BOOKING_SYSTEM_LOGIN=your_username
 BOOKING_SYSTEM_PASSWORD=your_password
 BOOKING_SYSTEM_DOMAIN=your_domain
 BOOKING_SYSTEM_THROW_ON_FAILURE=true
-
-# Application
-APP_BASE_URL=https://bridge.example.com
-API_KEY=replace_me
 ```
 
-The bridges will be automatically available once the service starts.
+Notes:
+
+- Per-tenant proxy is configured with the JSON key `system_proxy` in the booking system config; environment `BOOKING_SYSTEM_PROXY` is not used.
+- In multi-tenant mode, always scope calls with `X-Tenant-Id` and use a tenant-specific API key where appropriate.
 
 ## 📊 API Endpoints
 
