@@ -657,26 +657,55 @@ The following legacy endpoints have been removed or redirected to bridge equival
 The system supports automated processing through cron jobs that use bridge endpoints:
 
 ```bash
-# Bidirectional bridge synchronization
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
+# Environment used by the cron context
+BRIDGE_URL="http://localhost:8082"
+
+# Single-tenant: global API key
+API_KEY="change-me-strong-random"
+
+# Multi-tenant: per-tenant key and tenant id
+TENANT_ID="tenantA"
+TENANT_KEY="change-me-tenant-key"
+
+# Bidirectional bridge synchronization (Booking System -> Outlook)
+*/5 * * * * curl -sS -X POST "$BRIDGE_URL/bridges/sync/booking_system/outlook" \
   -H "Content-Type: application/json" \
-  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+  -H "api_key: $TENANT_KEY" \
+  -H "X-Tenant-Id: $TENANT_ID" \
+  -d "{\"start_date\":\"$(date +%F)\",\"end_date\":\"$(date -d '+7 days' +%F)\"}" > /dev/null 2>&1
 
-*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system \
+# Bidirectional bridge synchronization (Outlook -> Booking System)
+*/10 * * * * curl -sS -X POST "$BRIDGE_URL/bridges/sync/outlook/booking_system" \
   -H "Content-Type: application/json" \
-  -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
+  -H "api_key: $TENANT_KEY" \
+  -H "X-Tenant-Id: $TENANT_ID" \
+  -d "{\"start_date\":\"$(date +%F)\",\"end_date\":\"$(date -d '+7 days' +%F)\"}" > /dev/null 2>&1
 
-# Enhanced deletion processing (recommended)
-*/5 * * * * /scripts/enhanced_process_deletions.sh
+# Multi-tenant bulk sync (discovers tenants and runs both directions)
+*/5 * * * * /scripts/multi_tenant_sync.sh > /var/log/bridge-sync.log 2>&1
 
-# Alternative: Individual deletion sync calls
-*/5 * * * * curl -X POST http://localhost:8082/bridges/process-deletion-queue
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
+# Enhanced deletion processing (multi-tenant aware; recommended)
+*/5 * * * * /scripts/enhanced_process_deletions.sh > /var/log/bridge-deletion-sync.log 2>&1
+
+# Alternative: Individual deletion sync calls (include headers for tenant)
+*/5 * * * * curl -sS -X POST "$BRIDGE_URL/bridges/process-deletion-queue" \
+  -H "api_key: $TENANT_KEY" -H "X-Tenant-Id: $TENANT_ID" > /dev/null 2>&1
+*/5 * * * * curl -sS -X POST "$BRIDGE_URL/bridges/sync-deletions" \
+  -H "api_key: $TENANT_KEY" -H "X-Tenant-Id: $TENANT_ID" > /dev/null 2>&1
 
 # Health monitoring
-*/10 * * * * curl -X GET http://localhost:8082/bridges/health
-*/15 * * * * curl -X GET http://localhost:8082/health/system
+# Global health (uses default/global config)
+*/10 * * * * curl -sS -X GET "$BRIDGE_URL/bridges/health" -H "api_key: $API_KEY" > /dev/null 2>&1
+# Tenant-scoped bridge health
+*/15 * * * * curl -sS -X GET "$BRIDGE_URL/bridges/health" -H "api_key: $TENANT_KEY" -H "X-Tenant-Id: $TENANT_ID" > /dev/null 2>&1
+# System health
+*/15 * * * * curl -sS -X GET "$BRIDGE_URL/health/system" -H "api_key: $API_KEY" > /dev/null 2>&1
 ```
+
+Notes:
+
+- For containerized setups, the entrypoint already provisions sensible cron jobs and exports needed env; see doc/MAINTENANCE.md#cron-jobs-container.
+- Use the multi-tenant scripts for discovery and safe iteration; prefer per-tenant headers when calling endpoints directly.
 
 ## 📚 Documentation
 
