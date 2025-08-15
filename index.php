@@ -173,12 +173,13 @@ $app = AppFactory::create();
 $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
 // Register API key middleware globally
-// Resolve tenant first so auth can validate per-tenant keys
-$app->add(TenantResolverMiddleware::class);
-$app->add(ApiKeyMiddleware::class);
-// Admin route protections
-$app->add(new CsrfMiddleware());
+// NOTE: Slim applies middleware in LIFO order; add TenantResolver last so it runs first.
+// Admin protections (run earliest)
 $app->add(new AdminRoleMiddleware());
+$app->add(new CsrfMiddleware());
+// Auth then tenant resolution (tenant must run before auth at runtime)
+$app->add(ApiKeyMiddleware::class);
+$app->add(TenantResolverMiddleware::class);
 
 // Middleware to inject db and logger objects into requests
 $app->add(function ($request, $handler) use ($container)
