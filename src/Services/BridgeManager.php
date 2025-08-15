@@ -184,6 +184,60 @@ class BridgeManager
 	}
 
 	/**
+	 * Get bridge information for a specific tenant.
+	 *
+	 * @param string $tenantId
+	 * @param string $name
+	 * @return array
+	 */
+	public function getBridgeInfoForTenant(string $tenantId, string $name): array
+	{
+		if (!isset($this->bridges[$name]))
+		{
+			throw new \Exception("Bridge '{$name}' not found");
+		}
+
+		$bridge = $this->getBridgeForTenant($tenantId, $name);
+
+		return [
+			'name' => $name,
+			'type' => $bridge->getBridgeType(),
+			'class' => $this->bridges[$name]['class'],
+			'capabilities' => $bridge->getCapabilities(),
+			'health' => $bridge->healthCheck()
+		];
+	}
+
+	/**
+	 * Get information about all bridges for a specific tenant.
+	 *
+	 * @param string $tenantId
+	 * @return array
+	 */
+	public function getAllBridgesInfoForTenant(string $tenantId): array
+	{
+		$info = [];
+
+		foreach (array_keys($this->bridges) as $name)
+		{
+			try
+			{
+				$info[$name] = $this->getBridgeInfoForTenant($tenantId, $name);
+			}
+			catch (\Exception $e)
+			{
+				$info[$name] = [
+					'name' => $name,
+					'error' => $e->getMessage(),
+					'status' => 'error'
+				];
+			}
+		}
+
+		return $info;
+	}
+
+	/**
 	 * Sync events between two bridges.
 	 *
 	 * @param string $sourceBridge

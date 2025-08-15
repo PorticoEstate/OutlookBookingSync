@@ -553,7 +553,13 @@ class BridgeController
     public function getHealthStatus(Request $request, Response $response, $args)
     {
         try {
-            $bridgesInfo = $this->bridgeManager->getAllBridgesInfo();
+            // Prefer tenant-scoped health if tenant is resolved
+            $tenantId = $request->getAttribute('tenant_id');
+            if (!empty($tenantId)) {
+                $bridgesInfo = $this->bridgeManager->getAllBridgesInfoForTenant((string)$tenantId);
+            } else {
+                $bridgesInfo = $this->bridgeManager->getAllBridgesInfo();
+            }
             $overallHealth = 'healthy';
             $healthyCount = 0;
             $unhealthyCount = 0;
