@@ -14,6 +14,10 @@
   </head>
   <body>
     <h1>Per-tenant Bridge Configs</h1>
+    <nav>
+      <a href="/admin-tenants">Tenants</a> ·
+      <a href="/admin-keys">API Keys</a>
+    </nav>
     <p class="note">Configs here override defaults from environment variables. JSON must be valid.</p>
 
     <section class="row">
@@ -40,14 +44,20 @@
         el.textContent = text || ''; el.className = isError ? 'error' : 'note';
       }
       let CSRF = '';
+      function getAdminKey(){
+        return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
+      }
       async function ensureCsrf(){
-        const res = await fetch('/admin/csrf', { headers: { 'api_key': localStorage.api_key || '' }});
+        const key = getAdminKey();
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
         const data = await res.json();
         CSRF = data.csrf_token || '';
       }
       async function fetchJSON(url, opts={}){
-        const headers = opts.headers || {};
-        headers['api_key'] = localStorage.api_key || '';
+  const headers = opts.headers || {};
+  const key = getAdminKey();
+  headers['api_key'] = key;
+  headers['X-API-Key'] = key;
         if(!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
         opts.headers = headers;
         const res = await fetch(url, opts);

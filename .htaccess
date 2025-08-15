@@ -10,6 +10,11 @@ RewriteRule ^js/(.+\.js)$ public/js/$1 [L]
 # HTML files (like dashboard.html)
 RewriteRule ^dashboard$ public/dashboard.html [L]
 
+# Pretty URLs for admin HTML pages
+RewriteRule ^admin-keys$ public/admin-keys.html [L]
+RewriteRule ^admin-configs$ public/admin-configs.html [L]
+RewriteRule ^admin-tenants$ public/admin-tenants.html [L]
+
 # Favicon - serve empty response to prevent 404s
 RewriteRule ^favicon\.ico$ - [R=204,L]
 

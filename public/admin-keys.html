@@ -13,7 +13,11 @@
   </head>
   <body>
     <h1>Tenant API Keys</h1>
-    <p class="note">Use a global admin API key in your browser: localStorage.api_key must be set. You can set it on the dashboard (Ctrl+K) or via the console: <code>localStorage.api_key = 'your-admin-key'</code>.</p>
+    <nav>
+      <a href="/admin-tenants">Tenants</a> ·
+      <a href="/admin-configs">Bridge Configs</a>
+    </nav>
+  <p class="note">Use a global admin API key in your browser: <code>localStorage.dashboard_api_key</code> must be set. You can set it on the dashboard (Ctrl+K) or via the console: <code>localStorage.dashboard_api_key = 'your-admin-key'</code>.</p>
 
     <section class="row">
       <label for="tenantSelect">Tenant</label>
@@ -29,15 +33,21 @@
     </section>
 
     <script>
+      function getAdminKey(){
+        return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
+      }
       let CSRF = '';
       async function ensureCsrf(){
-        const res = await fetch('/admin/csrf', { headers: { 'api_key': localStorage.api_key || '' }});
+        const key = getAdminKey();
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
         const data = await res.json();
         CSRF = data.csrf_token || '';
       }
       async function fetchJSON(url, opts={}){
         const headers = opts.headers || {};
-        headers['api_key'] = localStorage.api_key || '';
+        const key = getAdminKey();
+        headers['api_key'] = key;
+        headers['X-API-Key'] = key;
         opts.headers = headers;
         const res = await fetch(url, opts);
         let data; try { data = await res.json(); } catch { data = null; }
