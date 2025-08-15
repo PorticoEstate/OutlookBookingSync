@@ -303,7 +303,7 @@ function renderBridgeHealth(bridgeHealthData) {
 
     Object.values(bridges).forEach(bridge => {
         const status = bridge.health?.status || 'unknown';
-        const lastCheck = bridge.health?.last_check || 'Never';
+        const lastCheck = bridge.health?.timestamp || 'Never';
         html += `
             <div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid ${status === 'healthy' ? '#28a745' : '#dc3545'};">
                 <strong>${bridge.name}</strong> ${getStatusBadge(status)}
