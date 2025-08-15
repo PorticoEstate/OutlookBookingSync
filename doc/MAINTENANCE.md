@@ -75,6 +75,88 @@ Operational guidance for running, monitoring, and troubleshooting the Calendar B
   - Configure retention via env var CLEANUP_DAYS (default 30)
   - Cron is pre-wired in docker entrypoint at 03:00
 
+## Cron jobs (container)
+
+The Docker entrypoint installs cron jobs for the www-data user. Key jobs and environment:
+
+Environment exported to cron
+
+- API_KEY – used for all cron HTTP calls (send as header `api_key`)
+- BRIDGE_URL – base URL for internal HTTP calls (default: `http://localhost`)
+- DEFAULT_TENANT_ID – tenant used when no `X-Tenant-Id` is provided (single-tenant mode)
+- CLEANUP_DAYS – sync log retention (default: 30)
+- RENEW_MINUTES – webhook renew window in minutes (default: 1440)
+- TENANT_MODE – `single` (default) or `multi` (multi-tenant processing)
+- ENABLE_MULTI_TENANT_SYNC – `true`/`false` to enable periodic per-tenant sync runner (default: false)
+- SYNC_WINDOW_DAYS – lookback window days for the optional per-tenant sync runner (default: 2)
+
+Jobs installed
+
+- Bidirectional sync windows
+  - booking_system → outlook every 5 minutes
+  - outlook → booking_system every 10 minutes (handle_deletions=1)
+- Deletions/cancellations processor (enhanced script) every 5 minutes
+  - Honors TENANT_MODE: single runs once (scoped by DEFAULT_TENANT_ID); multi discovers all tenants and sends `X-Tenant-Id` for each
+- Optional per-tenant periodic sync runner every 10 minutes
+  - Enabled only if TENANT_MODE=multi and ENABLE_MULTI_TENANT_SYNC=true
+  - Skips tenants without active mappings
+- Health checks every 10–15 minutes
+- Maintenance (cleanup logs daily; renew Outlook subscriptions hourly)
+
+Multi-tenant behavior
+
+- TENANT_MODE=single (default)
+  - Cron calls do not send `X-Tenant-Id`, so the app uses `DEFAULT_TENANT_ID` from `.env`
+- TENANT_MODE=multi
+  - The deletions processor calls `/admin/tenants` with the admin `API_KEY` and iterates over all active tenants
+  - Each per-tenant call adds `X-Tenant-Id: <tenant>` header
+  - Optional sync runner (`scripts/multi_tenant_sync.sh`) also iterates tenants, triggers both directions, and skips tenants with zero active mappings
+
+Toggles and examples
+
+- Run multi-tenant deletions only:
+  - Set `TENANT_MODE=multi` (container env)
+- Add periodic per-tenant syncs as well:
+  - Set `TENANT_MODE=multi` and `ENABLE_MULTI_TENANT_SYNC=true`
+- Non-default service URL (behind proxy/compose):
+  - Set `BRIDGE_URL=http://portico_outlook` (or the internal hostname)
+
+Logs
+
+- Cron output: `/var/log/bridge-cron.log`
+- Deletion sync details: `/var/log/bridge-deletion-sync.log`
+- Multi-tenant sync runner: `/var/log/bridge-sync.log`
+
+Quick tests (optional)
+
+You can sanity-check endpoints manually. Replace placeholders with your values.
+
+Single-tenant mode (uses DEFAULT_TENANT_ID)
+
+```bash
+# Trigger deletion processor (idempotent)
+curl -sS -X POST "$BRIDGE_URL/maintenance/process-deletions" \
+  -H "api_key: <ADMIN_OR_TENANT_KEY>" | jq .
+
+# Trigger booking_system → outlook sync
+curl -sS -X POST "$BRIDGE_URL/sync/booking-to-outlook?days=2" \
+  -H "api_key: <ADMIN_OR_TENANT_KEY>" | jq .
+```
+
+Multi-tenant mode (explicit tenant header)
+
+```bash
+# List tenants (requires admin API key)
+curl -sS -X GET "$BRIDGE_URL/admin/tenants" \
+  -H "api_key: <ADMIN_API_KEY>" | jq .
+
+# Trigger outlook → booking_system for a specific tenant
+curl -sS -X POST "$BRIDGE_URL/sync/outlook-to-booking?days=2&handle_deletions=1" \
+  -H "api_key: <ADMIN_OR_TENANT_KEY>" \
+  -H "X-Tenant-Id: <tenant_id>" | jq .
+```
+
+
 ## Troubleshooting
 
 - Missing `.env`: API replies with configuration JSON error; follow steps provided

@@ -116,6 +116,7 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - Future plan: see [ROADMAP.md](ROADMAP.md)
 - Development guide: [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md)
 - Maintenance runbook: [doc/MAINTENANCE.md](doc/MAINTENANCE.md)
+- Cron jobs (container) and multi-tenant mode: [doc/MAINTENANCE.md#cron-jobs-container](doc/MAINTENANCE.md#cron-jobs-container)
 
 ### Authentication and Dashboard
 
@@ -340,25 +341,30 @@ curl -s -X POST "http://localhost:8082/maintenance/cleanup-logs?days=30" \
 Use this checklist before exposing the service in production.
 
 Security
+
 - Set a strong, unique `API_KEY` (store in `.env.compose` or a secret manager). Rotate periodically.
 - Disable legacy endpoints: set `ENABLE_LEGACY_WEBHOOKS=false`.
 - Terminate TLS at a reverse proxy (nginx/Traefik) and prefer private network exposure.
 - Add proxy protections: rate limiting, request size limits, and optional IP allowlist for admin endpoints and `/dashboard`.
 
 Operations and resilience
+
 - Run with Docker restart policy and a container healthcheck.
 - Ensure PHP runs with production settings (display_errors off; error logging on).
 - Verify cron schedules do not overlap and timezone is correct; keep `API_KEY` available to cron (entrypoint already wires the header).
 
 Observability
+
 - Centralize logs (Apache/PHP/app) and alert on `/health/system` degradation.
 - Track cron success/failure and set up basic metrics dashboards.
 
 Data and database
+
 - Apply migrations on deploy; set up automated backups and retention.
 - Validate DB performance and connection limits under expected load.
 
 CI/CD quality gates
+
 - Add a minimal pipeline: `php -l`, static analysis (PHPStan), and a few unit/integration tests.
 
 Optional docker-compose hardening
@@ -396,12 +402,14 @@ curl -X POST -H "api_key: change-me-strong-random" http://localhost:8082/bridges
 
 ### **Composite ID System**
 Universal event identification across different calendar systems:
+
 - **Format**: `{type}_{original_id}` (e.g., `event_78269`, `booking_123`)
 - **Bidirectional Support**: Works seamlessly in both sync directions
 - **Type Safety**: Preserves original event type and ID for accurate API calls
 - **Universal Mapping**: Enables correct addressing across any calendar system
 
 **Supported Event Types:**
+
 - `event_` - Standard calendar events (Priority: 1 - Highest)
 - `booking_` - Booking system reservations (Priority: 2)
 - `allocation_` - Resource allocation entries (Priority: 3 - Lowest)
@@ -409,14 +417,18 @@ Universal event identification across different calendar systems:
 - `appointment_` - Appointment entries (Priority: 2)
 
 ### **Priority Filtering System**
+
 Intelligent conflict resolution for overlapping reservations:
+
 - **Automatic Priority Resolution**: Handles multiple events in the same time slot
 - **Configurable Hierarchy**: Event > Booking > Allocation priority levels
 - **Conflict Logging**: Detailed audit trail of all filtering decisions
 - **Performance Optimized**: Minimal overhead with efficient filtering algorithms
 
 ### **Session-Based Authentication**
+
 Enterprise-grade authentication for booking system integrations:
+
 - **Login Flow**: Secure session establishment with username/password
 - **Session Management**: Automatic token refresh and session maintenance
 - **API Security**: Session tokens used for all API communications
@@ -425,6 +437,7 @@ Enterprise-grade authentication for booking system integrations:
 ## 🔧 Core Bridge Operations
 
 ### **Resource Discovery**
+
 ```bash
 # Discover available calendar resources
 curl -X GET "http://localhost:8082/bridges/outlook/available-resources?query=conference&limit=10"
@@ -434,6 +447,7 @@ curl -X GET "http://localhost:8082/bridges/outlook/available-groups?query=meetin
 ```
 
 ### **Event Synchronization with Composite IDs**
+
 ```bash
 # Sync events between systems (automatic composite ID handling)
 curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" \
@@ -465,6 +479,7 @@ curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" \
 ```
 
 ### **Resource Mapping Management**
+
 ```bash
 # Create resource mapping
 curl -X POST "http://localhost:8082/mappings/resources" \
