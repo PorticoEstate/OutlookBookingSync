@@ -22,28 +22,32 @@ api_call() {
     local endpoint=$1
     local description=$2
     local expected_time=${3:-30}  # Expected max time in seconds
-    
+    local tenant_header=${4:-}    # Optional: "-H X-Tenant-Id: <id>"
+
     log "🔄 Starting: $description"
-    
+
     # Use timeout to prevent hanging
-    response=$(timeout $expected_time curl -s -X POST "$BRIDGE_URL$endpoint" \
+    response=$(timeout "$expected_time" curl -s -X POST "$BRIDGE_URL$endpoint" \
         -H "Content-Type: application/json" \
         -H "User-Agent: BridgeDeletionProcessor/1.0" \
-        $API_KEY_HEADER) || {
+        $API_KEY_HEADER $tenant_header) || {
         log "❌ TIMEOUT: $description (exceeded ${expected_time}s)"
         return 1
     }
-    
+
     # Check if response is valid JSON
     if echo "$response" | jq -e '.success' > /dev/null 2>&1; then
-        local success=$(echo "$response" | jq -r '.success')
+        local success
+        success=$(echo "$response" | jq -r '.success')
         if [ "$success" = "true" ]; then
             log "✅ SUCCESS: $description"
             # Log results if available
-            local results=$(echo "$response" | jq -r '.results // "No detailed results"')
+            local results
+            results=$(echo "$response" | jq -r '.results // "No detailed results"')
             log "   📊 Results: $results"
         else
-            local error=$(echo "$response" | jq -r '.error // "Unknown error"')
+            local error
+            error=$(echo "$response" | jq -r '.error // "Unknown error"')
             log "❌ API ERROR: $description - $error"
             return 1
         fi
@@ -55,12 +59,11 @@ api_call() {
 }
 
 # Detect whether the bridge exposes multi-tenant routes
-supports_tenant_routes() {
-    # Consider 200/401/403 as route exists (auth may be required)
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$BRIDGE_URL/tenants" \
-        -H "Content-Type: application/json" $API_KEY_HEADER || true)
-    [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]
+# Fetch tenant list from admin endpoint
+get_all_tenants() {
+    local resp
+    resp=$(curl -s -X GET "$BRIDGE_URL/admin/tenants" -H "Content-Type: application/json" $API_KEY_HEADER)
+    echo "$resp" | jq -r '.tenants[].id // empty'
 }
 
 # Main deletion processing workflow
@@ -69,14 +72,6 @@ main() {
     
     local errors=0
 
-    # If multi-tenant mode is requested but routes are not available, fallback gracefully
-    if [[ "$TENANT_MODE" == "multi" ]]; then
-        if ! supports_tenant_routes; then
-            log "ℹ️  Tenant routes not available on $BRIDGE_URL. Falling back to single-tenant mode."
-            TENANT_MODE="single"
-        fi
-    fi
-    
     if [[ "$TENANT_MODE" == "multi" ]]; then
         if [[ -n "$SPECIFIC_TENANT" ]]; then
             # Process specific tenant
@@ -133,11 +128,12 @@ process_tenant_deletions() {
     local errors=0
     
     log "🔄 Processing tenant: $tenant_id"
-    
-    # Tenant-specific deletion processing
-    api_call "/tenants/$tenant_id/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 || ((errors++))
-    api_call "/tenants/$tenant_id/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 || ((errors++))  
-    api_call "/tenants/$tenant_id/bridges/sync-deletions" "Manual $tenant_id deletion sync" 180 || ((errors++))
+
+    local TENANT_HEADER="-H X-Tenant-Id: $tenant_id"
+    # Tenant-specific deletion processing using header-based scoping
+    api_call "/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 "$TENANT_HEADER" || ((errors++))
+    api_call "/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 "$TENANT_HEADER" || ((errors++))
+    api_call "/bridges/sync-deletions" "Manual $tenant_id deletion sync" 180 "$TENANT_HEADER" || ((errors++))
     
     return $errors
 }
@@ -146,15 +142,9 @@ process_tenant_deletions() {
 process_all_tenants() {
     local errors=0
     
-    # Get list of active tenants
-    local tenants_response=$(curl -s -X GET "$BRIDGE_URL/tenants" -H "Content-Type: application/json" $API_KEY_HEADER)
-    
-    if ! echo "$tenants_response" | jq -e '.tenants' > /dev/null 2>&1; then
-        log "❌ Failed to get tenant list"
-        return 1
-    fi
-    
-    local tenants=$(echo "$tenants_response" | jq -r '.tenants[].id')
+    # Get list of active tenants via admin endpoint
+    local tenants
+    tenants=$(get_all_tenants)
     
     if [ -z "$tenants" ]; then
         log "⚠️  No active tenants found"
@@ -181,7 +171,8 @@ process_all_tenants() {
 health_check() {
     log "🏥 Performing health check"
     
-    local health_response=$(curl -s -X GET "$BRIDGE_URL/health" -H "Content-Type: application/json" $API_KEY_HEADER)
+    local health_response
+    health_response=$(curl -s -X GET "$BRIDGE_URL/health" -H "Content-Type: application/json" $API_KEY_HEADER)
     
     if echo "$health_response" | jq -e '.status' > /dev/null 2>&1; then
         local status=$(echo "$health_response" | jq -r '.status')

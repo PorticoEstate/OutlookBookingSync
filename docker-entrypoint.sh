@@ -23,6 +23,11 @@ CLEANUP_DAYS=${CLEANUP_DAYS:-30}
 echo "CLEANUP_DAYS=${CLEANUP_DAYS}" >> /tmp/crontab
 RENEW_MINUTES=${RENEW_MINUTES:-1440}
 echo "RENEW_MINUTES=${RENEW_MINUTES}" >> /tmp/crontab
+BRIDGE_URL=${BRIDGE_URL:-http://localhost}
+echo "BRIDGE_URL=${BRIDGE_URL}" >> /tmp/crontab
+# Set TENANT_MODE to 'multi' to process all tenants (uses admin /admin/tenants endpoint)
+TENANT_MODE=${TENANT_MODE:-single}
+echo "TENANT_MODE=${TENANT_MODE}" >> /tmp/crontab
 
 cat >> /tmp/crontab << 'EOF'
 # Generic Calendar Bridge Cron Jobs - Production Ready with sync_method tracking
@@ -35,8 +40,12 @@ cat >> /tmp/crontab << 'EOF'
 */10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" -H "api_key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
 
 # 2. DELETION & CANCELLATION HANDLING (COORDINATED)
-# Use centralized deletion processor instead of individual API calls
-*/5 * * * * if [ -f /scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" /scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
+# Use centralized deletion processor instead of individual API calls (supports TENANT_MODE=single|multi)
+*/5 * * * * if [ -f /scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
+
+# 2b. OPTIONAL: Multi-tenant periodic sync (both directions per tenant with active mappings)
+# Enable by setting ENABLE_MULTI_TENANT_SYNC=true (default off)
+*/10 * * * * if [ "$TENANT_MODE" = "multi" ] && [ "${ENABLE_MULTI_TENANT_SYNC}" = "true" ] && [ -f /scripts/multi_tenant_sync.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" /scripts/multi_tenant_sync.sh >> /var/log/bridge-cron.log 2>&1; fi
 
 # 3. SYSTEM HEALTH & MONITORING
 # Check bridge health every 10 minutes
@@ -75,6 +84,10 @@ crontab -u www-data /tmp/crontab
 
 # Remove the temporary file
 rm /tmp/crontab
+
+# Ensure helper scripts are executable
+chmod +x /scripts/enhanced_process_deletions.sh 2>/dev/null || true
+chmod +x /scripts/multi_tenant_sync.sh 2>/dev/null || true
 
 # Start cron service
 service cron start
