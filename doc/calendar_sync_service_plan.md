@@ -334,10 +334,10 @@ The following cron jobs are active in the Docker container for the generic bridg
 3. **Initial Bridge Discovery**: Run bridge discovery to identify available calendars and resources:
    ```bash
    # Discover available bridges
-   curl -X GET "http://yourapi/bridges"
+  curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://yourapi/bridges"
    
    # Get calendars for specific bridge
-   curl -X GET "http://yourapi/bridges/outlook/calendars"
+  curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://yourapi/bridges/outlook/calendars"
    ```
 
 #### **Phase 2: Bridge Synchronization**

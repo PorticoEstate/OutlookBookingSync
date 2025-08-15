@@ -360,7 +360,7 @@ INSERT INTO bridge_priority_logs VALUES (
 
 ```bash
 # Get priority filtering statistics
-curl -X GET "http://localhost:8082/monitoring/priority-filtering"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/monitoring/priority-filtering"
 
 # Response example
 {
@@ -379,7 +379,7 @@ curl -X GET "http://localhost:8082/monitoring/priority-filtering"
 }
 
 # Get current priority conflicts
-curl -X GET "http://localhost:8082/monitoring/priority-conflicts"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/monitoring/priority-conflicts"
 
 # Response shows active conflicts and resolutions
 {
@@ -474,7 +474,7 @@ return [
 
 ```bash
 # Test composite ID creation and resolution
-curl -X POST "http://localhost:8082/test/composite-id" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/test/composite-id" \
   -H "Content-Type: application/json" \
   -d '{
     "original_id": "78269",
@@ -482,7 +482,7 @@ curl -X POST "http://localhost:8082/test/composite-id" \
   }'
 
 # Test priority filtering with mock conflicts
-curl -X POST "http://localhost:8082/test/priority-filtering" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/test/priority-filtering" \
   -H "Content-Type: application/json" \
   -d '{
     "events": [
@@ -511,13 +511,13 @@ curl -X POST "http://localhost:8082/test/priority-filtering" \
 
 ```bash
 # Debug composite ID system
-curl -X GET "http://localhost:8082/debug/composite-ids"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/debug/composite-ids"
 
 # Debug priority filtering
-curl -X GET "http://localhost:8082/debug/priority-filtering"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/debug/priority-filtering"
 
 # Validate specific composite ID
-curl -X GET "http://localhost:8082/debug/composite-id/event_78269"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/debug/composite-id/event_78269"
 ```
 
 ## Conclusion

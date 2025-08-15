@@ -194,12 +194,12 @@ cat database/outlook_sync_alerts.sql | docker exec -i portico_outlook psql -h $D
 Navigate to: `http://localhost:8082/dashboard`
 
 ### 3. Monitor Health
-- Quick check: `curl http://localhost:8082/health`
-- Full status: `curl http://localhost:8082/health/system`
+- Quick check: `curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health`
+- Full status: `curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/system`
 
 ### 4. Set Up Alerting
 - Configure webhook URL in environment
-- Run periodic alert checks: `curl -X POST http://localhost:8082/alerts/check`
+- Run periodic alert checks: `curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" -X POST http://localhost:8082/alerts/check`
 
 ## Automated Monitoring
 
@@ -207,7 +207,7 @@ Navigate to: `http://localhost:8082/dashboard`
 Add to existing cron jobs for automated monitoring:
 ```bash
 # Check for alerts every 15 minutes
-*/15 * * * * curl -s -X POST "http://localhost/alerts/check" > /dev/null 2>&1
+*/15 * * * * curl -s -X POST "http://localhost/alerts/check" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Clean up old alerts weekly
 0 2 * * 0 curl -s -X DELETE "http://localhost/alerts/old?days=7" > /dev/null 2>&1
@@ -219,7 +219,7 @@ Add to docker-compose.yml:
 services:
   portico_outlook:
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+  test: ["CMD", "curl", "-f", "-H", "api_key: your_key", "-H", "X-Tenant-Id: tenantA", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -233,7 +233,7 @@ services:
 #### Dashboard Not Loading
 - Verify container is running: `docker ps -f name=portico_outlook`
 - Check logs: `docker logs portico_outlook`
-- Test health endpoint: `curl http://localhost:8082/health`
+- Test health endpoint: `curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health`
 
 #### Alerts Not Triggering
 - Verify table exists: Check `outlook_sync_alerts` table
@@ -313,7 +313,7 @@ ORDER BY sync_date DESC;
 
 ```bash
 # Get composite ID system statistics
-curl -X GET "http://your-bridge/health/composite-ids"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/health/composite-ids"
 
 # Response includes detailed breakdown
 {
@@ -335,7 +335,7 @@ curl -X GET "http://your-bridge/health/composite-ids"
 }
 
 # Get priority filtering statistics
-curl -X GET "http://your-bridge/health/priority-filtering"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/health/priority-filtering"
 
 # Response includes filtering effectiveness
 {
@@ -373,7 +373,7 @@ The monitoring system tracks priority filtering operations in real-time:
 
 ```bash
 # Get current priority conflicts
-curl -X GET "http://your-bridge/monitoring/priority-conflicts"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/monitoring/priority-conflicts"
 
 # Response shows active conflicts
 {
@@ -405,7 +405,7 @@ curl -X GET "http://your-bridge/monitoring/priority-conflicts"
 }
 
 # Get priority filtering performance metrics
-curl -X GET "http://your-bridge/monitoring/filtering-performance"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/monitoring/filtering-performance"
 
 # Response includes performance data
 {
@@ -438,10 +438,10 @@ The monitoring system includes specialized alerts for composite ID and priority 
 
 ```bash
 # Trigger composite ID health check
-curl -X POST "http://your-bridge/alerts/check-composite-ids"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/alerts/check-composite-ids"
 
 # Trigger priority filtering health check  
-curl -X POST "http://your-bridge/alerts/check-priority-filtering"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/alerts/check-priority-filtering"
 
 # Response includes alert details
 {

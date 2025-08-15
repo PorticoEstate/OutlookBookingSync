@@ -219,15 +219,15 @@ The system uses these automated processes:
 
 ```bash
 # Bidirectional sync operations
-*/5 * * * * curl -X POST "http://localhost/bridges/sync/booking_system/outlook"
-*/10 * * * * curl -X POST "http://localhost/bridges/sync/outlook/booking_system"
+*/5 * * * * curl -X POST "http://localhost/bridges/sync/booking_system/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+*/10 * * * * curl -X POST "http://localhost/bridges/sync/outlook/booking_system" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Deletion processing (coordinated)
 */5 * * * * /scripts/enhanced_process_deletions.sh
 
 # Health monitoring
-*/10 * * * * curl -X GET "http://localhost/bridges/health"
-*/15 * * * * curl -X GET "http://localhost/health/system"
+*/10 * * * * curl -X GET "http://localhost/bridges/health" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+*/15 * * * * curl -X GET "http://localhost/health/system" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### **Enhanced Deletion Processing**
@@ -353,13 +353,13 @@ docker compose up -d
 ### **Health Verification**
 ```bash
 # Check bridge health
-curl http://localhost:8082/bridges/health
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # List available bridges
-curl http://localhost:8082/bridges
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges
 
 # Test sync operation
-curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id": "123", "target_calendar_id": "room1@company.com"}'
 ```

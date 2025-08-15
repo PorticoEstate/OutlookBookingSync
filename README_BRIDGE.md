@@ -528,7 +528,7 @@ $manager->registerBridge('google_calendar', \App\Bridge\GoogleCalendarBridge::cl
 
 ```bash
 # Sync from Google Calendar to Outlook
-curl -X POST http://localhost/bridges/sync/google_calendar/outlook \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost/bridges/sync/google_calendar/outlook \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id": "primary", "target_calendar_id": "room@company.com"}'
 ```
@@ -641,13 +641,13 @@ The dashboard automatically refreshes every 30 seconds to provide real-time moni
 
 ```bash
 # Test bridge health
-curl -H "api_key: your_key" http://localhost:8082/bridges/health
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # Test calendar discovery
-curl -H "api_key: your_key" http://localhost:8082/bridges/outlook/calendars
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
 
 # Test dry run sync
-curl -X POST -H "Content-Type: application/json" -H "api_key: your_key" \
+curl -X POST -H "Content-Type: application/json" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" \
   http://localhost:8082/bridges/sync/outlook/booking_system \
   -d '{"source_calendar_id": "room@company.com", "target_calendar_id": "123", "dry_run": true}'
 ```
@@ -1199,15 +1199,15 @@ Use these curl commands to test the bridge endpoints (replace with your values).
 
 ```bash
 # Test resource listing
-curl -H "api_key: your_api_key" \
+curl -H "api_key: your_api_key" -H "X-Tenant-Id: tenantA" \
   http://localhost:8082/bridges/outlook/available-resources
 
 # Test getting events
-curl -H "api_key: your_api_key" \
+curl -H "api_key: your_api_key" -H "X-Tenant-Id: tenantA" \
   "http://localhost:8082/bridges/outlook/resources/room1@company.com/calendar-items?startDate=2025-06-14&endDate=2025-06-21"
 
 # Test creating an event
-curl -X POST -H "api_key: your_api_key" \
+curl -X POST -H "api_key: your_api_key" -H "X-Tenant-Id: tenantA" \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id":"room1@company.com","target_calendar_id":"123","start_date":"2025-06-14","end_date":"2025-06-21"}' \
   http://localhost:8082/bridges/sync/outlook/booking_system
@@ -1419,7 +1419,7 @@ private function triggerBridgeSync($mappingId) {
 
 ```bash
 # Create a resource mapping
-curl -X POST http://localhost:8082/mappings/resources \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources \
   -H "Content-Type: application/json" \
   -d '{
     "bridge_from": "booking_system",
@@ -1430,13 +1430,13 @@ curl -X POST http://localhost:8082/mappings/resources \
   }'
 
 # Check mapping for a resource
-curl http://localhost:8082/mappings/resources/by-resource/123
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources/by-resource/123
 
 # Get all mappings
-curl http://localhost:8082/mappings/resources
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources
 
 # Trigger sync for a mapping  
-curl -X POST http://localhost:8082/mappings/resources/1/sync
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources/1/sync
 ```
 
 ## 🗑️ Deletion Sync Handling
@@ -1461,7 +1461,7 @@ POST /bridges/sync-deletions
 Manually check all recent mappings for deleted Outlook events:
 
 ```bash
-curl -X POST http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 **Response:**
@@ -1485,7 +1485,7 @@ POST /bridges/process-deletion-queue
 Process pending deletion checks from the webhook queue:
 
 ```bash
-curl -X POST http://localhost:8082/bridges/process-deletion-queue
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
 ```
 
 **Response:**
@@ -1524,10 +1524,10 @@ Check deletion sync activity:
 
 ```bash
 # View recent deletion operations
-curl "http://localhost:8082/bridges/health" | jq '.logs[] | select(.operation == "delete")'
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/health" | jq '.logs[] | select(.operation == "delete")'
 
 # Check bridge mappings for consistency
-curl "http://localhost:8082/mappings/resources?active_only=true"
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/mappings/resources?active_only=true"
 ```
 
 This ensures your booking system stays in sync when events are deleted from Outlook calendars.
@@ -1558,7 +1558,7 @@ POST /bridges/sync-deletions
 Scans for inactive events in booking system and deletes corresponding Outlook events:
 
 ```bash
-curl -X POST http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 Response:
@@ -1592,32 +1592,32 @@ Set up comprehensive automation for the bridge system with cron jobs:
 ```bash
 # === CORE BRIDGE SYNCHRONIZATION ===
 # Sync from booking system to Outlook every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook \
+*/5 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/booking_system/outlook \
   -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # Sync from Outlook to booking system every 10 minutes  
-*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system \
+*/10 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/outlook/booking_system \
   -H "Content-Type: application/json" -d '{"start_date":"$(date +%Y-%m-%d)","end_date":"$(date -d \"+7 days\" +%Y-%m-%d)"}'
 
 # === DELETION & CANCELLATION PROCESSING ===
 # Process deletion queue from webhooks every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8082/bridges/process-deletion-queue
+*/5 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
 
 # Detect and process cancellations (inactive events) every 5 minutes
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
+*/5 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 
 # Manual deletion sync check every 30 minutes
-*/30 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
+*/30 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 
 # Alternative: Use the enhanced deletion processor script
 */5 * * * * /scripts/enhanced_process_deletions.sh
 
 # === SYSTEM MONITORING ===
 # Check bridge health every 10 minutes
-*/10 * * * * curl -X GET http://localhost:8082/bridges/health
+*/10 * * * * curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # Run comprehensive system health checks every 15 minutes
-*/15 * * * * curl -X GET http://localhost:8082/health/system
+*/15 * * * * curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/system
 ```
 
 **Production Cron Setup** (add to `/etc/cron.d/bridge-sync`):
@@ -1645,22 +1645,22 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 #### **Cancellation Statistics**
 ```bash
 # Get cancellation/sync stats
-curl http://localhost:8082/bridges/sync-stats
-curl http://localhost:8082/bridges/sync-stats/outlook
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-stats
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-stats/outlook
 ```
 
 #### **View Cancelled Events**
 ```bash
 # List recently cancelled events
-curl http://localhost:8082/bridges/cancelled-events
-curl http://localhost:8082/bridges/cancelled-events/outlook
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/cancelled-events
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/cancelled-events/outlook
 ```
 
 #### **Manual Processing Triggers**
 ```bash
 # Detect deletions and process webhook-driven queue
-curl -X POST http://localhost:8082/bridges/sync-deletions
-curl -X POST http://localhost:8082/bridges/process-deletion-queue
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
 ```
 
 ### **🔄 Re-enabling Events**
@@ -1674,7 +1674,7 @@ The system also handles when cancelled events are reactivated:
 
 ```bash
 # Detect and process re-enabled events
-curl -X POST http://localhost:8082/bridges/sync-deletions-reenabled
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions-reenabled
 ```
 
 ### **🎯 Key Benefits**
@@ -1721,12 +1721,12 @@ The default cron jobs are already optimized for webhook-free operation:
 
 ```bash
 # Current default (recommended)
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync/booking_system/outlook
-*/10 * * * * curl -X POST http://localhost:8082/bridges/sync/outlook/booking_system  
-*/5 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
+*/5 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/booking_system/outlook
+*/10 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/outlook/booking_system  
+*/5 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 
 # For faster response (every 2 minutes)
-*/2 * * * * curl -X POST http://localhost:8082/bridges/sync-deletions
+*/2 * * * * curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 ### **🎯 Your Inactive Event Use Case:**
@@ -1825,7 +1825,7 @@ OUTLOOK_GROUP_ID=12345678-1234-1234-1234-123456789abc
 
 ```bash
 # Test calendar discovery
-curl http://localhost:8082/bridges/outlook/calendars
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
 
 # Expected response:
 {

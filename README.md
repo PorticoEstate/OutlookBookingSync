@@ -94,17 +94,17 @@ php -S localhost:8082 index.php
 
 ```bash
 # Check bridge health
-curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/health
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # List available bridges
-curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges
 
 # Test resource discovery (example with outlook bridge)
-curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/outlook/available-resources
-curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/outlook/available-groups
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/available-resources
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/available-groups
 
 # Test resource mapping API
-curl -H "api_key: change-me-strong-random" http://localhost:8082/mappings/resources
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources
 ```
 
 ### 6. Setup Your Booking System API
@@ -391,7 +391,7 @@ curl -X PUT http://your-booking-system/api/events/123 \
   -d '{"status": "inactive"}'
 
 # 2. Run deletion detection to sync to Outlook
-curl -X POST -H "api_key: change-me-strong-random" http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 
 # Example: Handle Outlook deletion
 # When an Outlook event is deleted, webhooks or polling will detect it
@@ -440,17 +440,20 @@ Enterprise-grade authentication for booking system integrations:
 
 ```bash
 # Discover available calendar resources
-curl -X GET "http://localhost:8082/bridges/outlook/available-resources?query=conference&limit=10"
+curl -X GET -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/outlook/available-resources?query=conference&limit=10" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Get calendar groups
-curl -X GET "http://localhost:8082/bridges/outlook/available-groups?query=meeting&limit=5"
+curl -X GET -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/outlook/available-groups?query=meeting&limit=5" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### **Event Synchronization with Composite IDs**
 
 ```bash
 # Sync events between systems (automatic composite ID handling)
-curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" \
+curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync/booking_system/outlook" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA" \
   -H "Content-Type: application/json" \
   -d '{
     "source_calendar_id": "room_123",
@@ -482,7 +485,8 @@ curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" \
 
 ```bash
 # Create resource mapping
-curl -X POST "http://localhost:8082/mappings/resources" \
+curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "http://localhost:8082/mappings/resources" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA" \
   -H "Content-Type: application/json" \
   -d '{
     "bridge_from": "booking_system",
@@ -492,7 +496,8 @@ curl -X POST "http://localhost:8082/mappings/resources" \
   }'
 
 # Delete mapping by composite key
-curl -X DELETE "http://localhost:8082/mappings/resources/by-key/booking_system/room_123/conference-room-a@company.com"
+curl -X DELETE -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "http://localhost:8082/mappings/resources/by-key/booking_system/room_123/conference-room-a@company.com" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ## 🔧 Configuration
@@ -759,13 +764,13 @@ Generic Calendar Bridge (Port 8080)
 
 ```bash
 # Check overall bridge health
-curl -H "api_key: your_key" http://localhost:8082/bridges/health
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # Test specific bridge
-curl -H "api_key: your_key" http://localhost:8082/bridges/outlook/calendars
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
 
 # View dashboard data (JSON)
-curl -H "api_key: your_key" http://localhost:8082/health/dashboard | jq
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/dashboard | jq
 ```
 
 ### Common Issues

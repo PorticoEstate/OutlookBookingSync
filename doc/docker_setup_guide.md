@@ -172,10 +172,10 @@ docker logs portico_outlook --tail 50
 ### API Health Check
 ```bash
 # Basic connectivity (include API key)
-curl -H "api_key: change-me-strong-random" http://localhost:8082/bridges/health
+curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # Test specific endpoint
-curl -X POST -H "api_key: change-me-strong-random" http://localhost:8082/bridges/sync-deletions
+curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 ## Troubleshooting

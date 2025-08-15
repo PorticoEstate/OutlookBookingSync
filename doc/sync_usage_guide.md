@@ -130,7 +130,7 @@ target_id: "AAMkAGU4NzE5ZGZjLTBhNzUtNDY0OS1iMzMwLTY3..."
 
 ```bash
 # Sync booking system events to Outlook
-curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/booking_system/outlook" \
   -H "Content-Type: application/json" \
   -d '{
     "source_calendar_id": "room_123",
@@ -146,7 +146,7 @@ curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
 
 ```bash
 # Sync Outlook changes back to booking system
-curl -X POST "http://your-bridge/bridges/sync/outlook/booking_system" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/outlook/booking_system" \
   -H "Content-Type: application/json" \
   -d '{
     "source_calendar_id": "conference-room-a@company.com",
@@ -231,7 +231,7 @@ The system automatically applies priority filtering during sync operations:
 
 ```bash
 # Automatic priority filtering during sync
-curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/booking_system/outlook" \
   -H "Content-Type: application/json" \
   -d '{
     "source_calendar_id": "room_123",
@@ -272,7 +272,7 @@ All priority filtering decisions are logged for audit purposes:
 
 ```bash
 # View priority filtering logs
-curl -X GET "http://your-bridge/bridges/sync-logs" \
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync-logs" \
   -H "Content-Type: application/json" \
   -d '{
     "filter_type": "priority_conflict",
@@ -329,36 +329,36 @@ LOG_PRIORITY_CONFLICTS=true
 #### Get Available Calendars (Group Members)
 ```bash
 # Get all group members
-curl -X GET "http://your-bridge/calendars"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/calendars"
 
 # Filter by name
-curl -X GET "http://your-bridge/calendars?name=conference"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/calendars?name=conference"
 ```
 
 #### Get Available Resources with Filtering
 ```bash
 # Get all resources
-curl -X GET "http://your-bridge/resources"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources"
 
 # Filter by name (searches display name, email, UPN)
-curl -X GET "http://your-bridge/resources?name=mr.ok23"
-curl -X GET "http://your-bridge/resources?name=e4.475"
-curl -X GET "http://your-bridge/resources?name=svgdrift.no"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?name=mr.ok23"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?name=e4.475"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?name=svgdrift.no"
 ```
 
 #### Pagination Support
 ```bash
 # Get first 10 resources
-curl -X GET "http://your-bridge/resources?limit=10"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?limit=10"
 
 # Get resources 11-20 (skip first 10, return next 10)
-curl -X GET "http://your-bridge/resources?limit=10&offset=10"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?limit=10&offset=10"
 
 # Skip first 20 resources, return all remaining
-curl -X GET "http://your-bridge/resources?offset=20"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?offset=20"
 
 # Combine filtering and pagination
-curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/resources?name=meeting&limit=5&offset=0"
 ```
 
 **Pagination Parameters:**
@@ -420,19 +420,19 @@ curl -X GET "http://your-bridge/resources?name=meeting&limit=5&offset=0"
 #### Get Available Groups with Filtering and Pagination
 ```bash
 # Get all groups
-curl -X GET "http://your-bridge/bridges/outlook/available-groups"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/available-groups"
 
 # Filter groups by name (searches display name, description, email)
-curl -X GET "http://your-bridge/bridges/outlook/available-groups?query=meeting"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/available-groups?query=meeting"
 
 # Get first 5 groups
-curl -X GET "http://your-bridge/bridges/outlook/available-groups?limit=5"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/available-groups?limit=5"
 
 # Get groups 6-10 (skip first 5, return next 5)
-curl -X GET "http://your-bridge/bridges/outlook/available-groups?limit=5&offset=5"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/available-groups?limit=5&offset=5"
 
 # Combine filtering and pagination
-curl -X GET "http://your-bridge/bridges/outlook/available-groups?query=team&limit=10&offset=0"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/available-groups?query=team&limit=10&offset=0"
 ```
 
 **Groups Response Example:**
@@ -465,7 +465,7 @@ curl -X GET "http://your-bridge/bridges/outlook/available-groups?query=team&limi
 
 #### Create Resource Mapping
 ```bash
-curl -X POST "http://your-bridge/mappings/resources" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources" \
   -H "Content-Type: application/json" \
   -d '{
     "bridge_from": "your_system",
@@ -480,23 +480,23 @@ curl -X POST "http://your-bridge/mappings/resources" \
 #### Get Resource Mappings with Filtering
 ```bash
 # Get all mappings
-curl -X GET "http://your-bridge/mappings/resources"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources"
 
 # Filter by bridge type
-curl -X GET "http://your-bridge/mappings/resources?bridge_from=your_system"
-curl -X GET "http://your-bridge/mappings/resources?bridge_to=outlook"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources?bridge_from=your_system"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources?bridge_to=outlook"
 
 # Filter by name
-curl -X GET "http://your-bridge/mappings/resources?name=conference"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources?name=conference"
 ```
 
 #### Delete Resource Mapping by Composite Key
 ```bash
 # Delete specific mapping using business keys
-curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no"
+curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no"
 
 # Delete with name filter for additional safety
-curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no?name=Conference"
+curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources/by-key/your_system/room_123/mr.ok23.e4.475@svgdrift.no?name=Conference"
 ```
 
 ### 3. Event Management with Composite ID Support
@@ -504,7 +504,7 @@ curl -X DELETE "http://your-bridge/mappings/resources/by-key/your_system/room_12
 #### Create Calendar Event with Composite ID
 ```bash
 # Create event in booking system, gets composite ID automatically
-curl -X POST "http://your-bridge/events" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/events" \
   -H "Content-Type: application/json" \
   -d '{
     "resource_email": "mr.ok23.e4.475@svgdrift.no",
@@ -535,7 +535,7 @@ curl -X POST "http://your-bridge/events" \
 #### Get Resource Calendar Events with Composite ID Information
 ```bash
 # Get calendar events for a specific resource through a bridge
-curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items"
 
 # Response includes composite ID information
 {
@@ -556,16 +556,16 @@ curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrif
 }
 
 # With date filtering
-curl -X GET "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items?startDate=2025-06-16T00:00:00Z&endDate=2025-06-17T00:00:00Z"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/outlook/resources/mr.ok23.e4.475@svgdrift.no/calendar-items?startDate=2025-06-16T00:00:00Z&endDate=2025-06-17T00:00:00Z"
 
 # For booking system bridge with priority filtering
-curl -X GET "http://your-bridge/bridges/booking_system/resources/room_123/calendar-items?startDate=2025-06-16&endDate=2025-06-17&apply_priority_filter=true"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/booking_system/resources/room_123/calendar-items?startDate=2025-06-16&endDate=2025-06-17&apply_priority_filter=true"
 ```
 
 #### Update Event Using Composite ID
 ```bash
 # Update event using composite ID for proper addressing
-curl -X PUT "http://your-bridge/events/event_78269" \
+curl -X PUT -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/events/event_78269" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Updated Team Meeting",
@@ -583,7 +583,7 @@ curl -X PUT "http://your-bridge/events/event_78269" \
 #### Delete Event Using Composite ID
 ```bash
 # Delete event using composite ID
-curl -X DELETE "http://your-bridge/events/event_78269"
+curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/events/event_78269"
 
 # System handles:
 # 1. Resolves composite ID (event_78269 → type=event, id=78269)
@@ -595,7 +595,7 @@ curl -X DELETE "http://your-bridge/events/event_78269"
 #### Sync Operations with Priority Filtering
 ```bash
 # Sync with automatic priority filtering
-curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/booking_system/outlook" \
   -H "Content-Type: application/json" \
   -d '{
     "source_calendar_id": "room_123",
@@ -642,14 +642,14 @@ curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook" \
 #### Get Calendar Events (Legacy - Still Supported)
 ```bash
 # Get events for specific calendar (legacy endpoint)
-curl -X GET "http://your-bridge/events/mr.ok23.e4.475@svgdrift.no?start=2025-06-16T00:00:00Z&end=2025-06-17T00:00:00Z"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/events/mr.ok23.e4.475@svgdrift.no?start=2025-06-16T00:00:00Z&end=2025-06-17T00:00:00Z"
 ```
 
 ### 4. Webhook Management
 
 #### Subscribe to Calendar Changes
 ```bash
-curl -X POST "http://your-bridge/webhooks/subscribe" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/webhooks/subscribe" \
   -H "Content-Type: application/json" \
   -d '{
     "calendar_id": "mr.ok23.e4.475@svgdrift.no",
@@ -721,13 +721,13 @@ Resource filtering searches across multiple fields:
 
 ```bash
 # Debug group information
-curl -X GET "http://your-bridge/debug/group/{group_id}"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/debug/group/{group_id}"
 
 # Health check
-curl -X GET "http://your-bridge/health"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/health"
 
 # Bridge status
-curl -X GET "http://your-bridge/status"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/status"
 ```
 
 ## Migration from Legacy System
@@ -806,7 +806,7 @@ Once your server is publicly accessible with HTTPS, create webhook subscriptions
 
 ```bash
 # Create webhook subscription for a specific calendar
-curl -X POST "https://your-domain.com/bridges/outlook/subscriptions" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "https://your-domain.com/bridges/outlook/subscriptions" \
   -H "Content-Type: application/json" \
   -H "api_key: YOUR_API_KEY" \
   -d '{
@@ -882,7 +882,7 @@ If webhooks cannot be configured, the system automatically falls back to polling
 
 **Verify Polling Status:**
 ```bash
-curl "http://localhost:8082/polling/stats"
+curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/polling/stats"
 ```
 
 ### Webhook vs Polling Comparison
@@ -905,22 +905,22 @@ curl "http://localhost:8082/polling/stats"
 
 ```bash
 # Get all configured bridges and their capabilities
-curl -X GET "http://localhost:8082/bridges"
+curl -X GET "http://localhost:8082/bridges" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Check Bridge Health
 
 ```bash
 # Check health status of all bridges
-curl -X GET "http://localhost:8082/bridges/health"
+curl -X GET "http://localhost:8082/bridges/health" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Get Bridge Calendars
 
 ```bash
 # Get available calendars for a specific bridge
-curl -X GET "http://localhost:8082/bridges/outlook/calendars"
-curl -X GET "http://localhost:8082/bridges/booking_system/calendars"
+curl -X GET "http://localhost:8082/bridges/outlook/calendars" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+curl -X GET "http://localhost:8082/bridges/booking_system/calendars" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### 2. Resource Mapping Management
@@ -929,7 +929,8 @@ curl -X GET "http://localhost:8082/bridges/booking_system/calendars"
 
 ```bash
 # Map a resource between systems
-curl -X POST "http://localhost:8082/mappings/resources" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/mappings/resources" \
+  -H "api_key: your_key" -H "X-Tenant-Id: tenantA" \
   -H "Content-Type: application/json" \
   -d '{
     "booking_system_resource_id": "room_123",
@@ -944,10 +945,10 @@ curl -X POST "http://localhost:8082/mappings/resources" \
 
 ```bash
 # Get all resource mappings
-curl -X GET "http://localhost:8082/mappings/resources"
+curl -X GET "http://localhost:8082/mappings/resources" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Get mapping by booking system resource ID
-curl -X GET "http://localhost:8082/mappings/resources/by-resource/room_123"
+curl -X GET "http://localhost:8082/mappings/resources/by-resource/room_123" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### 3. Bridge Sync Operations
@@ -956,30 +957,30 @@ curl -X GET "http://localhost:8082/mappings/resources/by-resource/room_123"
 
 ```bash
 # Sync from your system to target calendar (e.g., Outlook)
-curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook"
+curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Sync from target calendar to your system  
-curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Sync between any two configured bridges
-curl -X POST "http://localhost:8082/bridges/sync/{source_bridge}/{target_bridge}"
+curl -X POST "http://localhost:8082/bridges/sync/{source_bridge}/{target_bridge}" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Process Pending Bridge Operations
 
 ```bash
 # Process all pending sync operations
-curl -X POST "http://localhost:8082/bridge/process-pending"
+curl -X POST "http://localhost:8082/bridge/process-pending" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Handle Deletions and Cancellations
 
 ```bash
 # Detect and sync deletions between systems
-curl -X POST "http://localhost:8082/bridges/sync-deletions"
+curl -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Process webhook deletion queue
-curl -X POST "http://localhost:8082/bridges/process-deletion-queue"
+curl -X POST "http://localhost:8082/bridges/process-deletion-queue" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### 4. Webhook Processing
@@ -999,10 +1000,10 @@ POST /bridges/webhook/google_calendar
 
 ```bash
 # Sync events from Outlook to your booking system
-curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system"
+curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # Sync events from a specific date range (if supported by your booking system API)
-curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync/outlook/booking_system" \
   -H "Content-Type: application/json" \
   -d '{"from_date": "2025-06-01", "to_date": "2025-07-01"}'
 ```
@@ -1015,7 +1016,7 @@ Process any pending sync operations between connected systems.
 
 ```bash
 # Process pending sync operations
-curl -X POST "http://localhost:8082/bridge/process-pending"
+curl -X POST "http://localhost:8082/bridge/process-pending" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 **What this endpoint does:**
@@ -1054,7 +1055,7 @@ curl -X POST "http://localhost:8082/bridge/process-pending"
 
 ```bash
 # Get statistics about bridge operations
-curl -X GET "http://localhost:8082/bridge/stats"
+curl -X GET "http://localhost:8082/bridge/stats" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 Shows overall statistics about bridge sync operations between all connected systems.
@@ -1065,26 +1066,26 @@ Shows overall statistics about bridge sync operations between all connected syst
 
 ```bash
 # Get comprehensive bridge operation statistics
-curl -X GET "http://localhost:8082/bridge/stats"
+curl -X GET "http://localhost:8082/bridge/stats" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Get Bridge Health Status
 
 ```bash
 # Get health status of all bridge connections
-curl -X GET "http://localhost:8082/bridges/health"
+curl -X GET "http://localhost:8082/bridges/health" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Clean Up Orphaned Mappings
 
 ```bash
 # Clean up bridge mappings that no longer have valid references
-curl -X DELETE "http://localhost:8082/bridge/cleanup-orphaned"
+curl -X DELETE "http://localhost:8082/bridge/cleanup-orphaned" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ```bash
 # Remove mappings for deleted calendar items
-curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
+curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 ### 6. Polling-Based Change Detection
@@ -1095,7 +1096,7 @@ When webhook endpoints aren't publicly accessible, the system provides robust po
 
 ```bash
 # Initialize polling for all room calendars
-curl -X POST "http://localhost:8082/polling/initialize"
+curl -X POST "http://localhost:8082/polling/initialize" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 **Response includes:**
@@ -1107,14 +1108,14 @@ When webhooks are not available, the bridge can use polling:
 
 ```bash
 # Poll all configured bridges for changes
-curl -X POST "http://localhost:8082/bridges/poll-changes"
+curl -X POST "http://localhost:8082/bridges/poll-changes" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 #### Get Automated Operation Statistics
 
 ```bash
 # Monitor automated operation health and status
-curl -X GET "http://localhost:8082/bridge/automation-stats"
+curl -X GET "http://localhost:8082/bridge/automation-stats" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 **Recommended Automation:**
@@ -1220,7 +1221,7 @@ class BookingSystemEventController {
 Map your booking system resources to calendar resources:
 
 ```bash
-curl -X POST "http://your-bridge/mappings/resources" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/mappings/resources" \
   -H "Content-Type: application/json" \
   -d '{
     "bridge_from": "your_system",
@@ -1248,23 +1249,23 @@ GET    /api/events          # List events for sync
 
 **Sync from your booking system to Outlook:**
 ```bash
-curl -X POST "http://your-bridge/bridges/sync/booking_system/outlook"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/booking_system/outlook"
 ```
 
 **Sync from Outlook to your booking system:**
 ```bash
-curl -X POST "http://your-bridge/bridges/sync/outlook/booking_system"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/sync/outlook/booking_system"
 ```
 
 **Process any pending sync operations:**
 ```bash
-curl -X POST "http://your-bridge/bridge/process-pending"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridge/process-pending"
 ```
 
 #### Step 4: Monitor Bridge Health
 
 ```bash
-curl -X GET "http://your-bridge/bridges/health"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridge/bridges/health"
 ```
 
 Expected response:
@@ -1326,52 +1327,52 @@ For complete production synchronization, follow this comprehensive workflow:
 
 ```bash
 # Populate from booking system to create mappings
-curl -X POST "http://localhost:8082/sync/populate-mapping"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/populate-mapping"
 
 # Import existing Outlook events
-curl -X POST "http://localhost:8082/sync/from-outlook"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/from-outlook"
 ```
 
 #### 2. **Sync Booking System → Outlook**
 
 ```bash
 # Check what's pending from booking system
-curl -X GET "http://localhost:8082/sync/pending-items"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/pending-items"
 
 # Sync to Outlook
-curl -X POST "http://localhost:8082/sync/to-outlook"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/to-outlook"
 ```
 
 #### 3. **Import Outlook Events → Booking System**
 
 ```bash
 # Check for new Outlook events not in booking system
-curl -X GET "http://localhost:8082/sync/outlook-events"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/outlook-events"
 
 # Add them to mapping table for processing
-curl -X POST "http://localhost:8082/sync/from-outlook"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/from-outlook"
 
 # Check pending imports ready for conversion
-curl -X GET "http://localhost:8082/booking/pending-imports"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/pending-imports"
 
 # Convert Outlook events to complete booking system entries
-curl -X POST "http://localhost:8082/booking/process-imports"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/process-imports"
 
 # Verify processed imports with reservation IDs
-curl -X GET "http://localhost:8082/booking/processed-imports"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/processed-imports"
 ```
 
 #### 4. **Handle Cancellations and Re-enables (Both Directions)**
 
 ```bash
 # Automatically detect cancelled and re-enabled reservations in booking system
-curl -X POST "http://localhost:8082/bridges/sync-deletions"
+curl -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 
 # View sync statistics and cancelled events
-curl -X GET "http://localhost:8082/bridges/sync-stats"
-curl -X GET "http://localhost:8082/bridges/sync-stats/outlook"
-curl -X GET "http://localhost:8082/bridges/cancelled-events"
-curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook"
+curl -X GET "http://localhost:8082/bridges/sync-stats" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+curl -X GET "http://localhost:8082/bridges/sync-stats/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+curl -X GET "http://localhost:8082/bridges/cancelled-events" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
 ```
 
 **Re-enable Workflow:**
@@ -1386,13 +1387,13 @@ When you re-enable a cancelled reservation in your booking system (`UPDATE your_
 
 ```bash
 # Get comprehensive sync statistics
-curl -X GET "http://localhost:8082/sync/stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/stats"
 
 # Check processing statistics
-curl -X GET "http://localhost:8082/booking/processing-stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/processing-stats"
 
 # Cleanup orphaned mappings
-curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
+curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/cleanup-orphaned"
 ```
 
 ### Production Results Verification
@@ -1486,7 +1487,7 @@ After running the complete workflow, you should see:
 - The calendar item was deleted from the booking system
 - **Solution**: Run cleanup to remove orphaned mappings
   ```bash
-  curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
+  curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/cleanup-orphaned"
   ```
 
 **"No Outlook event ID to delete"**
@@ -1528,20 +1529,20 @@ The system includes automatic retry handling:
 **Failed Sync Items**
 ```bash
 # Failed items remain in "error" status and can be retried
-curl -X GET "http://localhost:8082/sync/pending-items"
-curl -X POST "http://localhost:8082/sync/to-outlook"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/pending-items"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/to-outlook"
 ```
 
 **Failed Import Processing**
 ```bash
 # Retry failed import processing
-curl -X POST "http://localhost:8082/booking/process-imports"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/process-imports"
 ```
 
 **Failed Cancellation Detection**
 ```bash
 # Retry cancellation detection and processing
-curl -X POST "http://localhost:8082/bridges/sync-deletions"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync-deletions"
 ```
 
 ### Debug and Monitoring
@@ -1552,13 +1553,13 @@ Monitor system health with comprehensive statistics:
 
 ```bash
 # Overall sync statistics
-curl -X GET "http://localhost:8082/sync/stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/stats"
 
 # Booking system integration statistics
-curl -X GET "http://localhost:8082/booking/processing-stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/processing-stats"
 
 # Cancellation processing statistics
-curl -X GET "http://localhost:8082/bridges/sync-stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync-stats"
 ```
 
 #### Database Verification
@@ -1586,13 +1587,13 @@ ORDER BY updated_at DESC;
 
 ```bash
 # Check for orphaned mappings
-curl -X GET "http://localhost:8082/sync/pending-items" | jq '.count'
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/pending-items" | jq '.count'
 
 # Verify processing pipeline
-curl -X GET "http://localhost:8082/booking/pending-imports" | jq '.count'
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/pending-imports" | jq '.count'
 
 # Monitor cancellation detection
-curl -X GET "http://localhost:8082/bridges/sync-deletionsion-stats"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync-deletionsion-stats"
 ```
 
 #### Reset and Recovery
@@ -1610,8 +1611,8 @@ WHERE sync_status != 'cancelled';
 
 ```bash
 # Re-sync everything after reset
-curl -X POST "http://localhost:8082/sync/to-outlook"
-curl -X POST "http://localhost:8082/booking/process-imports"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/to-outlook"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/process-imports"
 ```
 
 #### Partial Recovery
@@ -1620,14 +1621,14 @@ For specific issues:
 
 ```bash
 # Re-process specific import failures
-curl -X GET "http://localhost:8082/booking/pending-imports"
-curl -X POST "http://localhost:8082/booking/process-imports"
+curl -X GET -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/pending-imports"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/booking/process-imports"
 
 # Re-detect missed cancellations
-curl -X POST "http://localhost:8082/bridges/sync-deletions"
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/sync-deletions"
 
 # Clean up orphaned entries
-curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned"
+curl -X DELETE -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/sync/cleanup-orphaned"
 ```
 
 ## Production Deployment and Automation
@@ -1644,19 +1645,19 @@ SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 
 # Full bidirectional sync every 15 minutes
-*/15 * * * * www-data curl -X POST "http://localhost:8082/sync/to-outlook?limit=100" > /dev/null 2>&1
+*/15 * * * * www-data curl -X POST "http://localhost:8082/sync/to-outlook?limit=100" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Import new Outlook events hourly
-0 * * * * www-data curl -X POST "http://localhost:8082/sync/from-outlook" > /dev/null 2>&1
+0 * * * * www-data curl -X POST "http://localhost:8082/sync/from-outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Process imported events every 30 minutes
-*/30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" > /dev/null 2>&1
+*/30 * * * * www-data curl -X POST "http://localhost:8082/booking/process-imports" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Detect and process cancellations and re-enables every 10 minutes
-*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Cleanup orphaned mappings daily at 2 AM
-0 2 * * * www-data curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned" > /dev/null 2>&1
+0 2 * * * www-data curl -X DELETE "http://localhost:8082/sync/cleanup-orphaned" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 ```
 
 #### Monitoring and Alerts
@@ -1779,8 +1780,8 @@ For high-volume environments, implement batch processing:
 ```bash
 # Process large batches during off-hours
 # /etc/cron.d/bridge-sync-batch
-0 1 * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" > /dev/null 2>&1
-0 2 * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" > /dev/null 2>&1
+0 1 * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
+0 2 * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 ```
 
 #### Load Balancing
@@ -1789,15 +1790,15 @@ For multiple servers, distribute the bridge load:
 
 ```bash
 # Server 1: Handle booking system to Outlook sync
-*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" > /dev/null 2>&1
+*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/booking_system/outlook" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Server 2: Handle Outlook to booking system sync  
-*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" > /dev/null 2>&1
-*/30 * * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" > /dev/null 2>&1
+*/15 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync/outlook/booking_system" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
+*/30 * * * * www-data curl -X POST "http://localhost:8082/bridge/process-pending" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 
 # Server 3: Handle deletion processing
-*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" > /dev/null 2>&1
-*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/process-deletion-queue" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
+*/10 * * * * www-data curl -X POST "http://localhost:8082/bridges/process-deletion-queue" -H "api_key: your_key" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 ```
 
 ### Backup and Recovery

@@ -40,9 +40,9 @@ API_KEY=your_api_key
 Provide the explicit webhook URL that supports Microsoft’s GET validation. Use the legacy-compatible endpoint which maps to the bridge handler.
 
 ```bash
-curl -X POST "http://localhost:8082/bridges/outlook/subscriptions" \
+curl -X POST -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/outlook/subscriptions" \
   -H "Content-Type: application/json" \
-  -H "api_key: YOUR_API_KEY" \
+  -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" \
   -d '{
     "webhook_url": "http://localhost:8082/webhook/outlook-notifications",
     "calendar_ids": ["room1@company.com", "room2@company.com"]
@@ -83,7 +83,7 @@ Optional cron example (adjust timing as needed):
 
 ```bash
 0 */12 * * * www-data curl -sS -X POST "http://localhost:8082/bridges/outlook/subscriptions" \
-  -H "Content-Type: application/json" -H "api_key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" \
   -d '{"webhook_url":"https://your-server.com/webhook/outlook-notifications"}' > /dev/null 2>&1
 ```
 
@@ -106,7 +106,7 @@ Add to cron (examples):
 
 ```bash
 # General bridge health checks
-0 */4 * * * www-data curl -sS "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY" > /dev/null 2>&1
+0 */4 * * * www-data curl -sS "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" > /dev/null 2>&1
 ```
 
 ## Optional periodic processing (fallback)
@@ -183,16 +183,16 @@ After Outlook-side cancellation:
 
 ```bash
 # Overall bridge health (includes subscription counts per bridge)
-curl -X GET "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY"
+curl -X GET "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 
 # Detailed sync status view
-curl -X GET "http://localhost:8082/health/sync-status" -H "api_key: YOUR_API_KEY"
+curl -X GET "http://localhost:8082/health/sync-status" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 
 # Outlook-specific sync stats
-curl -X GET "http://localhost:8082/bridges/sync-stats/outlook" -H "api_key: YOUR_API_KEY"
+curl -X GET "http://localhost:8082/bridges/sync-stats/outlook" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 
 # Recently cancelled events (Outlook → Booking)
-curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook" -H "api_key: YOUR_API_KEY"
+curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 ```
 
 ### Common issues
@@ -201,7 +201,7 @@ curl -X GET "http://localhost:8082/bridges/cancelled-events/outlook" -H "api_key
 
 1) Check active/expiring subscriptions via health and/or DB:
 ```bash
-curl -X GET "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY"
+curl -X GET "http://localhost:8082/bridges/health" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 ```
 
 2) Verify webhook endpoint is reachable (Graph validation simulation):
@@ -211,8 +211,8 @@ curl "https://your-server.com/webhook/outlook-notifications?validationToken=test
 
 3) Recreate subscriptions if expired:
 ```bash
-curl -X POST "http://localhost:8082/bridges/outlook/subscriptions" \
-  -H "Content-Type: application/json" -H "api_key: YOUR_API_KEY" \
+curl -X POST -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/outlook/subscriptions" \
+  -H "Content-Type: application/json" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA" \
   -d '{"webhook_url":"https://your-server.com/webhook/outlook-notifications"}'
 ```
 
@@ -223,9 +223,9 @@ curl -X POST "http://localhost:8082/bridges/outlook/subscriptions" \
 3) Check Graph API permissions
 4) Run manual processing:
 ```bash
-curl -sS -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: YOUR_API_KEY"
-curl -sS -X POST "http://localhost:8082/bridges/process-deletion-queue" -H "api_key: YOUR_API_KEY"
-curl -sS -X POST "http://localhost:8082/bridges/process-pending-syncs/outlook" -H "api_key: YOUR_API_KEY"
+curl -sS -X POST "http://localhost:8082/bridges/sync-deletions" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
+curl -sS -X POST "http://localhost:8082/bridges/process-deletion-queue" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
+curl -sS -X POST "http://localhost:8082/bridges/process-pending-syncs/outlook" -H "api_key: YOUR_API_KEY" -H "X-Tenant-Id: tenantA"
 ```
 
 ### Database monitoring
