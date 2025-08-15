@@ -44,6 +44,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private $sessionInfo = [];
     private $sessionTimeout = 1800; // 30 minutes
     private $debug = false;
+    private $proxy; // per-tenant proxy (config key: system_proxy)
 
     protected function validateConfig()
     {
@@ -62,6 +63,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->systemPassword = $this->config['system_password'] ?? null;
         $this->systemDomain = $this->config['system_domain'] ?? null;
         $this->debug = $this->config['debug'] ?? false;
+    // Per-tenant proxy configuration ("system_proxy").
+    // Use "none" to explicitly disable proxying; unset/empty means no proxy configured.
+    $this->proxy = $this->config['system_proxy'] ?? null;
 
         // Load configurable API mappings or use defaults
         $this->apiEndpoints = $this->config['api_endpoints'] ?? $this->getDefaultApiEndpoints();
@@ -880,14 +884,19 @@ class BookingSystemBridge extends AbstractCalendarBridge
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 
-        if ($_ENV['BOOKING_SYSTEM_PROXY'] == "none")
+        // Configure per-tenant proxy if provided in config
+        if (isset($this->proxy))
         {
-            // No proxy configured, use direct connection
-            curl_setopt($ch, CURLOPT_PROXY, '');
-        }
-        else if (!empty($_ENV['BOOKING_SYSTEM_PROXY']))
-        {
-            curl_setopt($ch, CURLOPT_PROXY, $_ENV['BOOKING_SYSTEM_PROXY']);
+            $proxy = is_string($this->proxy) ? trim($this->proxy) : $this->proxy;
+            if ($proxy === 'none')
+            {
+                // Explicitly disable proxy
+                curl_setopt($ch, CURLOPT_PROXY, '');
+            }
+            else if (!empty($proxy))
+            {
+                curl_setopt($ch, CURLOPT_PROXY, $proxy);
+            }
         }
 
         // Determine if this is a login/refresh request (should use form data)

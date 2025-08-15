@@ -182,10 +182,10 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
   ```json
   {
     "api_base_url": "<BOOKING_SYSTEM_API_URL>",
-    "login": "<BOOKING_SYSTEM_LOGIN>",
-    "password": "<BOOKING_SYSTEM_PASSWORD>",
-    "domain": "<BOOKING_SYSTEM_DOMAIN>",
-    "proxy": "<BOOKING_SYSTEM_PROXY>",
+    "system_login": "<BOOKING_SYSTEM_LOGIN>",
+    "system_password": "<BOOKING_SYSTEM_PASSWORD>",
+    "system_domain": "<BOOKING_SYSTEM_DOMAIN>",
+    "system_proxy": "none",
     "timezone": "<BOOKING_SYSTEM_TIMEZONE>",
     "defaults": {
       "agegroup_id": 1,
@@ -202,7 +202,7 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 
 - What to move into per-tenant DB configs:
   - Outlook: `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID`, `OUTLOOK_GROUP_ID`.
-  - Booking system: `BOOKING_SYSTEM_API_URL`, `BOOKING_SYSTEM_LOGIN`, `BOOKING_SYSTEM_PASSWORD`, `BOOKING_SYSTEM_DOMAIN`, `BOOKING_SYSTEM_PROXY`, `BOOKING_SYSTEM_TIMEZONE`, default IDs.
+  - Booking system: `BOOKING_SYSTEM_API_URL`, `BOOKING_SYSTEM_LOGIN`, `BOOKING_SYSTEM_PASSWORD`, `BOOKING_SYSTEM_DOMAIN`, `BOOKING_SYSTEM_TIMEZONE`, default IDs.
 
 1. Calling APIs with a tenant context
 
