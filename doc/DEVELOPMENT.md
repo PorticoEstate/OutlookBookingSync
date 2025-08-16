@@ -52,8 +52,34 @@ See the routes table in `README_BRIDGE.md` for the full list.
 
 ## 7) Database Changes
 
-- Add SQL migration under `database/migrations/NNN_description.sql`
-- Test locally, document apply/rollback steps in your PR and `doc/MAINTENANCE.md`
+
+## Query plan validation (optional, recommended)
+
+To verify that indexes are used efficiently, you can run EXPLAIN ANALYZE on representative queries:
+
+1) Ensure environment variables for Postgres are set (see .env or README):
+
+```bash
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=calendar_bridge
+export DB_USER=bridge_user
+export DB_PASS=bridge_password
+```
+
+2) Run the helper script (adjust variables as needed):
+
+```bash
+bash scripts/run_explain_plans.sh
+```
+
+Optional overrides:
+
+```bash
+TENANT_ID=acme HOURS_BACK=24 SOURCE_CAL=room1@company.com TARGET_CAL=123 bash scripts/run_explain_plans.sh
+```
+
+This executes `scripts/explain_plans.sql` with timing enabled and prints query plans to the console.
 
 ## 8) Debugging Tips
 
@@ -61,6 +87,7 @@ See the routes table in `README_BRIDGE.md` for the full list.
 - If `.env` is missing, API requests return a friendly JSON error with guidance
 - For DB outages, health endpoints handle `db` being null gracefully
 - Xdebug config exists under `build_config/xdebug.ini` if enabled in your PHP setup
+
 
 ## 9) Legacy Endpoints
 

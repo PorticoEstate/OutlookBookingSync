@@ -106,17 +106,31 @@ CREATE TABLE IF NOT EXISTS bridge_resource_mappings (
 );
 
 -- Indexes for better performance
+-- Notes:
+-- - All indexes use IF NOT EXISTS where supported to keep the script idempotent.
+-- - Expression/partial unique indexes are guarded in DO $$ blocks because IF NOT EXISTS
+--   is not available for CREATE UNIQUE INDEX on expressions in older Postgres versions.
+-- - After deploying indexes, consider running ANALYZE and reviewing EXPLAIN plans.
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_source ON bridge_resource_mappings(bridge_from, source_calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_target ON bridge_resource_mappings(bridge_to, target_calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_active ON bridge_resource_mappings(is_active, sync_enabled);
 CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_tenant ON bridge_resource_mappings(tenant_id);
 -- Optional: ensure uniqueness when tenant_id is NULL and non-NULL together
 DO $$ BEGIN
-    CREATE UNIQUE INDEX IF NOT EXISTS uniq_bridge_configs_name_tenant_expr ON bridge_configs (bridge_name, COALESCE(tenant_id, ''));
-EXCEPTION WHEN others THEN NULL; END $$;
+    -- Enforce uniqueness for (bridge_name, tenant_id) treating NULL tenant as ''
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_bridge_configs_name_tenant_expr
+        ON bridge_configs (bridge_name, COALESCE(tenant_id, ''));
+EXCEPTION WHEN others THEN
+    -- Ignore errors if the index already exists or cannot be created due to version constraints
+    NULL;
+END $$;
 DO $$ BEGIN
-    CREATE UNIQUE INDEX IF NOT EXISTS uniq_brm_bridge_cal_tenant_expr ON bridge_resource_mappings (bridge_from, bridge_to, source_calendar_id, target_calendar_id, COALESCE(tenant_id, ''));
-EXCEPTION WHEN others THEN NULL; END $$;
+    -- Enforce uniqueness for resource mappings across nullable tenant
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_brm_bridge_cal_tenant_expr
+        ON bridge_resource_mappings (bridge_from, bridge_to, source_calendar_id, target_calendar_id, COALESCE(tenant_id, ''));
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
@@ -124,11 +138,23 @@ CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_sync
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync_status ON bridge_mappings(sync_status);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_retry ON bridge_mappings(retry_count) WHERE sync_status = 'error';
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);
+-- Optimize frequent tenant-scoped status/time filters and updated_at lookups
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant_status_updated ON bridge_mappings(tenant_id, sync_status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_updated ON bridge_mappings(updated_at);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant_last_synced ON bridge_mappings(tenant_id, last_synced_at);
+
+-- Support joins/exists checks by calendar-id pairs (both directions) with tenant scoping
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_src_cal_pair_tenant ON bridge_mappings(source_calendar_id, target_calendar_id, tenant_id);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tgt_cal_pair_tenant ON bridge_mappings(target_calendar_id, source_calendar_id, tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_created ON bridge_sync_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_status ON bridge_sync_logs(status);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_bridges ON bridge_sync_logs(source_bridge, target_bridge);
 CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_tenant ON bridge_sync_logs(tenant_id);
+-- Speed up common filters like status='error' in last 24h, optionally per-tenant
+CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_status_created_tenant ON bridge_sync_logs(status, created_at, tenant_id);
+-- Speed up tenant-scoped time-window aggregations
+CREATE INDEX IF NOT EXISTS idx_bridge_sync_logs_tenant_created ON bridge_sync_logs(tenant_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_bridge ON bridge_subscriptions(bridge_type, calendar_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_expires ON bridge_subscriptions(expires_at) WHERE is_active = true;
@@ -137,6 +163,8 @@ CREATE INDEX IF NOT EXISTS idx_bridge_subscriptions_tenant ON bridge_subscriptio
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_status ON bridge_queue(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_priority ON bridge_queue(priority, scheduled_at) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_tenant ON bridge_queue(tenant_id);
+-- Optimize fetching pending work per-tenant in priority/scheduled order
+CREATE INDEX IF NOT EXISTS idx_bridge_queue_pending_tenant_order ON bridge_queue(tenant_id, priority, scheduled_at) WHERE status = 'pending';
 
 -- Views for easy querying
 
