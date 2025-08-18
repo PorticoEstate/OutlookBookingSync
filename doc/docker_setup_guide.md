@@ -58,15 +58,21 @@ DB_NAME=your_database
 DB_USER=your_username
 DB_PASS=your_password
 
-# Microsoft Graph API
-OUTLOOK_CLIENT_ID=your_client_id
-OUTLOOK_CLIENT_SECRET=your_client_secret
-OUTLOOK_TENANT_ID=your_tenant_id
-OUTLOOK_USER_PRINCIPAL_NAME=user@domain.com
-
-# Optional Security
+# Application Auth
 API_KEY=your_api_key
+
+# Tenant Mode
+# single: app uses DEFAULT_TENANT_ID when X-Tenant-Id is not provided
+# multi: cron and automation iterate tenants from DB and send X-Tenant-Id per tenant
+TENANT_MODE=single
+DEFAULT_TENANT_ID=default
 ```
+
+### Optional Defaults (single-tenant bootstrap)
+In the new database-driven multi-tenant model, per-tenant bridge credentials and options
+are stored in the database (`bridge_configs`). 
+
+See Maintenance and Admin docs for managing tenants and per-tenant configs via the API/UI.
 
 ### Docker Compose Setup
 ```yaml
@@ -111,6 +117,14 @@ https_proxy=
 
 # Feature flags
 ENABLE_LEGACY_WEBHOOKS=false
+
+# Tenant processing mode
+# single: scope to DEFAULT_TENANT_ID when no X-Tenant-Id header is present
+# multi: iterate tenants from DB and send X-Tenant-Id for each in cron/automation
+TENANT_MODE=single
+
+# Fallback tenant id used when no X-Tenant-Id is provided (single-tenant mode)
+DEFAULT_TENANT_ID=default
 ```
 
 - Ensure `docker-compose.yml` references it via `env_file: - .env.compose` (see snippet above).
@@ -121,6 +135,20 @@ Notes:
 - PHP’s Dotenv won’t override existing environment variables. If `API_KEY` is set via Compose, `$_ENV['API_KEY']` will be available to the app and cron jobs (the entrypoint propagates it to curl requests).
 - Keep sensitive values out of version control. Prefer `.env.compose` kept locally or managed via secrets.
 - If you keep an application `.env` for other settings, ensure `API_KEY` there matches or simply omit it to avoid confusion.
+
+## Database Initialization and Tenants
+
+This service persists configuration in Postgres, including per-tenant bridge settings in
+`bridge_configs`.
+
+- Initialize the database schema once (inside or outside the container):
+  - Use `database/bridge_schema.sql` or the provided helper script in `scripts/setup_bridge_database.sh`.
+- Create tenants and set per-tenant configs via the Admin UI or Admin API.
+  - The app will read tenant-specific settings from `bridge_configs` based on the `X-Tenant-Id` header.
+  - When no `X-Tenant-Id` is provided, `DEFAULT_TENANT_ID` is used (single-tenant mode).
+
+In multi-tenant mode (`TENANT_MODE=multi`), automation and cron jobs iterate tenants from the
+database and call APIs with the appropriate `X-Tenant-Id` for each tenant.
 
 ## Deployment Commands
 
@@ -177,6 +205,10 @@ curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://loca
 # Test specific endpoint
 curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
+
+Note: All protected endpoints require both `api_key` and `X-Tenant-Id` headers. If `X-Tenant-Id`
+is omitted, the app falls back to `DEFAULT_TENANT_ID` (single-tenant behavior). Webhook
+validation GETs remain unauthenticated by design.
 
 ## Troubleshooting
 
