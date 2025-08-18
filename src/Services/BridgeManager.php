@@ -144,7 +144,13 @@ class BridgeManager
 			throw new \Exception("Bridge '{$name}' not found");
 		}
 
-		$bridge = $this->getBridge($name);
+		// Prefer tenant-aware config if a tenant id is available (header or DEFAULT_TENANT_ID)
+		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+		if ($tenantId !== null) {
+			$bridge = $this->getBridgeForTenant((string)$tenantId, $name);
+		} else {
+			$bridge = $this->getBridge($name);
+		}
 
 		return [
 			'name' => $name,
