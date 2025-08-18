@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     sync_status VARCHAR(20) DEFAULT 'pending' NOT NULL, -- 'pending', 'synced', 'cancelled', 'error'
     sync_method VARCHAR(20) DEFAULT 'manual', -- 'manual', 'polling', 'automated', 'cron'
     event_data JSONB,
+    event_hash VARCHAR(64),
     last_synced_at TIMESTAMP,
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
@@ -135,6 +136,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_synced_at);
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_event_hash ON bridge_mappings(event_hash);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync_status ON bridge_mappings(sync_status);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_retry ON bridge_mappings(retry_count) WHERE sync_status = 'error';
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);

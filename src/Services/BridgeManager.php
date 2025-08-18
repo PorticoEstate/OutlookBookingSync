@@ -517,6 +517,79 @@ class BridgeManager
 				];
 			}
 
+			// Fastest no-op guard using stable hash if present
+			if (!($options['force_update'] ?? false))
+			{
+				try {
+					$newHash = $this->computeEventHash($sourceEvent);
+					if (!empty($mapping['event_hash']) && is_string($mapping['event_hash']) && hash_equals($mapping['event_hash'], $newHash))
+					{
+						$this->updateMappingTimestamp($mapping['id']);
+						return [
+							'action' => 'skipped',
+							'source_event_id' => $sourceEvent['id'],
+							'target_event_id' => $mapping['target_event_id'],
+							'reason' => 'no_changes_hash'
+						];
+					}
+				} catch (\Throwable $e) {
+					$this->logger->debug('Hash no-op guard failed; falling back', ['error' => $e->getMessage()]);
+				}
+			}
+
+			// Fast no-op guard using cached last-synced payload from mapping.event_data
+			if (!($options['force_update'] ?? false))
+			{
+				try
+				{
+					if (isset($mapping['event_data']) && !empty($mapping['event_data']))
+					{
+						$cached = is_array($mapping['event_data']) ? $mapping['event_data'] : json_decode((string)$mapping['event_data'], true);
+						if (is_array($cached) && $this->eventsAreEquivalent($sourceEvent, $cached))
+						{
+							$this->updateMappingTimestamp($mapping['id']);
+							return [
+								'action' => 'skipped',
+								'source_event_id' => $sourceEvent['id'],
+								'target_event_id' => $mapping['target_event_id'],
+								'reason' => 'no_changes_cached'
+							];
+						}
+					}
+				}
+				catch (\Throwable $e)
+				{
+					$this->logger->debug('Cached no-op guard failed; will attempt live comparison or proceed with update', [ 'error' => $e->getMessage() ]);
+				}
+			}
+
+			// No-op guard: if there are no meaningful changes, skip the update
+			if (!($options['force_update'] ?? false))
+			{
+				try
+				{
+					$targetCurrent = $target->getEvent($targetCalendarId, $mapping['target_event_id']);
+					if ($this->eventsAreEquivalent($sourceEvent, $targetCurrent))
+					{
+						// Optionally bump timestamp to reflect check without write
+						$this->updateMappingTimestamp($mapping['id']);
+						return [
+							'action' => 'skipped',
+							'source_event_id' => $sourceEvent['id'],
+							'target_event_id' => $mapping['target_event_id'],
+							'reason' => 'no_changes'
+						];
+					}
+				}
+				catch (\Throwable $e)
+				{
+					$this->logger->debug('No-op guard: failed to fetch/compare target event; proceeding with update', [
+						'target_event_id' => $mapping['target_event_id'],
+						'error' => $e->getMessage()
+					]);
+				}
+			}
+
 			try
 			{
 				// Mark as pending before update
@@ -534,6 +607,7 @@ class BridgeManager
 				if ($success)
 				{
 					$this->updateMappingTimestamp($mapping['id']);
+					$this->updateMappingEventData($mapping['id'], $sourceEvent);
 
 					// Store source event timing for safer deletion checks
 					$this->updateMappingWithSourceTiming(
@@ -607,6 +681,9 @@ class BridgeManager
 						$sourceEvent['start'] ?? null,
 						$sourceEvent['end'] ?? null
 					);
+
+					// Cache last-synced payload and hash
+					$this->updateMappingEventData($newMapping['id'], $sourceEvent);
 
 					// Record sync method for newly created mapping
 					$this->updateMappingSyncMethod(
@@ -848,6 +925,90 @@ class BridgeManager
 	}
 
 	/**
+	 * Determine if two generic events are effectively equivalent (no meaningful changes).
+	 * Compares key fields with normalization to avoid spurious updates.
+	 */
+	private function eventsAreEquivalent(array $a, array $b): bool
+	{
+		$fields = ['subject','location','description'];
+		foreach ($fields as $f)
+		{
+			$av = isset($a[$f]) ? $this->normalizeString((string)$a[$f]) : '';
+			$bv = isset($b[$f]) ? $this->normalizeString((string)$b[$f]) : '';
+			if ($av !== $bv) { return false; }
+		}
+
+		// All-day flag
+		$allDayA = (bool)($a['all_day'] ?? false);
+		$allDayB = (bool)($b['all_day'] ?? false);
+		if ($allDayA !== $allDayB) { return false; }
+
+		// Start/End: compare as timestamps (UTC-equivalent)
+		if ($this->normalizeDateToTimestamp($a['start'] ?? null) !== $this->normalizeDateToTimestamp($b['start'] ?? null)) { return false; }
+		if ($this->normalizeDateToTimestamp($a['end'] ?? null) !== $this->normalizeDateToTimestamp($b['end'] ?? null)) { return false; }
+
+		// Attendees (case-insensitive, order-insensitive)
+		$attA = $this->normalizeAttendees($a['attendees'] ?? []);
+		$attB = $this->normalizeAttendees($b['attendees'] ?? []);
+		if ($attA !== $attB) { return false; }
+
+		return true;
+	}
+
+	private function normalizeString(string $s): string
+	{ return trim(preg_replace('/\s+/', ' ', $s)); }
+
+	private function normalizeDateToTimestamp($val): ?int
+	{
+		if (empty($val)) { return null; }
+		try { $dt = new \DateTime((string)$val); return $dt->getTimestamp(); } catch (\Throwable $e) { return null; }
+	}
+
+	private function normalizeAttendees($val): array
+	{
+		if (!is_array($val)) { return []; }
+		$norm = array_map(function ($x) { return strtolower(trim((string)$x)); }, $val);
+		$norm = array_values(array_unique(array_filter($norm, function ($x) { return $x !== ''; })));
+		sort($norm);
+		return $norm;
+	}
+
+	/**
+	 * Compute a stable hash for a generic event using normalized fields.
+	 */
+	private function computeEventHash(array $event): string
+	{
+		$payload = [
+			'subject'   => $this->normalizeString((string)($event['subject'] ?? '')),
+			'location'  => $this->normalizeString((string)($event['location'] ?? '')),
+			'description' => $this->normalizeString((string)($event['description'] ?? '')),
+			'all_day'   => (bool)($event['all_day'] ?? false),
+			'start_ts'  => $this->normalizeDateToTimestamp($event['start'] ?? null),
+			'end_ts'    => $this->normalizeDateToTimestamp($event['end'] ?? null),
+			'attendees' => $this->normalizeAttendees($event['attendees'] ?? []),
+		];
+		return hash('sha256', json_encode($payload));
+	}
+
+	/**
+	 * Update cached last-synced payload on mapping
+	 */
+	private function updateMappingEventData($mappingId, array $event): void
+	{
+		try
+		{
+			$hash = $this->computeEventHash($event);
+			$sql = "UPDATE bridge_mappings SET event_data = :event_data, event_hash = :event_hash, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
+			$stmt = $this->db->prepare($sql);
+			$stmt->execute([':id' => $mappingId, ':event_data' => json_encode($event), ':event_hash' => $hash]);
+		}
+		catch (\Throwable $e)
+		{
+			$this->logger->debug('Failed to update mapping event_data/hash cache - continuing', [ 'mapping_id' => $mappingId, 'error' => $e->getMessage() ]);
+		}
+	}
+
+	/**
 	 * Update mapping timestamp
 	 */
 	private function updateMappingTimestamp($mappingId)
@@ -978,6 +1139,7 @@ class BridgeManager
 				{
 					$this->updateMappingTimestamp($mapping['id']);
 					$this->updateMappingWithSourceTiming($mapping['id'], $sourceEvent['start'] ?? null, $sourceEvent['end'] ?? null);
+					$this->updateMappingEventData($mapping['id'], $sourceEvent);
 					$this->updateMappingSyncMethod(
 						$source->getBridgeType(),
 						$target->getBridgeType(),
@@ -1017,6 +1179,7 @@ class BridgeManager
 			$this->updateMappingTargetEventId($mapping['id'], $newTargetEventId);
 			$this->updateMappingTimestamp($mapping['id']);
 			$this->updateMappingWithSourceTiming($mapping['id'], $sourceEvent['start'] ?? null, $sourceEvent['end'] ?? null);
+			$this->updateMappingEventData($mapping['id'], $sourceEvent);
 			$this->updateMappingSyncMethod(
 				$source->getBridgeType(),
 				$target->getBridgeType(),
