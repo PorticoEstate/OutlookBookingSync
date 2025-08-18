@@ -41,7 +41,6 @@ class HealthController
                 'uptime' => $this->getSystemUptime(),
                 'checks' => [
             'database' => $this->checkDatabase($request->getAttribute('tenant_id')),
-            'outlook_connectivity' => $this->checkOutlookConnectivity($request->getAttribute('tenant_id')),
             'cron_jobs' => $this->checkCronJobs($request->getAttribute('tenant_id')),
             'disk_space' => $this->checkDiskSpace(),
             'memory_usage' => $this->checkMemoryUsage(),
@@ -220,53 +219,6 @@ class HealthController
         }
     }
 
-    /**
-     * Check Outlook connectivity.
-     *
-     * @param string|null $tenantId Tenant identifier (optional)
-     * @return array{status:string,message?:string,recent_syncs?:int,credentials_configured?:bool}
-     */
-    private function checkOutlookConnectivity(?string $tenantId = null)
-    {
-        try {
-            // Check if Graph credentials are configured
-            $clientId = $_ENV['OUTLOOK_CLIENT_ID'] ?? null;
-            $clientSecret = $_ENV['OUTLOOK_CLIENT_SECRET'] ?? null;
-            
-            if (!$clientId || !$clientSecret) {
-                return [
-                    'status' => 'warning',
-                    'message' => 'Graph API credentials not configured'
-                ];
-            }
-
-            // Check recent sync activity as proxy for connectivity
-            $sql = "SELECT COUNT(*) as recent_syncs FROM bridge_sync_logs WHERE created_at > NOW() - INTERVAL '1 hour' AND (source_bridge = 'outlook' OR target_bridge = 'outlook')" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-            $stmt = $this->db->prepare($sql);
-            $params = [];
-            if ($tenantId) { $params[':tenant_id'] = (string)$tenantId; }
-            $stmt->execute($params);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            $status = $result['recent_syncs'] > 0 ? 'healthy' : 'warning';
-            $message = $result['recent_syncs'] > 0 ? 
-                'Recent sync activity detected' : 
-                'No recent sync activity - connectivity may be impaired';
-
-            return [
-                'status' => $status,
-                'message' => $message,
-                'recent_syncs' => $result['recent_syncs'],
-                'credentials_configured' => true
-            ];
-
-        } catch (Exception $e) {
-            return [
-                'status' => 'critical',
-                'message' => 'Outlook connectivity check failed: ' . $e->getMessage()
-            ];
-        }
-    }
 
     /**
      * Check cron job status.
