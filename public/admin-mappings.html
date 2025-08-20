@@ -1,0 +1,278 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Admin • Resource Mappings</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <style>
+      body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+      .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+      label { min-width: 120px; display: inline-block; }
+      select, input[type="text"] { padding: 6px 8px; }
+      button { padding: 6px 10px; }
+      .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+      .panel { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #fff; }
+      .panel h3 { margin-top: 0; }
+      .list { border: 1px solid #eee; border-radius: 6px; max-height: 360px; overflow: auto; }
+      .item { padding: 8px 10px; border-bottom: 1px solid #f1f1f1; cursor: pointer; }
+      .item:hover { background: #f9fafb; }
+      .item.selected { background: #eef2ff; }
+      .note { color: #666; font-size: .9em; }
+      .error { color: #b00020; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+      .muted { color: #777; font-size: .9em; }
+    </style>
+  </head>
+  <body>
+    <h1>Resource Mapper</h1>
+    <nav>
+      <a href="/dashboard">Dashboard</a> ·
+      <a href="/admin-tenants">Tenants</a> ·
+      <a href="/admin-keys">API Keys</a> ·
+      <a href="/admin-configs">Bridge Configs</a>
+    </nav>
+
+    <p class="note">Use your admin API key in the browser: set localStorage.dashboard_api_key. All requests include X-Tenant-Id to scope data.</p>
+
+    <section class="panel">
+      <div class="row">
+        <label for="tenantSelect">Tenant</label>
+        <select id="tenantSelect"></select>
+
+        <label for="sourceBridge">Source bridge</label>
+        <select id="sourceBridge"></select>
+
+        <label for="targetBridge">Target bridge</label>
+        <select id="targetBridge"></select>
+
+        <button id="load">Load resources</button>
+      </div>
+      <div id="msg" class="note" style="margin-top:8px"></div>
+    </section>
+
+    <div class="cols">
+      <section class="panel">
+        <h3>Source resources (<span id="srcCount" class="muted">0</span>)</h3>
+        <input type="text" id="srcFilter" placeholder="Filter…" />
+        <div id="srcList" class="list"></div>
+      </section>
+      <section class="panel">
+        <h3>Target resources (<span id="tgtCount" class="muted">0</span>)</h3>
+        <input type="text" id="tgtFilter" placeholder="Filter…" />
+        <div id="tgtList" class="list"></div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:16px">
+      <h3>Create mapping</h3>
+      <div class="row">
+        <div>Selected source: <span id="selSrc" class="muted">(none)</span></div>
+        <div>Selected target: <span id="selTgt" class="muted">(none)</span></div>
+        <button id="create" disabled>Create mapping</button>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px">
+      <h3>Existing mappings (both directions)</h3>
+      <table>
+        <thead>
+          <tr><th>From</th><th>→</th><th>To</th><th>Direction</th><th>Active</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="mappings"></tbody>
+      </table>
+    </section>
+
+    <script>
+      function setMsg(text, isError=false){
+        const el = document.getElementById('msg');
+        el.textContent = text || '';
+        el.className = isError ? 'error' : 'note';
+      }
+      function getAdminKey(){ return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || ''); }
+      let CSRF = '';
+      async function ensureCsrf(){
+        const key = getAdminKey();
+        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
+        try{ const data = await res.json(); CSRF = data.csrf_token || ''; } catch{}
+      }
+      function hdrs(tenantId, hasBody){
+        const h = { 'api_key': getAdminKey(), 'X-API-Key': getAdminKey(), 'X-Tenant-Id': tenantId };
+        if(hasBody) h['Content-Type'] = 'application/json';
+        if(CSRF) h['X-CSRF-Token'] = CSRF;
+        return h;
+      }
+      async function fetchJSON(url, opts={}, tenantId){
+        opts.headers = Object.assign({}, opts.headers || {}, hdrs(tenantId, !!opts.body));
+        const res = await fetch(url, opts);
+        let data; try{ data = await res.json(); } catch{ data = null; }
+        if(!res.ok){ throw new Error((data && (data.error||data.message)) || res.statusText); }
+        return data;
+      }
+
+      const state = { tenants: [], bridges: [], src: [], tgt: [], selSrc: null, selTgt: null };
+      function displayName(r){
+        return r.name || r.displayName || r.subject || r.resourceName || r.title || r.emailAddress || r.id || JSON.stringify(r).slice(0,60);
+      }
+      function idOf(r){
+        return r.id || r.email || r.emailAddress || r.resourceId || r.calendarId || r.address || r.objectId || String(displayName(r));
+      }
+      function renderList(containerId, items, filter, onPick, selectedId){
+        const box = document.getElementById(containerId);
+        box.innerHTML = '';
+        const f = (filter||'').toLowerCase();
+        let count = 0;
+        items.forEach(r => {
+          const name = displayName(r);
+          const id = idOf(r);
+          if(f && !(String(name).toLowerCase().includes(f) || String(id).toLowerCase().includes(f))) return;
+          count++;
+          const div = document.createElement('div');
+          div.className = 'item' + (selectedId && selectedId===id ? ' selected' : '');
+          div.textContent = name + '  [' + id + ']';
+          div.title = JSON.stringify(r);
+          div.onclick = ()=> onPick(r);
+          box.appendChild(div);
+        });
+        if(containerId==='srcList') document.getElementById('srcCount').textContent = count;
+        if(containerId==='tgtList') document.getElementById('tgtCount').textContent = count;
+      }
+
+      async function loadTenants(){
+        const key = getAdminKey(); if(!key){ setMsg('Set admin key in localStorage.dashboard_api_key', true); return; }
+        const res = await fetch('/admin/tenants', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const data = await res.json();
+        state.tenants = data.tenants || [];
+        const sel = document.getElementById('tenantSelect');
+        sel.innerHTML = state.tenants.map(t => `<option value="${t.id}">${t.id} — ${t.name||''}</option>`).join('');
+      }
+
+      async function loadBridges(){
+        const tenantId = document.getElementById('tenantSelect').value;
+        const info = await fetchJSON('/bridges', {}, tenantId);
+        const map = (info && info.bridges) ? info.bridges : info; // handle {success, bridges, count}
+        state.bridges = Object.keys(map || {});
+        const options = state.bridges.map(b => `<option value="${b}">${b}</option>`).join('');
+        document.getElementById('sourceBridge').innerHTML = options;
+        document.getElementById('targetBridge').innerHTML = options;
+      }
+
+      async function loadResources(){
+        setMsg('Loading resources…');
+        const tenantId = document.getElementById('tenantSelect').value;
+        const src = document.getElementById('sourceBridge').value;
+        const tgt = document.getElementById('targetBridge').value;
+        try{
+          const [srcRes, tgtRes] = await Promise.all([
+            fetchJSON(`/bridges/${encodeURIComponent(src)}/available-resources`, {}, tenantId),
+            fetchJSON(`/bridges/${encodeURIComponent(tgt)}/available-resources`, {}, tenantId)
+          ]);
+          state.src = Array.isArray(srcRes?.resources) ? srcRes.resources : (Array.isArray(srcRes) ? srcRes : []);
+          state.tgt = Array.isArray(tgtRes?.resources) ? tgtRes.resources : (Array.isArray(tgtRes) ? tgtRes : []);
+          state.selSrc = null; state.selTgt = null;
+          renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, null);
+          renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, null);
+          await loadMappings();
+          setMsg('');
+        } catch(e){ setMsg('Failed to load resources: '+ e.message, true); }
+      }
+
+      async function loadMappings(){
+        const tenantId = document.getElementById('tenantSelect').value;
+        const src = document.getElementById('sourceBridge').value;
+        const tgt = document.getElementById('targetBridge').value;
+        try{
+          let m1, m2;
+          if (src === tgt) {
+            m1 = await fetchJSON(`/mappings/resources?bridge_from=${encodeURIComponent(src)}&bridge_to=${encodeURIComponent(tgt)}&active_only=true`, {}, tenantId);
+            m2 = { mappings: [] };
+          } else {
+            const results = await Promise.all([
+              fetchJSON(`/mappings/resources?bridge_from=${encodeURIComponent(src)}&bridge_to=${encodeURIComponent(tgt)}&active_only=true`, {}, tenantId),
+              fetchJSON(`/mappings/resources?bridge_from=${encodeURIComponent(tgt)}&bridge_to=${encodeURIComponent(src)}&active_only=true`, {}, tenantId)
+            ]);
+            m1 = results[0];
+            m2 = results[1];
+          }
+          const combined = [...(m1.mappings||[]), ...(m2.mappings||[])];
+          const tbody = document.getElementById('mappings');
+          const rows = combined.map(x => {
+            const from = `${x.source_calendar_name||''} [${x.source_calendar_id}]`;
+            const to = `${x.target_calendar_name||''} [${x.target_calendar_id}]`;
+            const dir = x.sync_direction || 'bidirectional';
+            const act = x.is_active ? 'yes' : 'no';
+            const del = `<button data-id="${x.id}" class="del">Delete</button>`;
+            return `<tr><td>${from}</td><td>→</td><td>${to}</td><td>${dir}</td><td>${act}</td><td>${del}</td></tr>`;
+          }).join('');
+          tbody.innerHTML = rows || '<tr><td colspan="6" class="muted">No mappings</td></tr>';
+          Array.from(document.querySelectorAll('button.del')).forEach(btn => {
+            btn.onclick = async () => {
+              const tenantId2 = document.getElementById('tenantSelect').value;
+              const id = btn.getAttribute('data-id');
+              if(!confirm('Delete mapping #'+id+'?')) return;
+              try{
+                await fetch(`/mappings/resources/${encodeURIComponent(id)}`, { method:'PUT', headers: hdrs(tenantId2, true), body: JSON.stringify({ is_active: false }) });
+                await loadMappings();
+              }catch(e){ setMsg('Failed to delete mapping: '+e.message, true); }
+            }
+          });
+        } catch(e){ setMsg('Failed to load mappings: '+ e.message, true); }
+      }
+
+      function pickSrc(r){ state.selSrc = r; document.getElementById('selSrc').textContent = displayName(r) + ' ['+ idOf(r) +']'; document.getElementById('create').disabled = !(state.selSrc && state.selTgt); renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, idOf(r)); }
+      function pickTgt(r){ state.selTgt = r; document.getElementById('selTgt').textContent = displayName(r) + ' ['+ idOf(r) +']'; document.getElementById('create').disabled = !(state.selSrc && state.selTgt); renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, idOf(r)); }
+
+      async function createMapping(){
+        const tenantId = document.getElementById('tenantSelect').value;
+        const src = document.getElementById('sourceBridge').value;
+        const tgt = document.getElementById('targetBridge').value;
+        if(!(state.selSrc && state.selTgt)){ return; }
+        const body = {
+          bridge_from: src,
+          bridge_to: tgt,
+          source_calendar_id: idOf(state.selSrc),
+          target_calendar_id: idOf(state.selTgt),
+          source_calendar_name: displayName(state.selSrc),
+          target_calendar_name: displayName(state.selTgt),
+          sync_direction: 'bidirectional',
+          is_active: true,
+          sync_enabled: true
+        };
+        try{
+          await fetchJSON('/mappings/resources', { method:'POST', body: JSON.stringify(body) }, tenantId);
+          setMsg('Mapping created');
+          state.selSrc = null; state.selTgt = null;
+          document.getElementById('selSrc').textContent = '(none)';
+          document.getElementById('selTgt').textContent = '(none)';
+          document.getElementById('create').disabled = true;
+          await loadMappings();
+        } catch(e){ setMsg('Failed to create mapping: '+ e.message, true); }
+      }
+
+      document.getElementById('load').addEventListener('click', loadResources);
+      document.getElementById('create').addEventListener('click', createMapping);
+      document.getElementById('srcFilter').addEventListener('input', ()=> renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, state.selSrc && idOf(state.selSrc)) );
+      document.getElementById('tgtFilter').addEventListener('input', ()=> renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, state.selTgt && idOf(state.selTgt)) );
+      document.getElementById('tenantSelect').addEventListener('change', async ()=>{
+        // Clear state and reload bridges on tenant change
+        setMsg('Tenant changed; loading bridges…');
+        state.src = []; state.tgt = []; state.selSrc = null; state.selTgt = null;
+        document.getElementById('srcList').innerHTML = '';
+        document.getElementById('tgtList').innerHTML = '';
+        document.getElementById('selSrc').textContent = '(none)';
+        document.getElementById('selTgt').textContent = '(none)';
+        document.getElementById('create').disabled = true;
+        try { await loadBridges(); setMsg(''); } catch(e){ setMsg('Failed to load bridges: '+e.message, true); }
+      });
+
+      // bootstrap
+      (async function(){
+        try{
+          await ensureCsrf();
+          await loadTenants();
+          await loadBridges();
+        } catch(e){ setMsg('Bootstrap error: '+ e.message, true); }
+      })();
+    </script>
+  </body>
+  </html>
