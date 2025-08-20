@@ -202,17 +202,19 @@
             const to = `${x.target_calendar_name||''} [${x.target_calendar_id}]`;
             const dir = x.sync_direction || 'bidirectional';
             const act = x.is_active ? 'yes' : 'no';
-            const del = `<button data-id="${x.id}" class="del">Delete</button>`;
+            const del = `<button data-bridge-from="${x.bridge_from}" data-source-id="${x.source_calendar_id}" data-target-id="${x.target_calendar_id}" class="del">Delete</button>`;
             return `<tr><td>${from}</td><td>→</td><td>${to}</td><td>${dir}</td><td>${act}</td><td>${del}</td></tr>`;
           }).join('');
           tbody.innerHTML = rows || '<tr><td colspan="6" class="muted">No mappings</td></tr>';
           Array.from(document.querySelectorAll('button.del')).forEach(btn => {
             btn.onclick = async () => {
               const tenantId2 = document.getElementById('tenantSelect').value;
-              const id = btn.getAttribute('data-id');
-              if(!confirm('Delete mapping #'+id+'?')) return;
+              const bridgeFrom = btn.getAttribute('data-bridge-from');
+              const srcId = btn.getAttribute('data-source-id');
+              const tgtId = btn.getAttribute('data-target-id');
+              if(!confirm(`Delete mapping ${bridgeFrom}: ${srcId} → ${tgtId}?`)) return;
               try{
-                await fetch(`/mappings/resources/${encodeURIComponent(id)}`, { method:'PUT', headers: hdrs(tenantId2, true), body: JSON.stringify({ is_active: false }) });
+                await fetch(`/mappings/resources/by-key/${encodeURIComponent(bridgeFrom)}/${encodeURIComponent(srcId)}/${encodeURIComponent(tgtId)}`, { method:'DELETE', headers: hdrs(tenantId2, false) });
                 await loadMappings();
               }catch(e){ setMsg('Failed to delete mapping: '+e.message, true); }
             }
