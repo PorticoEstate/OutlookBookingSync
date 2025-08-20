@@ -345,19 +345,23 @@ class ResourceMappingController
 			$sourceCalendarId = urldecode($sourceCalendarId);
 			$targetCalendarId = urldecode($targetCalendarId);
 
-			// Check if mapping exists before deletion (try both directions for backward compatibility)
-			$checkSql = "SELECT id, source_calendar_id, target_calendar_id, source_calendar_name, target_calendar_name FROM bridge_resource_mappings 
-                        WHERE bridge_from = :bridge_from 
-                        AND ((source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
-                             OR (source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
-                        AND is_active = true";
+			// Check if mapping exists before deletion (try both directions for backward compatibility), scoped by tenant when provided
+			$tenantId = $request->getAttribute('tenant_id');
+			$checkSql = "SELECT id, bridge_from, bridge_to, source_calendar_id, target_calendar_id, source_calendar_name, target_calendar_name, tenant_id
+						FROM bridge_resource_mappings 
+						WHERE bridge_from = :bridge_from 
+						AND ((source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
+							 OR (source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
+						AND is_active = true" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
 
 			$checkStmt = $this->db->prepare($checkSql);
-			$checkStmt->execute([
+			$params = [
 				'bridge_from' => $bridgeFrom,
 				'source_calendar_id' => $sourceCalendarId,
 				'target_calendar_id' => $targetCalendarId
-			]);
+			];
+			if ($tenantId !== null) { $params['tenant_id'] = (string)$tenantId; }
+			$checkStmt->execute($params);
 
 			$existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -375,19 +379,44 @@ class ResourceMappingController
 				return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
 			}
 
-			// Soft delete - set is_active to false (consistent with existing delete method)
-			$deleteSql = "UPDATE bridge_resource_mappings 
-                         SET is_active = false, updated_at = CURRENT_TIMESTAMP
-                         WHERE bridge_from = :bridge_from 
-                         AND source_calendar_id = :source_calendar_id 
-                         AND target_calendar_id = :target_calendar_id";
+			// Determine if there are dependent event rows in bridge_mappings for this calendar pair (either direction)
+			$bridgeTo = $existingMapping['bridge_to'] ?? null;
+			$dependents = 0;
+			if ($bridgeTo !== null)
+			{
+				$depSql = "SELECT COUNT(*) FROM bridge_mappings 
+						   WHERE (
+							 (source_bridge = :bridge_from AND target_bridge = :bridge_to AND source_calendar_id = :source_id AND target_calendar_id = :target_id)
+							 OR
+							 (source_bridge = :bridge_to AND target_bridge = :bridge_from AND source_calendar_id = :target_id AND target_calendar_id = :source_id)
+						   )" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+				$depStmt = $this->db->prepare($depSql);
+				$depParams = [
+					'bridge_from' => $bridgeFrom,
+					'bridge_to' => $bridgeTo,
+					'source_id' => $existingMapping['source_calendar_id'],
+					'target_id' => $existingMapping['target_calendar_id']
+				];
+				if ($tenantId !== null) { $depParams['tenant_id'] = (string)$tenantId; }
+				$depStmt->execute($depParams);
+				$dependents = (int)$depStmt->fetchColumn();
+			}
 
-			$deleteStmt = $this->db->prepare($deleteSql);
-			$result = $deleteStmt->execute([
-				'bridge_from' => $bridgeFrom,
-				'source_calendar_id' => $sourceCalendarId,
-				'target_calendar_id' => $targetCalendarId
-			]);
+			// If there are no dependent rows, hard delete; otherwise, soft delete
+			if ($dependents === 0)
+			{
+				$deleteSql = "DELETE FROM bridge_resource_mappings WHERE id = :id";
+				$deleteStmt = $this->db->prepare($deleteSql);
+				$result = $deleteStmt->execute(['id' => $existingMapping['id']]);
+			}
+			else
+			{
+				$deleteSql = "UPDATE bridge_resource_mappings 
+							 SET is_active = false, updated_at = CURRENT_TIMESTAMP
+							 WHERE id = :id";
+				$deleteStmt = $this->db->prepare($deleteSql);
+				$result = $deleteStmt->execute(['id' => $existingMapping['id']]);
+			}
 
 			if ($result && $deleteStmt->rowCount() > 0)
 			{
@@ -396,10 +425,13 @@ class ResourceMappingController
 					'message' => 'Resource mapping deleted successfully',
 					'deleted_mapping' => [
 						'id' => $existingMapping['id'],
-						'bridge_from' => $bridgeFrom,
-						'source_calendar_id' => $sourceCalendarId,
-						'target_calendar_id' => $targetCalendarId,
-						'calendar_name' => $existingMapping['calendar_name']
+						'bridge_from' => $existingMapping['bridge_from'] ?? $bridgeFrom,
+						'bridge_to' => $existingMapping['bridge_to'] ?? $bridgeTo,
+						'source_calendar_id' => $existingMapping['source_calendar_id'],
+						'target_calendar_id' => $existingMapping['target_calendar_id'],
+						'source_calendar_name' => $existingMapping['source_calendar_name'] ?? null,
+						'target_calendar_name' => $existingMapping['target_calendar_name'] ?? null,
+						'soft_deleted' => ($dependents > 0)
 					]
 				]));
 				return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
