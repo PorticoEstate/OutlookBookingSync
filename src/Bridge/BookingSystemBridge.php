@@ -46,6 +46,19 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private $debug = false;
     private $proxy; // per-tenant proxy (config key: system_proxy)
 
+    /**
+     * Build a tenant-scoped session key for authentication session storage.
+     */
+    private function getAuthSessionKey(): string
+    {
+        $tenantId = (string)($this->config['context_tenant_id'] ?? 'default');
+        $login = (string)($this->systemLogin ?? $this->config['system_login'] ?? 'anonymous');
+        $base = (string)($this->apiBaseUrl ?? $this->config['api_base_url'] ?? 'api');
+        // keep key compact and filesystem/array safe
+        $hash = substr(sha1($tenantId.'|'.$base.'|'.$login), 0, 12);
+        return 'auth_session_'.$tenantId.'_'.$hash;
+    }
+
     protected function validateConfig()
     {
         $required = ['api_base_url', 'system_login', 'system_password', 'system_domain'];
@@ -83,8 +96,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         try
         {
-            // Load session from global session storage
-            $this->sessionInfo = $this->getSession('auth_session', []);
+            // Load session from tenant-scoped session storage
+            $this->sessionInfo = $this->getSession($this->getAuthSessionKey(), []);
 
             // Check if we have cached session info and if it's still valid
             if ($this->isSessionValid())
@@ -96,7 +109,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 return;
             }
 
-            // Try to refresh session first, if that fails, perform login
+                $this->sessionInfo = $this->getSession($this->getAuthSessionKey(), []);
             if (!$this->refreshSession())
             {
                 if ($this->debug ?? false)
@@ -125,7 +138,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
         {
             // Try to load from global session storage
-            $this->sessionInfo = $this->getSession('auth_session', []);
+            $this->sessionInfo = $this->getSession($this->getAuthSessionKey(), []);
 
             if (empty($this->sessionInfo) || !isset($this->sessionInfo['session_id']))
             {
@@ -140,7 +153,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         if (!$isValid)
         {
             // Session expired, clear it from storage
-            $this->clearSession('auth_session');
+            $this->clearSession($this->getAuthSessionKey());
             $this->sessionInfo = [];
         }
 
@@ -187,7 +200,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->sessionInfo['last_activity'] = time();
 
         // Store session in global session storage with TTL
-        $this->setSession('auth_session', $this->sessionInfo, $this->sessionTimeout);
+    $this->setSession($this->getAuthSessionKey(), $this->sessionInfo, $this->sessionTimeout);
 
         if ($this->debug ?? false)
         {
@@ -217,7 +230,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $this->sessionInfo['last_activity'] = time();
 
             // Update session in global session storage
-            $this->setSession('auth_session', $this->sessionInfo, $this->sessionTimeout);
+            $this->setSession($this->getAuthSessionKey(), $this->sessionInfo, $this->sessionTimeout);
 
             if ($this->debug ?? false)
             {
@@ -1564,7 +1577,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     public function getSessionDiagnostics(): array
     {
         $sessionStats = $this->getSessionStats();
-        $currentSession = $this->getSession('auth_session', []);
+    $currentSession = $this->getSession($this->getAuthSessionKey(), []);
         $sessionDebug = $this->debugSession();
 
         return [
@@ -1917,10 +1930,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function clearBookingSystemSession(): void
     {
-        $this->clearSession('auth_session');
+    $this->clearSession($this->getAuthSessionKey());
         $this->sessionInfo = [];
 
-        if ($this->debug ?? false)
+    $this->clearSession($this->getAuthSessionKey());
         {
             error_log("BookingSystemBridge: Session cleared from storage");
         }
