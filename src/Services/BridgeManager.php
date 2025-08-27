@@ -1287,11 +1287,15 @@ class BridgeManager
 	public function processPendingSyncs($bridgeName = null, $batchSize = 50): array
 	{
 		$results = [];
-
+		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+		// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
 		if ($bridgeName)
 		{
 			// Process pending syncs for specific bridge
-			$bridge = $this->getBridge($bridgeName);
+			$bridge = $tenantId !== null
+			    ? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
+			    : $this->getBridge($bridgeName);
+
 			if (method_exists($bridge, 'processPendingSyncs'))
 			{
 				$results[$bridgeName] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
@@ -1304,7 +1308,10 @@ class BridgeManager
 			{
 				try
 				{
-					$bridge = $this->getBridge($name);
+					$bridge = $tenantId !== null
+						? $this->getBridgeForTenant((string)$tenantId, $name)
+						: $this->getBridge($name);
+
 					if (method_exists($bridge, 'processPendingSyncs'))
 					{
 						$results[$name] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
@@ -1379,12 +1386,16 @@ class BridgeManager
 	public function getAllSyncStats(): array
 	{
 		$allStats = [];
+	// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
+	$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
 
 		foreach (array_keys($this->bridges) as $name)
 		{
 			try
 			{
-				$bridge = $this->getBridge($name);
+		$bridge = $tenantId !== null
+		    ? $this->getBridgeForTenant((string)$tenantId, $name)
+		    : $this->getBridge($name);
 				if (method_exists($bridge, 'getSyncStats'))
 				{
 					$allStats[$name] = $bridge->getSyncStats();
