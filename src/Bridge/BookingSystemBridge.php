@@ -430,7 +430,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
     public function getEvent($calendarId, $eventId): array
     {
         $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
-        return $this->getEventViaApi($eventId);
+        $originalId = $this->extractOriginalId($eventId);
+        return $this->getEventViaApi($originalId);
     }
 
     /**
