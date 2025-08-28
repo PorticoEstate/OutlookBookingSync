@@ -18,6 +18,17 @@ class ApiKeyMiddleware
 	 */
 	public function __invoke(Request $request, Handler $handler): Response
 	{
+		// If routing info is available and the matched route is the catch-all 404, bypass auth
+		try {
+			$routeContext = \Slim\Routing\RouteContext::fromRequest($request);
+			$route = $routeContext->getRoute();
+			if ($route && $route->getName() === 'catch_all_404') {
+				return $handler->handle($request);
+			}
+		} catch (\RuntimeException $e) {
+			// Routing has not been completed; continue with path-based checks below
+		}
+
 		// Allow unauthenticated access for webhook validation/notifications
 		$path = $request->getUri()->getPath();
 		if (preg_match('#^/bridges/webhook/#', $path) || preg_match('#^/webhook/outlook-notifications$#', $path))

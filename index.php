@@ -169,9 +169,6 @@ $container->set(\App\Controller\AdminController::class, function () use ($contai
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
-// Add error handling middleware
-$errorMiddleware = $app->addErrorMiddleware(true, true, true);
-
 // Register API key middleware globally
 // NOTE: Slim applies middleware in LIFO order; add TenantResolver last so it runs first.
 // Admin protections (run earliest)
@@ -190,6 +187,12 @@ $app->add(function ($request, $handler) use ($container)
     $request = $request->withAttribute('logger', $logger);
     return $handler->handle($request);
 });
+
+// Ensure routing executes before auth middleware by adding it after them (LIFO -> runs earlier)
+$app->addRoutingMiddleware();
+
+// Add error handling middleware last so it wraps everything (and catches routing errors)
+$errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
 // Register routes
 
@@ -492,6 +495,6 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
 
     $response->getBody()->write(json_encode($errorResponse, JSON_PRETTY_PRINT));
     return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
-});
+})->setName('catch_all_404');
 
 $app->run();
