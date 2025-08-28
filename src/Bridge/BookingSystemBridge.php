@@ -518,6 +518,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function updateEvent($calendarId, $eventId, $event): bool
     {
+        //for now: do not update Event if it is of type 'booking' (e.g. "booking_25634") or 'allocation' (e.g. "allocation_800395")
+        if (preg_match('/^(booking|allocation)_\d+$/', $eventId))
+        {
+            error_log("BookingSystemBridge: Skipping update for event - composite ID: {$eventId}");
+            return false;
+        }
+
         try
         {
             // Extract original ID from composite ID for API call
