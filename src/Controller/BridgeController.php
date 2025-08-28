@@ -253,6 +253,24 @@ class BridgeController
                         'results' => $results
                     ];
 
+                    // On successful HTTP sync (not dry-run), bump resource-level last_synced_at
+                    if (!$options['dry_run']) {
+                        try {
+                            $failedEvents = $results['summary']['failed_events'] ?? 0;
+                            $hasSummary = isset($results['summary']);
+                            // Treat as success when there is no summary (legacy) or when failed_events == 0
+                            if (!$hasSummary || $failedEvents === 0) {
+                                $stmtUpdate = $this->db->prepare("UPDATE bridge_resource_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id");
+                                $stmtUpdate->execute([':id' => (int)$mapping['id']]);
+                            }
+                        } catch (\Throwable $e) {
+                            // Log but do not fail the request if timestamp update fails
+                            $this->logger->warning('Failed to update resource last_synced_at after HTTP sync', [
+                                'mapping_id' => $mapping['id'], 'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+
                     // Calculate total synced events (created + updated)
                     $syncedInThisMapping = ($results['created'] ?? 0) + ($results['updated'] ?? 0);
                     $totalSynced += $syncedInThisMapping;

@@ -442,7 +442,9 @@ abstract class AbstractCalendarBridge
     }
 
     protected function markEventCancelled($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId): bool
-    { return $this->updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, 'cancelled'); }
+    {
+        return $this->updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, 'cancelled');
+    }
 
     protected function markEventPending($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId): bool
     {

@@ -555,10 +555,7 @@ class ResourceMappingController
 				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
 
-			// Update last sync timestamp
-			$updateSql = "UPDATE bridge_resource_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id";
-			$updateStmt = $this->db->prepare($updateSql);
-			$updateStmt->execute(['id' => $mappingId]);
+			// Note: last_synced_at will be updated by the queue worker upon successful completion
 
 			$response->getBody()->write(json_encode([
 				'success' => true,

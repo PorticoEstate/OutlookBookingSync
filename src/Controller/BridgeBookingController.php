@@ -155,6 +155,9 @@ class BridgeBookingController
             case 'sync':
                 return $this->processSyncOperation($operation, $payload);
                 
+            case 'resource_sync':
+                return $this->processResourceSyncOperation($operation, $payload);
+
             case 'webhook':
                 return $this->processWebhookOperation($operation, $payload);
                 
@@ -199,6 +202,60 @@ class BridgeBookingController
             'source_bridge' => $source,
             'target_bridge' => $target,
             'sync_results' => $results
+        ];
+    }
+
+    /**
+     * Process resource sync operation and update resource-level last_synced_at on success.
+     *
+     * @param array $operation
+     * @param array $payload
+     * @return array
+     */
+    private function processResourceSyncOperation($operation, $payload): array
+    {
+        $source = $operation['source_bridge'];
+        $target = $operation['target_bridge'];
+        $tenantId = $payload['tenant_id'] ?? null;
+
+        $sourceCalendarId = $payload['source_calendar_id'] ?? '';
+        $targetCalendarId = $payload['target_calendar_id'] ?? '';
+
+        // Perform a bounded sync for this specific mapping (1-day window fallback)
+        $startDate = $payload['start_date'] ?? date('Y-m-d');
+        $endDate = $payload['end_date'] ?? date('Y-m-d', strtotime('+7 days'));
+
+        $results = $this->bridgeManager->syncBetweenBridges(
+            $source,
+            $target,
+            $sourceCalendarId,
+            $targetCalendarId,
+            $startDate,
+            $endDate,
+            ['handle_deletions' => true, 'tenant_id' => $tenantId]
+        );
+
+        $success = ($results['summary']['failed_events'] ?? 0) === 0;
+
+        if ($success && isset($payload['mapping_id'])) {
+            try {
+                $stmt = $this->db->prepare("UPDATE bridge_resource_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id");
+                $stmt->execute(['id' => (int)$payload['mapping_id']]);
+            } catch (\Throwable $e) {
+                // Log but don't fail the job on timestamp update
+                $this->logger->warning('Failed to update resource last_synced_at after resource_sync', [
+                    'mapping_id' => $payload['mapping_id'], 'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return [
+            'operation_type' => 'resource_sync',
+            'operation_id' => $operation['id'],
+            'source_bridge' => $source,
+            'target_bridge' => $target,
+            'sync_results' => $results,
+            'resource_updated' => $success
         ];
     }
     
