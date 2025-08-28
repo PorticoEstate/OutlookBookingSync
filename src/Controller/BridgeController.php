@@ -151,6 +151,8 @@ class BridgeController
             'skip_updates'     => $toBool($params['skip_updates']     ?? $params['skipUpdates']     ?? false),
             'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
             'sync_method'      => $syncMethod,
+            // Optional policy: if true, do not recreate target when user deletes it (for one-way mappings)
+            'respect_target_deletions' => $toBool($params['respect_target_deletions'] ?? $params['respectTargetDeletions'] ?? false)
         ];
 
         try {

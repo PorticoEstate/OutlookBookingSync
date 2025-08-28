@@ -507,6 +507,37 @@ class BridgeManager
 
 		if ($mapping)
 		{
+			// Enforce source-wins policy for one-way mappings (source_to_target)
+			if (($mapping['sync_direction'] ?? '') === 'source_to_target')
+			{
+				// Check if target was deleted or diverged; if so, recreate/overwrite unless respecting deletions
+				$respectDel = (bool)($options['respect_target_deletions'] ?? false);
+				$targetExists = true;
+				try { $target->getEvent($targetCalendarId, $mapping['target_event_id']); }
+				catch (\Throwable $e) { $targetExists = false; }
+
+				if (!$targetExists)
+				{
+					if ($respectDel)
+					{
+						return [
+							'action' => 'skipped',
+							'source_event_id' => $sourceEvent['id'],
+							'reason' => 'target_deleted_respected'
+						];
+					}
+					// Recreate target from source
+					$newId = $target->createEvent($targetCalendarId, $sourceEvent);
+					$this->updateMappingTargetEventId($mapping['id'], $newId);
+					$this->updateMappingTimestamp($mapping['id']);
+					$this->updateMappingEventData($mapping['id'], $sourceEvent);
+					return [
+						'action' => 'recreated',
+						'source_event_id' => $sourceEvent['id'],
+						'target_event_id' => $newId
+					];
+				}
+			}
 			// Handle cancelled events - check if target event still exists
 			if (($mapping['sync_status'] ?? '') === 'cancelled')
 			{
