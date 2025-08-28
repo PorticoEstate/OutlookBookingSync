@@ -481,6 +481,35 @@ curl -X POST -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" "ht
 }
 ```
 
+#### One-way sync (source_to_target)
+
+When a mapping is configured as one-way (source_to_target), the source is authoritative:
+
+- Target-side edits are overwritten on the next forward sync from source to target (subject to normal no-op guards).
+- Reverse sync (target → source) for that mapping is skipped automatically; the source will not be updated from target.
+- If the target event was deleted, the next forward sync will recreate it unless you set `respect_target_deletions=true`.
+
+Example: forward sync with target-deletion protection
+
+```bash
+curl -X POST \
+  -H "api_key: change-me-strong-random" \
+  -H "X-Tenant-Id: tenantA" \
+  -H "Content-Type: application/json" \
+  "http://localhost:8082/bridges/sync/booking_system/outlook" \
+  -d '{
+    "source_calendar_id": "room_123",
+    "target_calendar_id": "conference-room-a@company.com",
+    "respect_target_deletions": true
+  }'
+```
+
+Notes:
+
+- `respect_target_deletions` is an optional per-call flag. Default is `false` (recreate targets if missing).
+- No additional environment or tenant config is required for this flag.
+
+
 ### **Resource Mapping Management**
 
 ```bash

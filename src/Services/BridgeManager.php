@@ -507,6 +507,16 @@ class BridgeManager
 
 		if ($mapping)
 		{
+			// Block reverse updates for one-way mappings (source_to_target)
+			if ((($mapping['sync_direction'] ?? '') === 'source_to_target') && (($mapping['normalized_reversed'] ?? false) === true))
+			{
+				return [
+					'action' => 'skipped',
+					'source_event_id' => $sourceEvent['id'],
+					'target_event_id' => $mapping['target_event_id'] ?? null,
+					'reason' => 'one_way_mapping_reverse_blocked'
+				];
+			}
 			// Enforce source-wins policy for one-way mappings (source_to_target)
 			if (($mapping['sync_direction'] ?? '') === 'source_to_target')
 			{
@@ -936,6 +946,7 @@ class BridgeManager
 
 			if ($isCurrentDirection)
 			{
+				$row['normalized_reversed'] = false;
 				$normalized[] = $row;
 				continue;
 			}
@@ -955,6 +966,7 @@ class BridgeManager
 			// Note: we leave timing fields as-is; they’re only used in deletion checks
 			// when syncing from the original source to the target.
 
+			$rev['normalized_reversed'] = true;
 			$normalized[] = $rev;
 		}
 
