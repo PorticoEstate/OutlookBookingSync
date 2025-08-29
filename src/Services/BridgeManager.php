@@ -285,8 +285,9 @@ class BridgeManager
 		// Get events from source
 		$sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
-		// Get existing mappings
-		$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId);
+	// Get existing mappings (bounded by sync window) and build an index by source_event_id for O(1) lookups
+	$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+	$mappingIndex = $this->indexMappingsBySourceId($mappings);
 
 		$results = [
 			'source_bridge' => $sourceBridge,
@@ -321,7 +322,7 @@ class BridgeManager
 				$source,
 				$target,
 				$sourceEvent,
-				$mappings,
+				$mappingIndex,
 				$sourceCalendarId,
 				$targetCalendarId,
 				$options,
@@ -428,7 +429,7 @@ class BridgeManager
 	/**
 	 * Process a single event with complete isolation and maximum error protection
 	 */
-	private function processSingleEventSafely($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options, $sourceBridge, $targetBridge, $eventIndex, $totalEvents)
+	private function processSingleEventSafely($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options, $sourceBridge, $targetBridge, $eventIndex, $totalEvents)
 	{
 		// Set error reporting to catch everything
 		$originalErrorReporting = error_reporting(E_ALL);
@@ -443,7 +444,7 @@ class BridgeManager
 			]);
 
 			// Call the original processing method
-			$eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options);
+			$eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options);
 
 			$this->logger->debug('Event processed successfully with safety wrapper', [
 				'event_id' => $sourceEvent['id'] ?? 'unknown',
@@ -496,9 +497,9 @@ class BridgeManager
 	/**
 	 * Process a single event sync with sync_status tracking
 	 */
-	private function processSingleEvent($source, $target, $sourceEvent, $mappings, $sourceCalendarId, $targetCalendarId, $options)
+	private function processSingleEvent($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options)
 	{
-		$mapping = $this->findMapping($mappings, $sourceEvent['id']);
+		$mapping = $mappingIndex[$sourceEvent['id']] ?? null;
 
 		// Add source bridge information to event data
 		$sourceEvent['source_bridge'] = $source->getBridgeType();
@@ -718,8 +719,9 @@ class BridgeManager
 				$targetEventId = $target->createEvent($targetCalendarId, $sourceEvent);
 
 				// Find the newly created mapping and update it with source timing
-				$newMappings = $this->getBridgeMappings($source->getBridgeType(), $target->getBridgeType(), $sourceCalendarId, $targetCalendarId);
-				$newMapping = $this->findMapping($newMappings, $sourceEvent['id']);
+				$newMappings = $this->getBridgeMappings($source->getBridgeType(), $target->getBridgeType(), $sourceCalendarId, $targetCalendarId, $options['startDate'] ?? null, $options['endDate'] ?? null);
+				$newIndex = $this->indexMappingsBySourceId($newMappings);
+				$newMapping = $newIndex[$sourceEvent['id']] ?? null;
 
 				if ($newMapping)
 				{
@@ -772,7 +774,8 @@ class BridgeManager
 	 */
 	private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options = [])
 	{
-		$sourceEventIds = array_column($sourceEvents, 'id');
+	$sourceEventIds = array_column($sourceEvents, 'id');
+	$sourceEventIdSet = array_fill_keys($sourceEventIds, true);
 		$results = ['deleted' => 0, 'errors' => []];
 
 		foreach ($mappings as $mapping)
@@ -788,7 +791,7 @@ class BridgeManager
 				continue;
 			}
 
-			if (!in_array($mapping['source_event_id'], $sourceEventIds))
+			if (!isset($sourceEventIdSet[$mapping['source_event_id']]))
 			{
 				try
 				{
@@ -869,6 +872,17 @@ class BridgeManager
 		return null;
 	}
 
+	private function indexMappingsBySourceId(array $mappings): array
+	{
+		$idx = [];
+		foreach ($mappings as $m) {
+			if (isset($m['source_event_id'])) {
+				$idx[$m['source_event_id']] = $m;
+			}
+		}
+		return $idx;
+	}
+
 	/**
 	 * Check if a mapping's event is within the specified timeframe
 	 * This checks if the event was created/originated within the sync window
@@ -908,8 +922,9 @@ class BridgeManager
 	/**
 	 * Get bridge mappings from database
 	 * Normalizes rows so that source_* always refers to the current $sourceBridge/$sourceCalendarId
+	 * Optionally restricts rows to a time window (created_at or source_event_start within window)
 	 */
-	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId): array
+	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, ?string $windowStart = null, ?string $windowEnd = null): array
 	{
 		// Build a UNION query to get mappings in either orientation for the pair,
 		// then normalize so that source_* refers to the provided source/target.
@@ -918,10 +933,13 @@ class BridgeManager
 		$baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
 		$reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
 		$tenantPredicate = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
+		$timePredicate = ($windowStart && $windowEnd)
+			? " AND ((created_at BETWEEN :wstart AND :wend) OR (source_event_start BETWEEN :wstart AND :wend))"
+			: "";
 
-		$sql = "SELECT * FROM bridge_mappings WHERE $baseWhere$tenantPredicate
+		$sql = "SELECT * FROM bridge_mappings WHERE $baseWhere$tenantPredicate$timePredicate
 				UNION ALL
-				SELECT * FROM bridge_mappings WHERE $reverseWhere$tenantPredicate
+				SELECT * FROM bridge_mappings WHERE $reverseWhere$tenantPredicate$timePredicate
 				ORDER BY created_at DESC";
 
 		$stmt = $this->db->prepare($sql);
@@ -931,7 +949,8 @@ class BridgeManager
 			':source_calendar_id' => $sourceCalendarId,
 			':target_calendar_id' => $targetCalendarId,
 		];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+	if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+	if ($windowStart && $windowEnd) { $params[':wstart'] = $windowStart; $params[':wend'] = $windowEnd; }
 		$stmt->execute($params);
 		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

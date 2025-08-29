@@ -136,7 +136,6 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_source ON bridge_mappings(source_bridge, source_calendar_id, source_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_target ON bridge_mappings(target_bridge, target_calendar_id, target_event_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync ON bridge_mappings(last_synced_at);
-CREATE INDEX IF NOT EXISTS idx_bridge_mappings_event_hash ON bridge_mappings(event_hash);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_sync_status ON bridge_mappings(sync_status);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_retry ON bridge_mappings(retry_count) WHERE sync_status = 'error';
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant ON bridge_mappings(tenant_id);
@@ -144,6 +143,25 @@ CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant ON bridge_mappings(tenant_
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant_status_updated ON bridge_mappings(tenant_id, sync_status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_updated ON bridge_mappings(updated_at);
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_tenant_last_synced ON bridge_mappings(tenant_id, last_synced_at);
+
+-- Composite indexes to accelerate pair + tenant queries and time/window filtering
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_pair_tenant_created
+    ON bridge_mappings (tenant_id, source_bridge, target_bridge, source_calendar_id, target_calendar_id, created_at DESC);
+
+-- Same for reverse orientation used by UNION in pair queries
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_pair_rev_tenant_created
+    ON bridge_mappings (tenant_id, target_bridge, source_bridge, target_calendar_id, source_calendar_id, created_at DESC);
+
+-- Fast lookup by source/target event within a bridge/calendar pair and tenant
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_pair_tenant_source_event
+    ON bridge_mappings (tenant_id, source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_pair_tenant_target_event
+    ON bridge_mappings (tenant_id, source_bridge, target_bridge, source_calendar_id, target_calendar_id, target_event_id);
+
+-- Support time-bounded filters using source_event_start
+CREATE INDEX IF NOT EXISTS idx_bridge_mappings_pair_tenant_source_event_start
+    ON bridge_mappings (tenant_id, source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_start);
 
 -- Support joins/exists checks by calendar-id pairs (both directions) with tenant scoping
 CREATE INDEX IF NOT EXISTS idx_bridge_mappings_src_cal_pair_tenant ON bridge_mappings(source_calendar_id, target_calendar_id, tenant_id);
@@ -167,6 +185,10 @@ CREATE INDEX IF NOT EXISTS idx_bridge_queue_priority ON bridge_queue(priority, s
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_tenant ON bridge_queue(tenant_id);
 -- Optimize fetching pending work per-tenant in priority/scheduled order
 CREATE INDEX IF NOT EXISTS idx_bridge_queue_pending_tenant_order ON bridge_queue(tenant_id, priority, scheduled_at) WHERE status = 'pending';
+
+-- Additional indexes for resource mappings freshness and pair+tenant lookups
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_tenant_last_synced ON bridge_resource_mappings(tenant_id, last_synced_at);
+CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_pair_tenant ON bridge_resource_mappings(bridge_from, bridge_to, source_calendar_id, target_calendar_id, tenant_id);
 
 -- Views for easy querying
 
