@@ -306,6 +306,13 @@ $container->set(\App\Controller\ResourceMappingController::class, function () us
     );
 });
 
+$container->set(\App\Controller\BridgeResourceController::class, function () use ($container)
+{
+    return new \App\Controller\BridgeResourceController(
+        $container->get('db')
+    );
+});
+
 // Removed unused BridgeBookingController registration (no routes reference it)
 
 // Generic Bridge API Routes
@@ -360,6 +367,16 @@ $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingCont
 
 // Add this route for deleting by composite key
 $app->delete('/mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMappingByKey']);
+
+// Bridge Resources API Routes (Admin)
+$app->group('/admin/resources', function ($group) {
+    $group->get('', [\App\Controller\BridgeResourceController::class, 'listResources']);
+    $group->post('', [\App\Controller\BridgeResourceController::class, 'createResource']);
+    $group->put('/{id}', [\App\Controller\BridgeResourceController::class, 'updateResource']);
+    $group->delete('/{id}', [\App\Controller\BridgeResourceController::class, 'deleteResource']);
+    $group->post('/import', [\App\Controller\BridgeResourceController::class, 'importFromCSV']);
+    $group->get('/stats', [\App\Controller\BridgeResourceController::class, 'getStats']);
+});
 
 // Backwards compatibility routes (redirect to bridge endpoints) - gated by env flag
 if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLEAN))

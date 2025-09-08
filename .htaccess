@@ -15,6 +15,7 @@ RewriteRule ^admin-keys$ public/admin-keys.html [L]
 RewriteRule ^admin-configs$ public/admin-configs.html [L]
 RewriteRule ^admin-tenants$ public/admin-tenants.html [L]
 RewriteRule ^admin-mappings$ public/admin-mappings.html [L]
+RewriteRule ^admin-resources$ public/admin-resources.html [L]
 
 # Favicon - serve empty response to prevent 404s
 RewriteRule ^favicon\.ico$ - [R=204,L]

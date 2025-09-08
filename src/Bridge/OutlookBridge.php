@@ -11,6 +11,7 @@ use Microsoft\Graph\Core\GraphClientFactory;
 use Microsoft\Graph\Generated\Models\ODataErrors\ODataError;
 use Microsoft\Kiota\Abstractions\RequestInformation;
 use Microsoft\Kiota\Abstractions\HttpMethod;
+use PDO;
 
 /**
  * OutlookBridge integrates with Microsoft Graph to manage calendars and events.
@@ -862,7 +863,7 @@ class OutlookBridge extends AbstractCalendarBridge
 
 
 	/**
-	 * List available resources (users/groups) within a configured group or via Places API fallback.
+	 * List available resources with database-first approach and Graph API fallback.
 	 *
 	 * @param string|null $nameFilter Optional substring filter
 	 * @param int $limit Server-side $top for group members
@@ -873,6 +874,25 @@ class OutlookBridge extends AbstractCalendarBridge
 	{
 		try
 		{
+			// First, try to get resources from database
+			$dbResources = $this->getResourcesFromDatabase($nameFilter, $limit, $offset);
+			
+			// If we have resources in database and they're not too old, return them
+			if (!empty($dbResources['resources']))
+			{
+				$this->logger->info('Retrieved resources from database cache', [
+					'bridge' => 'outlook',
+					'resource_count' => count($dbResources['resources']),
+					'cache_hit' => true
+				]);
+				return $dbResources;
+			}
+
+			// Fallback to Graph API if no database resources found
+			$this->logger->info('Database cache empty or stale, falling back to Graph API', [
+				'bridge' => 'outlook'
+			]);
+
 			// Get group ID from configuration - no default fallback
 			// If group_id is not configured, use the /places endpoint instead
 			$groupId = $this->config['group_id'] ?? null;
@@ -1031,6 +1051,127 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
+	/**
+	 * Get resources from database with filtering and pagination.
+	 *
+	 * @param string|null $nameFilter Optional substring filter
+	 * @param int $limit Page size limit
+	 * @param int $offset Page offset
+	 * @return array Resources and metadata
+	 */
+	private function getResourcesFromDatabase($nameFilter = null, $limit = 0, $offset = 0): array
+	{
+		try
+		{
+			$tenantId = $this->config['context_tenant_id'] ?? null;
+			
+			$conditions = ['bridge_type = :bridge_type', 'is_active = true'];
+			$params = ['bridge_type' => $this->getBridgeType()];
+			
+			// Add tenant filter
+			if ($tenantId !== null)
+			{
+				$conditions[] = '(tenant_id IS NOT DISTINCT FROM :tenant_id)';
+				$params['tenant_id'] = $tenantId;
+			}
+			else
+			{
+				$conditions[] = 'tenant_id IS NULL';
+			}
+			
+			// Add name filter if provided
+			if ($nameFilter !== null)
+			{
+				$conditions[] = '(resource_name ILIKE :name_filter OR resource_email ILIKE :name_filter)';
+				$params['name_filter'] = '%' . $nameFilter . '%';
+			}
+			
+			$whereClause = implode(' AND ', $conditions);
+			
+			// Get total count
+			$countSql = "SELECT COUNT(*) FROM bridge_resources WHERE $whereClause";
+			$countStmt = $this->db->prepare($countSql);
+			$countStmt->execute($params);
+			$totalCount = $countStmt->fetchColumn();
+			
+			if ($totalCount == 0)
+			{
+				return ['resources' => [], 'metadata' => ['total_records' => 0, 'filtered_count' => 0]];
+			}
+			
+			// Build main query with pagination
+			$sql = "SELECT * FROM bridge_resources WHERE $whereClause ORDER BY resource_name";
+			
+			if ($limit > 0)
+			{
+				$sql .= " LIMIT :limit";
+				$params['limit'] = $limit;
+				
+				if ($offset > 0)
+				{
+					$sql .= " OFFSET :offset";
+					$params['offset'] = $offset;
+				}
+			}
+			
+			$stmt = $this->db->prepare($sql);
+			$stmt->execute($params);
+			$dbRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+			
+			// Transform database records to match API format
+			$resources = [];
+			foreach ($dbRows as $row)
+			{
+				$resources[] = [
+					'id' => $row['resource_id'],
+					'name' => $row['resource_name'],
+					'email' => $row['resource_email'] ?? '',
+					'type' => $row['resource_type'],
+					'capacity' => $row['capacity'],
+					'location' => $row['location'],
+					'bridge_type' => $this->getBridgeType(),
+					'@odata.type' => '#microsoft.graph.room', // Compatibility with Graph API format
+					'source' => 'database',
+					'raw_data' => [
+						'database_id' => $row['id'],
+						'resource_data' => $row['resource_data'] ? json_decode($row['resource_data'], true) : null,
+						'created_at' => $row['created_at'],
+						'updated_at' => $row['updated_at']
+					]
+				];
+			}
+			
+			$this->logger->info('Retrieved resources from database', [
+				'bridge' => 'outlook',
+				'tenant_id' => $tenantId,
+				'total_count' => $totalCount,
+				'returned_count' => count($resources),
+				'name_filter' => $nameFilter,
+				'limit' => $limit,
+				'offset' => $offset
+			]);
+			
+			return [
+				'resources' => $resources,
+				'metadata' => [
+					'total_records' => $totalCount,
+					'filtered_count' => count($resources),
+					'source' => 'database',
+					'cache_hit' => true
+				]
+			];
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->error('Failed to get resources from database', [
+				'error' => $e->getMessage(),
+				'bridge' => 'outlook'
+			]);
+			
+			// Return empty result on database error to trigger fallback
+			return ['resources' => [], 'metadata' => ['total_records' => 0, 'filtered_count' => 0]];
+		}
+	}
 
 	/**
 	 * Get available Microsoft 365 groups with basic details.
