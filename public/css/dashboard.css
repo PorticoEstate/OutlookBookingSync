@@ -287,17 +287,24 @@ a:hover {
 
 /* Navigation in headers */
 .header nav a {
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(255, 255, 255, 0.95);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 0 2px;
+    transition: all 0.2s ease;
 }
 
 .header nav a:hover {
     color: white;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.15);
+    text-decoration: none;
 }
 
 .header nav a.active {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.25);
     color: white;
+    font-weight: 600;
 }
 
 @media (max-width: 768px) {
