@@ -249,6 +249,57 @@ body {
     display: inline-block;
 }
 
+/* Navigation and Link Styles */
+nav {
+    margin: 10px 0;
+}
+
+nav a {
+    color: #667eea;
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 0 2px;
+    transition: all 0.2s ease;
+}
+
+nav a:hover {
+    background-color: #f0f4ff;
+    color: #5a6fd8;
+}
+
+nav a.active {
+    background-color: #667eea;
+    color: white;
+    font-weight: 600;
+}
+
+/* General link styles */
+a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+a:hover {
+    color: #5a6fd8;
+    text-decoration: underline;
+}
+
+/* Navigation in headers */
+.header nav a {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.header nav a:hover {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.header nav a.active {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
 @media (max-width: 768px) {
     .dashboard-grid {
         grid-template-columns: 1fr;
@@ -260,5 +311,14 @@ body {
     
     .header h1 {
         font-size: 2rem;
+    }
+    
+    nav {
+        font-size: 0.9rem;
+    }
+    
+    nav a {
+        padding: 3px 6px;
+        margin: 0 1px;
     }
 }

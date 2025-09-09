@@ -166,6 +166,11 @@ $container->set(\App\Controller\AdminController::class, function () use ($contai
     return new \App\Controller\AdminController($container->get('db'));
 });
 
+$container->set(\App\Controller\MigrationController::class, function () use ($container)
+{
+    return new \App\Controller\MigrationController($container->get('db'));
+});
+
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
@@ -261,6 +266,15 @@ $app->group('/admin', function ($group) {
     $group->get('/tenants/{tenantId}/keys/metadata', [\App\Controller\AdminController::class, 'getKeyMetadata']);
     $group->put('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'upsertBridgeConfig']);
     $group->get('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'getBridgeConfig']);
+});
+
+// Migration management API routes (admin access required)
+$app->group('/api/migrations', function ($group) {
+    $group->get('/status', [\App\Controller\MigrationController::class, 'getStatus']);
+    $group->post('/run', [\App\Controller\MigrationController::class, 'runMigration']);
+    $group->post('/run-all', [\App\Controller\MigrationController::class, 'runAllMigrations']);
+    $group->get('/{version}/content', [\App\Controller\MigrationController::class, 'getMigrationContent']);
+    $group->post('/create', [\App\Controller\MigrationController::class, 'createMigration']);
 });
 
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
