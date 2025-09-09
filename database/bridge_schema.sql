@@ -380,38 +380,7 @@ CREATE TRIGGER trigger_update_bridge_resources_timestamp
     FOR EACH ROW
     EXECUTE FUNCTION update_bridge_resources_timestamp();
 
--- Sample data for testing (commented out)
-/*
-INSERT INTO bridge_mappings (
-    source_bridge, target_bridge, source_calendar_id, target_calendar_id,
-    source_event_id, target_event_id, sync_direction, event_data
-) VALUES (
-    'outlook', 'booking_system', 'room1@company.com', '123',
-    'outlook-event-1', '456', 'bidirectional', 
-    '{"subject": "Test Meeting", "start": "2025-06-15T10:00:00Z", "end": "2025-06-15T11:00:00Z"}'
-);
 
--- Sample Outlook resources for bergen.kommune.no tenant
-INSERT INTO bridge_resources (
-    bridge_name, bridge_type, resource_id, resource_email, resource_name, 
-    resource_type, capacity, location, tenant_id
-) VALUES 
-('outlook', 'outlook', 'f083b9c6-ce31-4e86-bd34-31dc615bb4cf', 'reslandgan@bergen.kommune.no', 'Landåssvingen 15 - BIS - A-bygget - 2.et. - Ganges (12 pers)', 'room', 12, 'Landåssvingen 15 - BIS - A-bygget - 2.et.', 'bergen_kommune'),
-('outlook', 'outlook', '87adcdbf-9e1d-43ce-9a0e-b5ff5f1185bc', 'reslandbra@bergen.kommune.no', 'Landåssvingen 15 - BIS - A-bygget - 3.et. - Brahmaputra (5 pers)', 'room', 5, 'Landåssvingen 15 - BIS - A-bygget - 3.et.', 'bergen_kommune'),
-('outlook', 'outlook', 'cc9e1fb2-236a-4f08-9774-a260e3640ab5', 'reslandzam@bergen.kommune.no', 'Landåssvingen 15 - BIS - A-bygget - 3.et. - Zembezi (12 pers)', 'room', 12, 'Landåssvingen 15 - BIS - A-bygget - 3.et.', 'bergen_kommune'),
-('outlook', 'outlook', '6569522e-cf98-4b80-b4fc-9d58b2449c29', 'resL15stil@bergen.kommune.no', 'Landåssvingen 15 - BIS - A-bygget - 4.et. - Møterom - (4 pers)', 'room', 4, 'Landåssvingen 15 - BIS - A-bygget - 4.et.', 'bergen_kommune'),
-('outlook', 'outlook', '938a0f09-b1a3-40e5-a585-9bf7bd90418a', 'reslandnil@bergen.kommune.no', 'Landåssvingen 15 - BIS - A-bygget - 4.et. - Nilen (12 pers)', 'room', 12, 'Landåssvingen 15 - BIS - A-bygget - 4.et.', 'bergen_kommune'),
-('outlook', 'outlook', '56d4ce6e-06da-4bdd-b59b-d17ac24b6bf6', 'resls15118@bergen.kommune.no', 'Landåssvingen 15 - BIS - B-bygget - 1.etg - Rom 118 (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - B-bygget - 1.etg', 'bergen_kommune'),
-('outlook', 'outlook', 'a62df7b4-b53f-46fb-a259-117b24872cd5', 'resls15119@bergen.kommune.no', 'Landåssvingen 15 - BIS - B-bygget - 1.etg - Rom 119 (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - B-bygget - 1.etg', 'bergen_kommune'),
-('outlook', 'outlook', 'cefbced3-2e2f-4f88-9dae-f0da1ad1e3d1', 'resls15120@bergen.kommune.no', 'Landåssvingen 15 - BIS - B-bygget - 1.etg - Rom 120 (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - B-bygget - 1.etg', 'bergen_kommune'),
-('outlook', 'outlook', 'f8217283-dd05-4a5b-8538-82da08a4023d', 'resls15121@bergen.kommune.no', 'Landåssvingen 15 - BIS - B-bygget - 1.etg - Rom 121 (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - B-bygget - 1.etg', 'bergen_kommune'),
-('outlook', 'outlook', '11ed2343-6bdc-43ab-b27c-e8411a10df22', 'resls15122@bergen.kommune.no', 'Landåssvingen 15 - BIS - B-bygget - 1.etg - Rom 122 (12 pers)', 'room', 12, 'Landåssvingen 15 - BIS - B-bygget - 1.etg', 'bergen_kommune'),
-('outlook', 'outlook', '04294eb1-4054-493c-871b-6820ed28df0f', 'reslanalp@bergen.kommune.no', 'Landåssvingen 15 - BIS - C-bygget - 1.et. - Alpene (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - C-bygget - 1.et.', 'bergen_kommune'),
-('outlook', 'outlook', '8511f1cd-2d36-4792-bc1e-e8eb7e825398', 'reslanand@bergen.kommune.no', 'Landåssvingen 15 - BIS - C-bygget - 1.et. - Andes (4 pers)', 'room', 4, 'Landåssvingen 15 - BIS - C-bygget - 1.et.', 'bergen_kommune'),
-('outlook', 'outlook', 'c87b68e2-31ec-4e56-a9f8-a77c51c18fcf', 'reslanden@bergen.kommune.no', 'Landåssvingen 15 - BIS - C-bygget - 1.et. - Denali (4 pers)', 'room', 4, 'Landåssvingen 15 - BIS - C-bygget - 1.et.', 'bergen_kommune'),
-('outlook', 'outlook', 'ddd4a9c2-e1c6-4201-9780-1a9d5e912359', 'reslandon@bergen.kommune.no', 'Landåssvingen 15 - BIS - C-bygget - 1.et. - Donau (8 pers)', 'room', 8, 'Landåssvingen 15 - BIS - C-bygget - 1.et.', 'bergen_kommune'),
-('outlook', 'outlook', '700c6711-ab80-4db5-864f-ad215fcfe597', 'reslangal@bergen.kommune.no', 'Landåssvingen 15 - BIS - C-bygget - 1.et. - Galdhøpiggen (6 pers)', 'room', 6, 'Landåssvingen 15 - BIS - C-bygget - 1.et.', 'bergen_kommune');
-*/
 
 CREATE TABLE IF NOT EXISTS outlook_sync_alerts (
     id SERIAL PRIMARY KEY,
@@ -423,3 +392,17 @@ CREATE TABLE IF NOT EXISTS outlook_sync_alerts (
     acknowledged_at TIMESTAMP WITH TIME ZONE,
     acknowledged_by VARCHAR(255)
 );
+
+-- Schema migrations table - tracks which migrations have been applied
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(50) PRIMARY KEY,
+    description TEXT,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- update migration status, so we are in sync with the migration files 001 and 002
+INSERT INTO schema_migrations (version, description, applied_at) VALUES
+('001', 'Create schema_migrations table', NOW()),
+('002', 'Add bridge_resources table', NOW())
+ON CONFLICT (version) DO NOTHING;
+-- --- IGNORE ---
