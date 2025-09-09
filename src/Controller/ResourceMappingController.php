@@ -42,7 +42,8 @@ class ResourceMappingController
 
 			// Optional tenant scoping
 			$tenantId = $request->getAttribute('tenant_id');
-			if ($tenantId) {
+			if ($tenantId)
+			{
 				$sql .= " AND (tenant_id = :tenant_id OR tenant_id IS NULL)";
 				$params['tenant_id'] = $tenantId;
 			}
@@ -89,6 +90,19 @@ class ResourceMappingController
 			$stmt = $this->db->prepare($sql);
 			$stmt->execute($params);
 			$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+			foreach ($mappings as &$mapping)
+			{
+				if (isset($mapping['source_calendar_name']))
+				{
+					$mapping['source_calendar_name'] = html_entity_decode($mapping['source_calendar_name']);
+				}
+				if (isset($mapping['target_calendar_name']))
+				{
+					$mapping['target_calendar_name'] = html_entity_decode($mapping['target_calendar_name']);
+				}
+			}
+
 
 			$response->getBody()->write(json_encode([
 				'success' => true,
@@ -165,7 +179,7 @@ class ResourceMappingController
 			}
 
 			// Create new mapping
-	     $sql = "INSERT INTO bridge_resource_mappings 
+			$sql = "INSERT INTO bridge_resource_mappings 
                     (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
 			source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled, tenant_id) 
                     VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
@@ -360,7 +374,10 @@ class ResourceMappingController
 				'source_calendar_id' => $sourceCalendarId,
 				'target_calendar_id' => $targetCalendarId
 			];
-			if ($tenantId !== null) { $params['tenant_id'] = (string)$tenantId; }
+			if ($tenantId !== null)
+			{
+				$params['tenant_id'] = (string)$tenantId;
+			}
 			$checkStmt->execute($params);
 
 			$existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
@@ -397,7 +414,10 @@ class ResourceMappingController
 					'source_id' => $existingMapping['source_calendar_id'],
 					'target_id' => $existingMapping['target_calendar_id']
 				];
-				if ($tenantId !== null) { $depParams['tenant_id'] = (string)$tenantId; }
+				if ($tenantId !== null)
+				{
+					$depParams['tenant_id'] = (string)$tenantId;
+				}
 				$depStmt->execute($depParams);
 				$dependents = (int)$depStmt->fetchColumn();
 			}
