@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS bridge_mappings (
     target_calendar_id VARCHAR(255) NOT NULL,
     source_event_id VARCHAR(255) NOT NULL,
     target_event_id VARCHAR(255) NOT NULL,
-    source_event_start VARCHAR(64),
-    source_event_end VARCHAR(64),
+    source_event_start TIMESTAMPTZ,
+    source_event_end TIMESTAMPTZ,
     sync_direction VARCHAR(20) DEFAULT 'bidirectional', -- 'source_to_target', 'target_to_source', 'bidirectional'
     sync_status VARCHAR(20) DEFAULT 'pending' NOT NULL, -- 'pending', 'synced', 'cancelled', 'error'
     sync_method VARCHAR(20) DEFAULT 'manual', -- 'manual', 'polling', 'automated', 'cron'
@@ -403,6 +403,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 -- update migration status, so we are in sync with the migration files 001 and 002
 INSERT INTO schema_migrations (version, description, applied_at) VALUES
 ('001', 'Create schema_migrations table', NOW()),
-('002', 'Add bridge_resources table', NOW())
+('002', 'Add bridge_resources table', NOW()),
+('003', 'Fix source_event_start and source_event_end to use TIMESTAMPTZ type', NOW())
 ON CONFLICT (version) DO NOTHING;
 -- --- IGNORE ---

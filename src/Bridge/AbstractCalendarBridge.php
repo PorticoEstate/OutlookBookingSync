@@ -124,9 +124,31 @@ abstract class AbstractCalendarBridge
     /** @param string $dateString */
     protected function normalizeDateTime($dateString): string
     {
-        $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
-        if ($date === false) { $date = new \DateTime($dateString); }
-        return $date->format('c');
+        if (empty($dateString)) {
+            return '';
+        }
+
+        try {
+            // First try to parse with specific format
+            $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
+            if ($date === false) {
+                // Fallback to generic parsing which handles various formats including ISO8601
+                $date = new \DateTime($dateString);
+            }
+            
+            // Always convert to UTC for consistent storage and comparison
+            $date->setTimezone(new \DateTimeZone('UTC'));
+            
+            // Return in ISO8601 format with UTC timezone
+            return $date->format('c');
+        } catch (\Exception $e) {
+            // Log the error and return empty string as fallback
+            $this->logger->warning('Failed to normalize datetime', [
+                'input' => $dateString,
+                'error' => $e->getMessage()
+            ]);
+            return '';
+        }
     }
 
     /** Hook for bridge-specific initialization. */

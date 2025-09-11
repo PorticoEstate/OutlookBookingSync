@@ -1088,6 +1088,7 @@ class BridgeManager
 
 	/**
 	 * Update mapping with source event timing information
+	 * All datetime values are normalized to UTC for consistent cross-bridge comparison
 	 */
 	private function updateMappingWithSourceTiming($mappingId, $sourceStart, $sourceEnd)
 	{
@@ -1099,6 +1100,10 @@ class BridgeManager
 
 		try
 		{
+			// Convert datetime strings to proper UTC format for TIMESTAMPTZ fields
+			$startTimestamp = $this->normalizeTimestampForDatabase($sourceStart);
+			$endTimestamp = $this->normalizeTimestampForDatabase($sourceEnd);
+
 			$sql = "UPDATE bridge_mappings 
                     SET source_event_start = :start, 
                         source_event_end = :end,
@@ -1107,14 +1112,14 @@ class BridgeManager
 			$stmt = $this->db->prepare($sql);
 			$stmt->execute([
 				':id' => $mappingId,
-				':start' => $sourceStart,
-				':end' => $sourceEnd
+				':start' => $startTimestamp,
+				':end' => $endTimestamp
 			]);
 
-			$this->logger->debug('Updated mapping with source event timing', [
+			$this->logger->debug('Updated mapping with source event timing (UTC)', [
 				'mapping_id' => $mappingId,
-				'source_start' => $sourceStart,
-				'source_end' => $sourceEnd
+				'source_start_utc' => $startTimestamp,
+				'source_end_utc' => $endTimestamp
 			]);
 		}
 		catch (\Exception $e)
@@ -1123,6 +1128,34 @@ class BridgeManager
 				'mapping_id' => $mappingId,
 				'error' => $e->getMessage()
 			]);
+		}
+	}
+
+	/**
+	 * Normalize datetime string for database TIMESTAMP storage
+	 * Ensures all datetime values are stored in UTC for consistent cross-bridge comparison
+	 */
+	private function normalizeTimestampForDatabase($dateTimeString)
+	{
+		if (empty($dateTimeString)) {
+			return null;
+		}
+
+		try {
+			// Handle various datetime formats and convert to database-compatible format
+			$dateTime = new \DateTime($dateTimeString);
+			
+			// Always convert to UTC to ensure consistent storage and comparison across bridges
+			$dateTime->setTimezone(new \DateTimeZone('UTC'));
+			
+			// Format for PostgreSQL TIMESTAMP (without timezone info since we're storing in UTC)
+			return $dateTime->format('Y-m-d H:i:s');
+		} catch (\Exception $e) {
+			$this->logger->warning('Failed to normalize datetime for database', [
+				'input' => $dateTimeString,
+				'error' => $e->getMessage()
+			]);
+			return null;
 		}
 	}
 
