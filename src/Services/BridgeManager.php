@@ -19,11 +19,11 @@ class BridgeManager
 	/** @var array<string, array<string, AbstractCalendarBridge>> */
 	private $tenantBridgeCache = [];
 
-    /**
-     * @param LoggerInterface $logger
-     * @param PDO $db
-     * @param SyncLogService $syncLog
-     */
+	/**
+	 * @param LoggerInterface $logger
+	 * @param PDO $db
+	 * @param SyncLogService $syncLog
+	 */
 	public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog)
 	{
 		$this->logger = $logger;
@@ -92,12 +92,14 @@ class BridgeManager
 	public function getBridgeForTenant(string $tenantId, string $name): AbstractCalendarBridge
 	{
 		// Use cached per-tenant instance if available
-		if (isset($this->tenantBridgeCache[$tenantId][$name])) {
+		if (isset($this->tenantBridgeCache[$tenantId][$name]))
+		{
 			return $this->tenantBridgeCache[$tenantId][$name];
 		}
 
 		// Resolve base registration
-		if (!isset($this->bridges[$name])) {
+		if (!isset($this->bridges[$name]))
+		{
 			throw new \Exception("Bridge '{$name}' not found");
 		}
 
@@ -105,10 +107,10 @@ class BridgeManager
 		$baseConfig = $this->bridges[$name]['config'] ?? [];
 
 		// Attempt to load tenant-specific override from DB bridge_configs
-	$tenantConfig = $this->loadTenantBridgeConfig($tenantId, $name);
-	$config = $tenantConfig ? array_replace_recursive($baseConfig, $tenantConfig) : $baseConfig;
-	// Inject context tenant id without colliding with bridge-specific config keys
-	$config['context_tenant_id'] = $tenantId;
+		$tenantConfig = $this->loadTenantBridgeConfig($tenantId, $name);
+		$config = $tenantConfig ? array_replace_recursive($baseConfig, $tenantConfig) : $baseConfig;
+		// Inject context tenant id without colliding with bridge-specific config keys
+		$config['context_tenant_id'] = $tenantId;
 
 		$instance = new $class($config, $this->logger, $this->db);
 		$this->tenantBridgeCache[$tenantId][$name] = $instance;
@@ -117,15 +119,19 @@ class BridgeManager
 
 	private function loadTenantBridgeConfig(string $tenantId, string $bridgeName): ?array
 	{
-		try {
+		try
+		{
 			$stmt = $this->db->prepare("SELECT config_data FROM bridge_configs WHERE bridge_name = :name AND tenant_id = :tid LIMIT 1");
 			$stmt->execute(['name' => $bridgeName, 'tid' => $tenantId]);
 			$row = $stmt->fetch(PDO::FETCH_ASSOC);
-			if ($row && isset($row['config_data'])) {
+			if ($row && isset($row['config_data']))
+			{
 				$data = json_decode($row['config_data'], true);
 				return is_array($data) ? $data : null;
 			}
-		} catch (\Throwable $e) {
+		}
+		catch (\Throwable $e)
+		{
 			$this->logger->warning('Failed to load tenant bridge config', ['tenant_id' => $tenantId, 'bridge' => $bridgeName, 'error' => $e->getMessage()]);
 		}
 		return null;
@@ -146,9 +152,12 @@ class BridgeManager
 
 		// Prefer tenant-aware config if a tenant id is available (header or DEFAULT_TENANT_ID)
 		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
-		if ($tenantId !== null) {
+		if ($tenantId !== null)
+		{
 			$bridge = $this->getBridgeForTenant((string)$tenantId, $name);
-		} else {
+		}
+		else
+		{
 			$bridge = $this->getBridge($name);
 		}
 
@@ -266,10 +275,13 @@ class BridgeManager
 	): array
 	{
 		$tenantId = $options['tenant_id'] ?? null;
-		if ($tenantId !== null) {
+		if ($tenantId !== null)
+		{
 			$source = $this->getBridgeForTenant((string)$tenantId, $sourceBridge);
 			$target = $this->getBridgeForTenant((string)$tenantId, $targetBridge);
-		} else {
+		}
+		else
+		{
 			$source = $this->getBridge($sourceBridge);
 			$target = $this->getBridge($targetBridge);
 		}
@@ -285,9 +297,9 @@ class BridgeManager
 		// Get events from source
 		$sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
-	// Get existing mappings (bounded by sync window) and build an index by source_event_id for O(1) lookups
-	$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
-	$mappingIndex = $this->indexMappingsBySourceId($mappings);
+		// Get existing mappings (bounded by sync window) and build an index by source_event_id for O(1) lookups
+		$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+		$mappingIndex = $this->indexMappingsBySourceId($mappings);
 
 		$results = [
 			'source_bridge' => $sourceBridge,
@@ -524,8 +536,14 @@ class BridgeManager
 				// Check if target was deleted or diverged; if so, recreate/overwrite unless respecting deletions
 				$respectDel = (bool)($options['respect_target_deletions'] ?? false);
 				$targetExists = true;
-				try { $target->getEvent($targetCalendarId, $mapping['target_event_id']); }
-				catch (\Throwable $e) { $targetExists = false; }
+				try
+				{
+					$target->getEvent($targetCalendarId, $mapping['target_event_id']);
+				}
+				catch (\Throwable $e)
+				{
+					$targetExists = false;
+				}
 
 				if (!$targetExists)
 				{
@@ -568,7 +586,8 @@ class BridgeManager
 			// Fastest no-op guard using stable hash if present
 			if (!($options['force_update'] ?? false))
 			{
-				try {
+				try
+				{
 					$newHash = $this->computeEventHash($sourceEvent);
 					if (!empty($mapping['event_hash']) && is_string($mapping['event_hash']) && hash_equals($mapping['event_hash'], $newHash))
 					{
@@ -580,7 +599,9 @@ class BridgeManager
 							'reason' => 'no_changes_hash'
 						];
 					}
-				} catch (\Throwable $e) {
+				}
+				catch (\Throwable $e)
+				{
 					$this->logger->debug('Hash no-op guard failed; falling back', ['error' => $e->getMessage()]);
 				}
 			}
@@ -607,7 +628,7 @@ class BridgeManager
 				}
 				catch (\Throwable $e)
 				{
-					$this->logger->debug('Cached no-op guard failed; will attempt live comparison or proceed with update', [ 'error' => $e->getMessage() ]);
+					$this->logger->debug('Cached no-op guard failed; will attempt live comparison or proceed with update', ['error' => $e->getMessage()]);
 				}
 			}
 
@@ -774,8 +795,8 @@ class BridgeManager
 	 */
 	private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options = [])
 	{
-	$sourceEventIds = array_column($sourceEvents, 'id');
-	$sourceEventIdSet = array_fill_keys($sourceEventIds, true);
+		$sourceEventIds = array_column($sourceEvents, 'id');
+		$sourceEventIdSet = array_fill_keys($sourceEventIds, true);
 		$results = ['deleted' => 0, 'errors' => []];
 
 		foreach ($mappings as $mapping)
@@ -875,8 +896,10 @@ class BridgeManager
 	private function indexMappingsBySourceId(array $mappings): array
 	{
 		$idx = [];
-		foreach ($mappings as $m) {
-			if (isset($m['source_event_id'])) {
+		foreach ($mappings as $m)
+		{
+			if (isset($m['source_event_id']))
+			{
 				$idx[$m['source_event_id']] = $m;
 			}
 		}
@@ -949,8 +972,15 @@ class BridgeManager
 			':source_calendar_id' => $sourceCalendarId,
 			':target_calendar_id' => $targetCalendarId,
 		];
-	if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-	if ($windowStart && $windowEnd) { $params[':wstart'] = $windowStart; $params[':wend'] = $windowEnd; }
+		if ($tenantId !== null)
+		{
+			$params[':tenant_id'] = (string)$tenantId;
+		}
+		if ($windowStart && $windowEnd)
+		{
+			$params[':wstart'] = $windowStart;
+			$params[':wend'] = $windowEnd;
+		}
 		$stmt->execute($params);
 		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -998,45 +1028,82 @@ class BridgeManager
 	 */
 	private function eventsAreEquivalent(array $a, array $b): bool
 	{
-		$fields = ['subject','location','description'];
+		$fields = ['subject', 'location', 'description'];
 		foreach ($fields as $f)
 		{
 			$av = isset($a[$f]) ? $this->normalizeString((string)$a[$f]) : '';
 			$bv = isset($b[$f]) ? $this->normalizeString((string)$b[$f]) : '';
-			if ($av !== $bv) { return false; }
+			if ($av !== $bv)
+			{
+				return false;
+			}
 		}
 
 		// All-day flag
 		$allDayA = (bool)($a['all_day'] ?? false);
 		$allDayB = (bool)($b['all_day'] ?? false);
-		if ($allDayA !== $allDayB) { return false; }
+		if ($allDayA !== $allDayB)
+		{
+			return false;
+		}
 
 		// Start/End: compare as timestamps (UTC-equivalent)
-		if ($this->normalizeDateToTimestamp($a['start'] ?? null) !== $this->normalizeDateToTimestamp($b['start'] ?? null)) { return false; }
-		if ($this->normalizeDateToTimestamp($a['end'] ?? null) !== $this->normalizeDateToTimestamp($b['end'] ?? null)) { return false; }
+		if ($this->normalizeDateToTimestamp($a['start'] ?? null) !== $this->normalizeDateToTimestamp($b['start'] ?? null))
+		{
+			return false;
+		}
+		if ($this->normalizeDateToTimestamp($a['end'] ?? null) !== $this->normalizeDateToTimestamp($b['end'] ?? null))
+		{
+			return false;
+		}
 
 		// Attendees (case-insensitive, order-insensitive)
 		$attA = $this->normalizeAttendees($a['attendees'] ?? []);
 		$attB = $this->normalizeAttendees($b['attendees'] ?? []);
-		if ($attA !== $attB) { return false; }
+		if ($attA !== $attB)
+		{
+			return false;
+		}
 
 		return true;
 	}
 
 	private function normalizeString(string $s): string
-	{ return trim(preg_replace('/\s+/', ' ', $s)); }
+	{
+		return trim(preg_replace('/\s+/', ' ', $s));
+	}
 
 	private function normalizeDateToTimestamp($val): ?int
 	{
-		if (empty($val)) { return null; }
-		try { $dt = new \DateTime((string)$val); return $dt->getTimestamp(); } catch (\Throwable $e) { return null; }
+		if (empty($val))
+		{
+			return null;
+		}
+		try
+		{
+			$dt = new \DateTime((string)$val);
+			return $dt->getTimestamp();
+		}
+		catch (\Throwable $e)
+		{
+			return null;
+		}
 	}
 
 	private function normalizeAttendees($val): array
 	{
-		if (!is_array($val)) { return []; }
-		$norm = array_map(function ($x) { return strtolower(trim((string)$x)); }, $val);
-		$norm = array_values(array_unique(array_filter($norm, function ($x) { return $x !== ''; })));
+		if (!is_array($val))
+		{
+			return [];
+		}
+		$norm = array_map(function ($x)
+		{
+			return strtolower(trim((string)$x));
+		}, $val);
+		$norm = array_values(array_unique(array_filter($norm, function ($x)
+		{
+			return $x !== '';
+		})));
 		sort($norm);
 		return $norm;
 	}
@@ -1072,7 +1139,7 @@ class BridgeManager
 		}
 		catch (\Throwable $e)
 		{
-			$this->logger->debug('Failed to update mapping event_data/hash cache - continuing', [ 'mapping_id' => $mappingId, 'error' => $e->getMessage() ]);
+			$this->logger->debug('Failed to update mapping event_data/hash cache - continuing', ['mapping_id' => $mappingId, 'error' => $e->getMessage()]);
 		}
 	}
 
@@ -1137,20 +1204,24 @@ class BridgeManager
 	 */
 	private function normalizeTimestampForDatabase($dateTimeString)
 	{
-		if (empty($dateTimeString)) {
+		if (empty($dateTimeString))
+		{
 			return null;
 		}
 
-		try {
+		try
+		{
 			// Handle various datetime formats and convert to database-compatible format
 			$dateTime = new \DateTime($dateTimeString);
-			
+
 			// Always convert to UTC to ensure consistent storage and comparison across bridges
 			$dateTime->setTimezone(new \DateTimeZone('UTC'));
-			
+
 			// Format for PostgreSQL TIMESTAMP (without timezone info since we're storing in UTC)
 			return $dateTime->format('Y-m-d H:i:s');
-		} catch (\Exception $e) {
+		}
+		catch (\Exception $e)
+		{
 			$this->logger->warning('Failed to normalize datetime for database', [
 				'input' => $dateTimeString,
 				'error' => $e->getMessage()
@@ -1388,8 +1459,8 @@ class BridgeManager
 		{
 			// Process pending syncs for specific bridge
 			$bridge = $tenantId !== null
-			    ? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
-			    : $this->getBridge($bridgeName);
+				? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
+				: $this->getBridge($bridgeName);
 
 			if (method_exists($bridge, 'processPendingSyncs'))
 			{
@@ -1481,16 +1552,16 @@ class BridgeManager
 	public function getAllSyncStats(): array
 	{
 		$allStats = [];
-	// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
-	$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+		// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
+		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
 
 		foreach (array_keys($this->bridges) as $name)
 		{
 			try
 			{
-		$bridge = $tenantId !== null
-		    ? $this->getBridgeForTenant((string)$tenantId, $name)
-		    : $this->getBridge($name);
+				$bridge = $tenantId !== null
+					? $this->getBridgeForTenant((string)$tenantId, $name)
+					: $this->getBridge($name);
 				if (method_exists($bridge, 'getSyncStats'))
 				{
 					$allStats[$name] = $bridge->getSyncStats();
