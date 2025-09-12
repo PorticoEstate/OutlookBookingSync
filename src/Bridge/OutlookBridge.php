@@ -26,6 +26,52 @@ class OutlookBridge extends AbstractCalendarBridge
 {
 	private $graphServiceClient;
 
+	// Extended property constants - unique GUIDs for this application
+	// These should be unique per deployment to avoid conflicts with other applications
+	private const EXTENDED_PROPERTY_NAMESPACE = 'OutlookBookingSync';
+	private const BRIDGE_SOURCE_PROPERTY_ID = 'String {66f5a359-4659-4830-9070-00047ec6ac6e} Name BridgeSource';
+	private const SOURCE_BRIDGE_PROPERTY_ID = 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name SourceBridge';
+	private const SOURCE_EVENT_ID_PROPERTY_ID = 'String {66f5a359-4659-4830-9070-00047ec6ac70} Name SourceEventId';
+
+	/**
+	 * Get extended property IDs for Graph API queries
+	 * @return array Array of extended property IDs
+	 */
+	private function getExtendedPropertyIds(): array
+	{
+		return [
+			self::BRIDGE_SOURCE_PROPERTY_ID,
+			self::SOURCE_BRIDGE_PROPERTY_ID,
+			self::SOURCE_EVENT_ID_PROPERTY_ID
+		];
+	}
+
+	/**
+	 * Generate a unique extended property ID based on namespace and property name
+	 * This method can be used to generate deployment-specific GUIDs if needed
+	 * 
+	 * @param string $propertyName The name of the property
+	 * @return string Extended property ID string
+	 */
+	private function generateExtendedPropertyId(string $propertyName): string
+	{
+		// For production use, consider generating truly unique GUIDs per deployment
+		// This could use a base namespace GUID + property name hash
+		$namespace = $this->config['extended_property_namespace'] ?? self::EXTENDED_PROPERTY_NAMESPACE;
+		
+		// For now, return the constant (but this method enables future dynamic generation)
+		switch ($propertyName) {
+			case 'BridgeSource':
+				return self::BRIDGE_SOURCE_PROPERTY_ID;
+			case 'SourceBridge':
+				return self::SOURCE_BRIDGE_PROPERTY_ID;
+			case 'SourceEventId':
+				return self::SOURCE_EVENT_ID_PROPERTY_ID;
+			default:
+				throw new \InvalidArgumentException("Unknown extended property: {$propertyName}");
+		}
+	}
+
 	protected function validateConfig()
 	{
 		$required = ['client_id', 'client_secret', 'tenant_id'];
@@ -691,16 +737,18 @@ class OutlookBridge extends AbstractCalendarBridge
 
 		$outlookEvent->setSubject($event['subject']);
 
-		// Set start time
+		$timezone = $event['timezone'] ?? 'UTC';
+
+		// Set start time - convert TO the target timezone instead of UTC
 		$startTime = new \Microsoft\Graph\Generated\Models\DateTimeTimeZone();
-		$startTime->setDateTime($this->normalizeDateTime($event['start']));
-		$startTime->setTimeZone($event['timezone'] ?? 'UTC');
+		$startTime->setDateTime($this->normalizeDateTimeForTimezone($event['start'], $timezone));
+		$startTime->setTimeZone($timezone);
 		$outlookEvent->setStart($startTime);
 
-		// Set end time
+		// Set end time - convert TO the target timezone instead of UTC
 		$endTime = new \Microsoft\Graph\Generated\Models\DateTimeTimeZone();
-		$endTime->setDateTime($this->normalizeDateTime($event['end']));
-		$endTime->setTimeZone($event['timezone'] ?? 'UTC');
+		$endTime->setDateTime($this->normalizeDateTimeForTimezone($event['end'], $timezone));
+		$endTime->setTimeZone($timezone);
 		$outlookEvent->setEnd($endTime);
 
 		// Set body
@@ -743,19 +791,19 @@ class OutlookBridge extends AbstractCalendarBridge
 		$extendedProperties = [];
 
 		$bridgeSourceProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
-		$bridgeSourceProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac6e} Name BridgeSource');
-		$bridgeSourceProp->setValue('calendar_bridge');
+		$bridgeSourceProp->setId($this->generateExtendedPropertyId('BridgeSource'));
+		$bridgeSourceProp->setValue(self::EXTENDED_PROPERTY_NAMESPACE);
 		$extendedProperties[] = $bridgeSourceProp;
 
 		$sourceBridgeProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
-		$sourceBridgeProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac6f} Name SourceBridge');
+		$sourceBridgeProp->setId($this->generateExtendedPropertyId('SourceBridge'));
 		$sourceBridgeProp->setValue($event['bridge_type'] ?? 'unknown');
 		$extendedProperties[] = $sourceBridgeProp;
 
 		if (isset($event['external_id']))
 		{
 			$sourceEventIdProp = new \Microsoft\Graph\Generated\Models\SingleValueLegacyExtendedProperty();
-			$sourceEventIdProp->setId('String {66f5a359-4659-4830-9070-00047ec6ac70} Name SourceEventId');
+			$sourceEventIdProp->setId($this->generateExtendedPropertyId('SourceEventId'));
 			$sourceEventIdProp->setValue($event['external_id']);
 			$extendedProperties[] = $sourceEventIdProp;
 		}
@@ -763,6 +811,44 @@ class OutlookBridge extends AbstractCalendarBridge
 		$outlookEvent->setSingleValueExtendedProperties($extendedProperties);
 
 		return $outlookEvent;
+	}
+
+	/**
+	 * Normalize datetime for a specific timezone (for Outlook event creation).
+	 * Unlike normalizeDateTime(), this converts TO the target timezone instead of UTC.
+	 *
+	 * @param string $dateString Input datetime string
+	 * @param string $targetTimezone Target timezone (e.g., "Europe/Oslo")
+	 * @return string Datetime in target timezone without timezone suffix
+	 */
+	private function normalizeDateTimeForTimezone($dateString, $targetTimezone): string
+	{
+		if (empty($dateString))
+		{
+			return '';
+		}
+
+		try
+		{
+			// Parse the input datetime (which may be in any timezone)
+			$date = new \DateTime($dateString);
+			
+			// Convert to the target timezone
+			$date->setTimezone(new \DateTimeZone($targetTimezone));
+			
+			// Return in format expected by Graph API (no timezone suffix)
+			// Graph API expects just the datetime part when timezone is specified separately
+			return $date->format('Y-m-d\TH:i:s.v');
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->warning('Failed to normalize datetime for timezone', [
+				'input' => $dateString,
+				'target_timezone' => $targetTimezone,
+				'error' => $e->getMessage()
+			]);
+			return '';
+		}
 	}
 
 

@@ -1313,14 +1313,38 @@ This endpoint is particularly useful for your booking system to check if a resou
 }
 ```
 
-#### Bidirectional configuration (per tenant)
+#### Sync Direction and Ownership Model
 
-Use the `sync_direction` field to control flow. For most cases, use a single semantic row per pair under a tenant:
+The `sync_direction` field controls **event ownership** and determines which bridge has authority over events:
+
+**🏆 Ownership-Based Sync Directions:**
+
+- **`sync_direction = "source_to_target"`** - **Source owns events**
+  - Source bridge can create, update, delete events
+  - Target bridge is read-only (events are pushed TO it)
+  - If target event deleted externally → Source recreates it
+  - Use case: Booking system authoritative, Outlook display-only
+
+- **`sync_direction = "target_to_source"`** - **Target owns events**  
+  - Target bridge can create, update, delete events
+  - Source bridge is read-only (events are pushed FROM target)
+  - If source event deleted externally → Target recreates it
+  - Use case: Outlook authoritative, booking system display-only
+
+- **`sync_direction = "bidirectional"`** - **Shared ownership**
+  - Both bridges have equal ownership and can modify events
+  - True two-way collaboration between systems
+  - Configurable deletion handling via `respect_target_deletions` option
+  - Use case: Equal partnership between calendar systems
+
+**📋 Configuration Examples:**
+
+For most cases, use a single mapping row per calendar pair:
 
 - `bridge_from = booking_system`, `bridge_to = outlook`
-- `source_calendar_id` = booking resource ID
+- `source_calendar_id` = booking resource ID  
 - `target_calendar_id` = Outlook calendar address/ID
-- `sync_direction = bidirectional` for two-way sync
+- `sync_direction` = ownership model (see above)
 
 Create mapping (tenant-scoped):
 
@@ -1332,19 +1356,33 @@ Content-Type: application/json
 
 {
   "bridge_from": "booking_system",
-  "bridge_to": "outlook",
+  "bridge_to": "outlook", 
   "source_calendar_id": "room_123",
   "target_calendar_id": "conference-room-a@company.com",
-  "sync_direction": "bidirectional"
+  "sync_direction": "source_to_target"
 }
 ```
 
-Trigger either direction using the same mapping row:
+**🔄 Triggering Sync Operations:**
 
-- Booking → Outlook: `POST /bridges/sync/booking_system/outlook` with `{ "source_calendar_id": "room_123", "target_calendar_id": "conference-room-a@company.com" }`
-- Outlook → Booking: `POST /bridges/sync/outlook/booking_system` with `{ "source_calendar_id": "conference-room-a@company.com", "target_calendar_id": "room_123" }`
+The sync direction ($sourceBridge → $targetBridge) is controlled by endpoint parameters, while ownership is controlled by the mapping's `sync_direction` field:
+
+- **Booking → Outlook**: `POST /bridges/sync/booking_system/outlook`
+  - Respects ownership model from mapping configuration
+  - May skip operations if ownership policy forbids them
+
+- **Outlook → Booking**: `POST /bridges/sync/outlook/booking_system`  
+  - Respects ownership model from mapping configuration
+  - May skip operations if ownership policy forbids them
+
+**⚠️ Ownership Enforcement:**
+
+- Non-owner bridges cannot modify events (operations skipped with `ownership_policy_violation`)
+- Owner bridges automatically recreate events deleted on non-owner side
+- All ownership actions are logged for transparency
 
 #### **5. Trigger Resource Sync**
+
 ```http
 POST /mappings/resources/{id}/sync
 ```

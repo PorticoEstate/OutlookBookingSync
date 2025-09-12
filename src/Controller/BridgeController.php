@@ -254,6 +254,16 @@ class BridgeController
                     else
                     {
                         $options['tenant_id'] = (string)($request->getAttribute('tenant_id') ?? null);
+                        
+                        // Pass mapping configuration for ownership decisions
+                        $options['mapping_config'] = [
+                            'mapping_id' => $mapping['id'],
+                            'bridge_from' => $mapping['bridge_from'],
+                            'bridge_to' => $mapping['bridge_to'],
+                            'sync_direction' => $mapping['sync_direction'],
+                            'api_call_reversed' => ($sourceBridge !== $mapping['bridge_from'])
+                        ];
+                        
                         $results = $this->bridgeManager->syncBetweenBridges(
                             $sourceBridge,
                             $targetBridge,

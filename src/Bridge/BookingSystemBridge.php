@@ -592,6 +592,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             // Extract original ID from composite ID for API call
             $originalId = $this->extractOriginalId($eventId);
+            $success = false;
 
             if ($this->debug)
             {
@@ -620,7 +621,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
                     SET sync_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
                     WHERE target_event_id = ? AND target_bridge = ?
                 ");
-                $stmt->execute([$eventId, $this->getBridgeType()]);
+                $success = $stmt->execute([$eventId, $this->getBridgeType()]);
 
                 if ($this->debug)
                 {
@@ -1090,7 +1091,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'description' => $bookingEvent['description'] ?? '',
             'organizer' => $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? '',
             'created' => $bookingEvent['created'] ?? $bookingEvent['created_at'] ?? date('c'),
-            'last_modified' => $bookingEvent['last_modified'] ?? $bookingEvent['updated_at'] ?? date('c')
+            'last_modified' => $bookingEvent['last_modified'] ?? $bookingEvent['updated_at'] ?? date('c'),
+            'timezone' => $bookingEvent['timezone'] ?? $this->config['timezone'] ?? 'UTC'
         ];
 
         foreach ($fallbacks as $field => $value)
@@ -1570,7 +1572,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'organizer' => $mappedEvent['organizer'] ?? $event['organizer'] ?? $event['created_by'] ?? null,
             'attendees' => $this->normalizeAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
             'all_day' => $mappedEvent['all_day'] ?? $event['all_day'] ?? false,
-            'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? 'UTC',
+            'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? $this->config['timezone'] ?? 'UTC',
             'bridge_type' => 'booking_system',
             'external_id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
             'last_modified' => $mappedEvent['last_modified'] ?? $event['modified_at'] ?? $event['updated_at'] ?? date('c'),
@@ -2155,7 +2157,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     private function adjustEventForTimeZone(array $event): array
     {
-        $timezone = $_ENV['BOOKING_SYSTEM_TIMEZONE'] ?? 'UTC';
+        $timezone = $this->config['timezone'] ?? 'UTC';
 
         if (strtolower($event['timezone']) !== strtolower($timezone))
         {

@@ -154,17 +154,78 @@ curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "http://your-bridg
   }'
 ```
 
-## Bidirectional configuration (per tenant)
+## **Sync Direction and Ownership Model (per tenant)**
 
-Bidirectional behavior is controlled by your resource mappings and the `sync_direction` field. For a single tenant, you normally create one mapping row per pair and set the desired direction:
+The Generic Calendar Bridge uses an **ownership-based sync direction model** where `sync_direction` determines which bridge has authority over events, rather than just controlling data flow direction.
 
-- `bidirectional` — enables both flows using one row
-- `source_to_target` — only from `bridge_from` to `bridge_to`
-- `target_to_source` — only the opposite direction
+### **🎯 Ownership Model Overview**
 
-Recommended: keep columns semantic (`bridge_from = booking_system`, `bridge_to = outlook`; `source_calendar_id` = booking resource; `target_calendar_id` = Outlook calendar) and choose `sync_direction = bidirectional` for two-way sync.
+Events can be owned by different bridges depending on the `sync_direction` configuration:
 
-Create a bidirectional mapping for a tenant:
+- **`source_to_target`** - Source bridge owns events (source has full authority)
+- **`target_to_source`** - Target bridge owns events (target has full authority)  
+- **`bidirectional`** - Shared ownership (both bridges can create/modify events)
+
+### **⚠️ Key Ownership Rules**
+
+- **Owner bridges** can create, modify, and delete events freely
+- **Non-owner bridges** cannot modify events (operations are skipped with `ownership_policy_violation`)
+- **Automatic recreation**: If a non-owner deletes an event, the owner bridge automatically recreates it
+- All ownership decisions are logged for transparency and troubleshooting
+
+### **Configuration Examples**
+
+#### **Example 1: Booking System Owns Events**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook", 
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "source_to_target"
+}
+```
+**Behavior:**
+- Booking system has full control over events
+- Outlook receives read-only sync copies
+- Manual Outlook deletions trigger automatic recreation
+- All modifications must be made in the booking system
+
+#### **Example 2: Outlook Owns Events**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123", 
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "target_to_source"
+}
+```
+**Behavior:**
+- Outlook has full control over events
+- Booking system receives read-only sync copies
+- Manual booking system deletions trigger automatic recreation  
+- All modifications must be made in Outlook
+
+#### **Example 3: Shared Ownership (Traditional Bidirectional)**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com", 
+  "sync_direction": "bidirectional"
+}
+```
+**Behavior:**
+- Both systems can create/modify events
+- No automatic recreation (both sides trusted)
+- Useful for collaborative scheduling scenarios
+- Last writer wins for conflicting modifications
+
+### **API Usage with Ownership**
+
+Create ownership mapping with proper tenant scoping:
 
 ```http
 POST /mappings/resources
@@ -177,20 +238,61 @@ Content-Type: application/json
   "bridge_to": "outlook",
   "source_calendar_id": "room_123",
   "target_calendar_id": "conference-room-a@company.com",
-  "sync_direction": "bidirectional"
+  "sync_direction": "source_to_target"
 }
 ```
 
-Then you can trigger either direction using the same row:
+### **Triggering Sync Operations**
 
-- Booking → Outlook: `POST /bridges/sync/booking_system/outlook` with `{ "source_calendar_id": "room_123", "target_calendar_id": "conference-room-a@company.com" }`
-- Outlook → Booking: `POST /bridges/sync/outlook/booking_system` with `{ "source_calendar_id": "conference-room-a@company.com", "target_calendar_id": "room_123" }`
+Ownership is automatically enforced regardless of which API endpoint is called:
 
-Notes
+- **Forward sync**: `POST /bridges/sync/booking_system/outlook`
+- **Reverse sync**: `POST /bridges/sync/outlook/booking_system`
 
-- Always include `X-Tenant-Id` to scope reads/writes to the correct tenant.
-- Prefer one row per pair with the appropriate `sync_direction` instead of duplicating rows.
+Both endpoints will respect the ownership model configured in the mapping.
+
+### **Monitoring Ownership Enforcement**
+
+All ownership decisions are logged in sync operations with specific categorization:
+
+- `ownership_policy_violation` - Non-owner attempted unauthorized operation (operation skipped)
+- `ownership_recreation` - Owner automatically recreated deleted event  
+- `ownership_enforcement` - Standard ownership rules applied successfully
+
+### **Example: View Ownership Logs**
+
+```bash
+# View recent ownership events
+curl -H "api_key: <key>" -H "X-Tenant-Id: tenantA" \
+  "http://localhost:8082/bridges/logs?filter=ownership"
+
+# View ownership decisions for specific mapping
+curl -H "api_key: <key>" -H "X-Tenant-Id: tenantA" \
+  "http://localhost:8082/bridges/logs?source_calendar_id=room_123&filter=ownership"
+```
+
+### **Troubleshooting Ownership Issues**
+
+**Common Scenarios:**
+
+1. **Non-Owner Modification Blocked**: Event modification attempted on non-owner bridge
+   - **Log**: `ownership_policy_violation` 
+   - **Resolution**: Make changes on the owner bridge
+
+2. **Automatic Recreation**: Event manually deleted from non-owner side
+   - **Log**: `ownership_recreation`
+   - **Expected**: Owner bridge recreates the event
+
+3. **Bidirectional Conflicts**: Simultaneous modifications in shared ownership mode
+   - **Behavior**: Last writer wins
+   - **Prevention**: Implement external conflict resolution if needed
+
+### **Notes on Ownership Configuration**
+
+- All mappings and sync operations are tenant-scoped. Include `X-Tenant-Id` on reads and writes.
+- You generally don't need two rows for the same pair; prefer a single row with the appropriate `sync_direction`.
 - The convenience view `v_active_resource_mappings` lists active/enabled rows and derived stats.
+- Ownership policy changes take effect immediately on the next sync operation.
 
 ## Priority Filtering Implementation
 

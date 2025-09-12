@@ -253,15 +253,21 @@ class BridgeManager
 	}
 
 	/**
-	 * Sync events between two bridges.
+	 * Sync events between two bridges with ownership policy enforcement.
+	 * 
+	 * The sync operation is always unidirectional (source -> target) based on the API call.
+	 * The ownership policy (sync_direction) determines which bridge can create/modify/delete events:
+	 * - 'source_to_target': Only source bridge owns events (can create/modify target events)
+	 * - 'target_to_source': Only target bridge owns events (can create/modify source events)  
+	 * - 'bidirectional': Both bridges can own events (mutual create/modify permissions)
 	 *
-	 * @param string $sourceBridge
-	 * @param string $targetBridge
+	 * @param string $sourceBridge The bridge initiating the sync (API caller)
+	 * @param string $targetBridge The bridge receiving the sync  
 	 * @param string $sourceCalendarId
 	 * @param string $targetCalendarId
 	 * @param string $startDate
 	 * @param string $endDate
-	 * @param array $options ['handle_deletions'=>bool,'skip_updates'=>bool,'dry_run'=>bool,'sync_method'=>string,'tenant_id'=>string|null]
+	 * @param array $options ['handle_deletions'=>bool,'skip_updates'=>bool,'dry_run'=>bool,'sync_method'=>string,'tenant_id'=>string|null,'sync_direction'=>string]
 	 * @return array
 	 */
 	public function syncBetweenBridges(
@@ -274,6 +280,9 @@ class BridgeManager
 		$options = []
 	): array
 	{
+		// Get sync direction from options or determine from resource mapping
+		$requestedSyncDirection = $options['sync_direction'] ?? null;
+		
 		$tenantId = $options['tenant_id'] ?? null;
 		if ($tenantId !== null)
 		{
@@ -286,14 +295,46 @@ class BridgeManager
 			$target = $this->getBridge($targetBridge);
 		}
 
+		// If sync direction not specified, try to determine from resource mapping
+		if (!$requestedSyncDirection)
+		{
+			$requestedSyncDirection = $this->determineSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $tenantId);
+		}
+
 		$this->logger->info('Starting bridge sync', [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge,
 			'source_calendar' => $sourceCalendarId,
 			'target_calendar' => $targetCalendarId,
-			'date_range' => [$startDate, $endDate]
+			'date_range' => [$startDate, $endDate],
+			'sync_direction' => $requestedSyncDirection
 		]);
 
+		// Perform sync with ownership policy enforcement
+		// The sync direction is always source -> target (based on API call)
+		// The requestedSyncDirection determines ownership policy:
+		// - 'source_to_target': Only source bridge owns events
+		// - 'target_to_source': Only target bridge owns events  
+		// - 'bidirectional': Both bridges can own events
+		$this->logger->info('Starting sync with ownership policy', [
+			'source_bridge' => $sourceBridge,
+			'target_bridge' => $targetBridge,
+			'ownership_policy' => $requestedSyncDirection,
+			'sync_direction' => 'source_to_target (API call direction)'
+		]);
+
+		return $this->performSync(
+			$source, $target, $sourceBridge, $targetBridge,
+			$sourceCalendarId, $targetCalendarId,
+			$startDate, $endDate, $options, $requestedSyncDirection
+		);
+	}
+
+	/**
+	 * Perform sync from source to target with ownership policy enforcement
+	 */
+	private function performSync($source, $target, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options, $direction)
+	{
 		// Get events from source
 		$sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
@@ -304,6 +345,7 @@ class BridgeManager
 		$results = [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge,
+			'sync_direction' => $direction,
 			'source_events_found' => count($sourceEvents),
 			'created' => 0,
 			'updated' => 0,
@@ -313,9 +355,9 @@ class BridgeManager
 			'processed_events' => []
 		];
 
-		// Process each event individually with maximum fault tolerance
+		// Process each event individually with direction awareness
 		$totalEvents = count($sourceEvents);
-		$this->logger->info("Starting to process {$totalEvents} events individually", [
+		$this->logger->info("Starting to process {$totalEvents} events in {$direction} direction", [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge
 		]);
@@ -326,8 +368,12 @@ class BridgeManager
 
 			$this->logger->info("Processing event {$index}/{$totalEvents}", [
 				'event_id' => $sourceEvent['id'] ?? 'unknown',
-				'event_subject' => $sourceEvent['subject'] ?? 'N/A'
+				'event_subject' => $sourceEvent['subject'] ?? 'N/A',
+				'sync_direction' => $direction
 			]);
+
+			// Add sync direction to options for this event
+			$eventOptions = array_merge($options, ['current_sync_direction' => $direction]);
 
 			// Process this single event in complete isolation
 			$eventProcessingResult = $this->processSingleEventSafely(
@@ -337,7 +383,7 @@ class BridgeManager
 				$mappingIndex,
 				$sourceCalendarId,
 				$targetCalendarId,
-				$options,
+				$eventOptions,
 				$sourceBridge,
 				$targetBridge,
 				$index + 1,
@@ -359,7 +405,7 @@ class BridgeManager
 				($eventProcessingResult['success'] ? 'SUCCESS' : 'FAILED'));
 		}
 
-		// Handle deletions if requested
+		// Handle deletions if requested (with direction awareness)
 		if ($options['handle_deletions'] ?? false)
 		{
 			try
@@ -371,7 +417,8 @@ class BridgeManager
 			catch (\Exception $e)
 			{
 				$this->logger->error('Failed to handle deletions - continuing without deletion processing', [
-					'error' => $e->getMessage()
+					'error' => $e->getMessage(),
+					'sync_direction' => $direction
 				]);
 				$results['errors'][] = [
 					'event_id' => 'deletion_process',
@@ -395,6 +442,7 @@ class BridgeManager
 		$this->logger->info('Bridge sync completed', array_merge($results['summary'], [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge,
+			'sync_direction' => $direction,
 			'details' => [
 				'created' => $results['created'],
 				'updated' => $results['updated'],
@@ -419,6 +467,7 @@ class BridgeManager
 					'source_calendar_id' => $sourceCalendarId,
 					'target_calendar_id' => $targetCalendarId,
 					'date_range' => [$startDate, $endDate],
+					'sync_direction' => $direction,
 					'created' => $results['created'] ?? 0,
 					'updated' => $results['updated'] ?? 0,
 					'deleted' => $results['deleted'] ?? 0,
@@ -439,69 +488,32 @@ class BridgeManager
 	}
 
 	/**
-	 * Process a single event with complete isolation and maximum error protection
+	 * Wrapper for single event processing with error handling
 	 */
-	private function processSingleEventSafely($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options, $sourceBridge, $targetBridge, $eventIndex, $totalEvents)
+	private function processSingleEventSafely($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options, $sourceBridge, $targetBridge, $currentIndex, $totalEvents)
 	{
-		// Set error reporting to catch everything
-		$originalErrorReporting = error_reporting(E_ALL);
-
 		try
 		{
-			$this->logger->debug('Processing event with safety wrapper', [
-				'event_index' => $eventIndex,
-				'total_events' => $totalEvents,
-				'event_id' => $sourceEvent['id'] ?? 'unknown',
-				'event_subject' => $sourceEvent['subject'] ?? 'N/A'
-			]);
-
-			// Call the original processing method
-			$eventResult = $this->processSingleEvent($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options);
-
-			$this->logger->debug('Event processed successfully with safety wrapper', [
-				'event_id' => $sourceEvent['id'] ?? 'unknown',
-				'action' => $eventResult['action']
-			]);
-
-			// Restore error reporting
-			error_reporting($originalErrorReporting);
-
-			return [
-				'success' => true,
-				'action' => $eventResult['action'],
-				'source_event_id' => $eventResult['source_event_id'],
-				'target_event_id' => $eventResult['target_event_id'] ?? null,
-				'reason' => $eventResult['reason'] ?? null
-			];
+			return $this->processSingleEvent($source, $target, $sourceEvent, $mappingIndex, $sourceCalendarId, $targetCalendarId, $options);
 		}
 		catch (\Throwable $e)
 		{
-			// Restore error reporting
-			error_reporting($originalErrorReporting);
-
-			$errorInfo = [
+			$this->logger->error("Critical error processing event {$currentIndex}/{$totalEvents}", [
 				'event_id' => $sourceEvent['id'] ?? 'unknown',
-				'event_subject' => $sourceEvent['subject'] ?? 'N/A',
 				'error' => $e->getMessage(),
-				'error_type' => get_class($e),
-				'event_data' => $sourceEvent,
-				'stack_trace' => $e->getTraceAsString(),
-				'file' => $e->getFile(),
-				'line' => $e->getLine()
-			];
-
-			$this->logger->error('Event sync failed in safety wrapper - isolated and continuing', [
-				'source_bridge' => $sourceBridge,
-				'target_bridge' => $targetBridge,
-				'event_index' => $eventIndex,
-				'total_events' => $totalEvents,
-				'events_remaining' => $totalEvents - $eventIndex,
-				'error_info' => $errorInfo
+				'trace' => $e->getTraceAsString()
 			]);
 
 			return [
 				'success' => false,
-				'error' => $errorInfo
+				'action' => 'error',
+				'event_id' => $sourceEvent['id'] ?? 'unknown',
+				'error' => [
+					'event_id' => $sourceEvent['id'] ?? 'unknown',
+					'error' => $e->getMessage(),
+					'error_type' => get_class($e),
+					'trace' => $e->getTraceAsString()
+				]
 			];
 		}
 	}
@@ -520,21 +532,62 @@ class BridgeManager
 
 		if ($mapping)
 		{
-			// Block reverse updates for one-way mappings (source_to_target)
-			if ((($mapping['sync_direction'] ?? '') === 'source_to_target') && (($mapping['normalized_reversed'] ?? false) === true))
+			// Get sync direction and check permissions
+			$syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
+			$isReversed = $mapping['normalized_reversed'] ?? false;
+
+			// Get mapping configuration for ownership decisions
+			$mappingConfig = $options['mapping_config'] ?? null;
+
+			// Check if this sync direction is allowed by ownership model
+			if (!$this->canSyncInDirection($syncDirection, $isReversed, $mappingConfig))
 			{
+				$ownershipReason = $this->getOwnershipExplanation($syncDirection, $isReversed, $mappingConfig);
+				$this->logger->debug('Skipping sync due to ownership policy', [
+					'source_event_id' => $sourceEvent['id'],
+					'sync_direction' => $syncDirection,
+					'is_reversed' => $isReversed,
+					'ownership_reason' => $ownershipReason,
+					'mapping_config' => $mappingConfig
+				]);
+				
 				return [
+					'success' => true,
 					'action' => 'skipped',
 					'source_event_id' => $sourceEvent['id'],
 					'target_event_id' => $mapping['target_event_id'] ?? null,
-					'reason' => 'one_way_mapping_reverse_blocked'
+					'reason' => 'ownership_policy_violation',
+					'sync_direction' => $syncDirection,
+					'is_reversed' => $isReversed
 				];
 			}
-			// Enforce source-wins policy for one-way mappings (source_to_target)
-			if (($mapping['sync_direction'] ?? '') === 'source_to_target')
+
+			// Enforce ownership policy based on sync_direction
+			// - source_to_target: Source owns, must recreate if target deleted
+			// - target_to_source: Target owns, respect target deletions
+			// - bidirectional: Shared ownership, configurable behavior
+			$shouldRecreateDeleted = false;
+			$respectDel = (bool)($options['respect_target_deletions'] ?? false);
+			
+			if ($syncDirection === 'source_to_target' && !$isReversed)
 			{
-				// Check if target was deleted or diverged; if so, recreate/overwrite unless respecting deletions
-				$respectDel = (bool)($options['respect_target_deletions'] ?? false);
+				// Source owns the event, should recreate if deleted on target side
+				$shouldRecreateDeleted = true;
+			}
+			elseif ($syncDirection === 'target_to_source' && $isReversed)
+			{
+				// Target owns the event, should recreate if deleted on source side  
+				$shouldRecreateDeleted = true;
+			}
+			elseif ($syncDirection === 'bidirectional')
+			{
+				// Bidirectional: use configuration or default to recreation for consistency
+				$shouldRecreateDeleted = !$respectDel;
+			}
+			
+			if ($shouldRecreateDeleted)
+			{
+				// Check if target was deleted; if so, recreate/overwrite unless respecting deletions
 				$targetExists = true;
 				try
 				{
@@ -547,23 +600,36 @@ class BridgeManager
 
 				if (!$targetExists)
 				{
-					if ($respectDel)
+					if ($respectDel && $syncDirection === 'bidirectional')
 					{
+						// Only respect deletions in bidirectional mode if explicitly configured
 						return [
+							'success' => true,
 							'action' => 'skipped',
 							'source_event_id' => $sourceEvent['id'],
 							'reason' => 'target_deleted_respected'
 						];
 					}
-					// Recreate target from source
+					
+					// Owner recreates the event on the target side
+					$this->logger->info('Recreating deleted target event due to ownership policy', [
+						'source_event_id' => $sourceEvent['id'],
+						'target_event_id' => $mapping['target_event_id'],
+						'sync_direction' => $syncDirection,
+						'is_reversed' => $isReversed,
+						'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement'
+					]);
+					
 					$newId = $target->createEvent($targetCalendarId, $sourceEvent);
 					$this->updateMappingTargetEventId($mapping['id'], $newId);
 					$this->updateMappingTimestamp($mapping['id']);
 					$this->updateMappingEventData($mapping['id'], $sourceEvent);
 					return [
+						'success' => true,
 						'action' => 'recreated',
 						'source_event_id' => $sourceEvent['id'],
-						'target_event_id' => $newId
+						'target_event_id' => $newId,
+						'reason' => 'ownership_enforcement'
 					];
 				}
 			}
@@ -593,6 +659,7 @@ class BridgeManager
 					{
 						$this->updateMappingTimestamp($mapping['id']);
 						return [
+							'success' => true,
 							'action' => 'skipped',
 							'source_event_id' => $sourceEvent['id'],
 							'target_event_id' => $mapping['target_event_id'],
@@ -618,6 +685,7 @@ class BridgeManager
 						{
 							$this->updateMappingTimestamp($mapping['id']);
 							return [
+								'success' => true,
 								'action' => 'skipped',
 								'source_event_id' => $sourceEvent['id'],
 								'target_event_id' => $mapping['target_event_id'],
@@ -643,6 +711,7 @@ class BridgeManager
 						// Optionally bump timestamp to reflect check without write
 						$this->updateMappingTimestamp($mapping['id']);
 						return [
+							'success' => true,
 							'action' => 'skipped',
 							'source_event_id' => $sourceEvent['id'],
 							'target_event_id' => $mapping['target_event_id'],
@@ -697,6 +766,7 @@ class BridgeManager
 
 					// Update handled by target bridge's updateEvent method
 					return [
+						'success' => true,
 						'action' => 'updated',
 						'source_event_id' => $sourceEvent['id'],
 						'target_event_id' => $mapping['target_event_id']
@@ -770,6 +840,7 @@ class BridgeManager
 				// No need to create mapping here as it's handled in the bridge
 
 				return [
+					'success' => true,
 					'action' => 'created',
 					'source_event_id' => $sourceEvent['id'],
 					'target_event_id' => $targetEventId
@@ -801,6 +872,30 @@ class BridgeManager
 
 		foreach ($mappings as $mapping)
 		{
+			// Skip if already marked as cancelled/deleted
+			if (($mapping['sync_status'] ?? '') === 'cancelled' || ($mapping['sync_status'] ?? '') === 'deleted')
+			{
+				$this->logger->debug('Skipping already deleted/cancelled event', [
+					'source_event_id' => $mapping['source_event_id'],
+					'sync_status' => $mapping['sync_status']
+				]);
+				continue;
+			}
+
+			// Check sync direction permissions for deletion
+			$syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
+			$mappingConfig = $options['mapping_config'] ?? null;
+			if (!$this->canDeleteInDirection($syncDirection, $mapping['normalized_reversed'] ?? false, $mappingConfig))
+			{
+				$this->logger->debug('Deletion not allowed for this sync direction', [
+					'source_event_id' => $mapping['source_event_id'],
+					'sync_direction' => $syncDirection,
+					'normalized_reversed' => $mapping['normalized_reversed'] ?? false,
+					'mapping_config' => $mappingConfig
+				]);
+				continue;
+			}
+
 			// Only consider events that were created within the sync timeframe
 			if (!$this->isEventWithinTimeframe($mapping, $startDate, $endDate))
 			{
@@ -816,8 +911,14 @@ class BridgeManager
 			{
 				try
 				{
+					// Mark as pending deletion first
+					$this->updateMappingSyncStatus($mapping['id'], 'deleting');
+
 					// Event was deleted from source, delete from target
 					$target->deleteEvent($targetCalendarId, $mapping['target_event_id']);
+
+					// Mark as cancelled/deleted in our mapping
+					$this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
 					// Record sync method for deletion tracking
 					$this->updateMappingSyncMethod(
@@ -829,7 +930,6 @@ class BridgeManager
 						$options['sync_method'] ?? 'automated'
 					);
 
-					// Mark as cancelled in sync_status (handled by bridge's deleteEvent method)
 					$results['deleted']++;
 
 					$this->logger->info('Deleted event from target due to source deletion', [
@@ -840,32 +940,15 @@ class BridgeManager
 				}
 				catch (\Exception $e)
 				{
+					// Mark as error instead of cancelled
+					$this->updateMappingSyncStatus($mapping['id'], 'error', 'Failed to delete from target: ' . $e->getMessage());
+
 					$results['errors'][] = [
 						'mapping_id' => $mapping['id'],
 						'source_event_id' => $mapping['source_event_id'],
 						'target_event_id' => $mapping['target_event_id'],
 						'error' => $e->getMessage()
 					];
-
-					// Mark as error
-					try
-					{
-						$source->updateSyncStatus(
-							$source->getBridgeType(),
-							$target->getBridgeType(),
-							$mapping['source_calendar_id'],
-							$mapping['target_calendar_id'],
-							$mapping['source_event_id'],
-							'error',
-							'Failed to delete from target: ' . $e->getMessage()
-						);
-					}
-					catch (\Exception $statusUpdateError)
-					{
-						$this->logger->error('Failed to update sync status for deletion error', [
-							'error' => $statusUpdateError->getMessage()
-						]);
-					}
 
 					$this->logger->error('Failed to delete event from target', [
 						'mapping' => $mapping,
@@ -1154,6 +1237,291 @@ class BridgeManager
 	}
 
 	/**
+	 * Update mapping sync status with optional error message
+	 */
+	private function updateMappingSyncStatus($mappingId, $status, $errorMessage = null): void
+	{
+		try
+		{
+			$sql = "UPDATE bridge_mappings 
+					SET sync_status = :status, 
+						error_message = :error_message,
+						updated_at = CURRENT_TIMESTAMP 
+					WHERE id = :id";
+			$stmt = $this->db->prepare($sql);
+			$stmt->execute([
+				':id' => $mappingId,
+				':status' => $status,
+				':error_message' => $errorMessage
+			]);
+
+			$this->logger->debug('Updated mapping sync status', [
+				'mapping_id' => $mappingId,
+				'status' => $status,
+				'error_message' => $errorMessage
+			]);
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->warning('Failed to update mapping sync status', [
+				'mapping_id' => $mappingId,
+				'status' => $status,
+				'error' => $e->getMessage()
+			]);
+		}
+	}
+
+	/**
+	 * Check if deletion is allowed based on ownership model
+	 * Uses mapping configuration, not API call direction, to determine ownership
+	 * - source_to_target: Only source bridge can delete (source owns the events)
+	 * - target_to_source: Only target bridge can delete (target owns the events)
+	 * - bidirectional: Both bridges can delete
+	 */
+	private function canDeleteInDirection(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	{
+		// If we have mapping config, use the proper ownership logic
+		if ($mappingConfig !== null) {
+			return $this->canDeleteWithOwnership($mappingConfig);
+		}
+		
+		// Fallback to old logic for backward compatibility
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Source owns the event, only source can delete
+				// If this is the reverse direction, source is actually the "target" in terms of method params
+				return !$isReversed;
+			
+			case 'target_to_source':
+				// Target owns the event, only target can delete
+				// If this is the reverse direction, target is actually the "source" in terms of method params
+				return $isReversed;
+			
+			case 'bidirectional':
+				// Both sides can delete in bidirectional mode
+				return true;
+			
+			default:
+				// Unknown direction, be conservative
+				return false;
+		}
+	}
+
+	/**
+	 * Check deletion permission using mapping configuration
+	 */
+	private function canDeleteWithOwnership(array $mappingConfig): bool
+	{
+		$syncDirection = $mappingConfig['sync_direction'];
+		$bridgeFrom = $mappingConfig['bridge_from'];
+		$bridgeTo = $mappingConfig['bridge_to'];
+		$apiCallReversed = $mappingConfig['api_call_reversed'];
+		
+		// Determine who is currently syncing (based on API call direction)
+		$currentSyncingBridge = $apiCallReversed ? $bridgeTo : $bridgeFrom;
+		
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Bridge_from owns events, only bridge_from can delete
+				return $currentSyncingBridge === $bridgeFrom;
+			
+			case 'target_to_source':
+				// Bridge_to owns events, only bridge_to can delete
+				return $currentSyncingBridge === $bridgeTo;
+			
+			case 'bidirectional':
+				// Both sides can delete in bidirectional mode
+				return true;
+			
+			default:
+				// Unknown direction, be conservative
+				return false;
+		}
+	}
+
+	/**
+	 * Check if sync (create/update) is allowed based on ownership model
+	 * Uses mapping configuration, not API call direction, to determine ownership
+	 * - source_to_target: Only source bridge can modify target (source owns)
+	 * - target_to_source: Only target bridge can modify source (target owns)
+	 * - bidirectional: Both bridges can modify each other
+	 */
+	private function canSyncInDirection(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	{
+		// If we have mapping config, use the proper ownership logic
+		if ($mappingConfig !== null) {
+			return $this->canSyncWithOwnership($mappingConfig);
+		}
+		
+		// Fallback to old logic for backward compatibility
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Source owns, can only sync TO target (not reversed)
+				return !$isReversed;
+			
+			case 'target_to_source':
+				// Target owns, can only sync TO source (reversed)
+				return $isReversed;
+			
+			case 'bidirectional':
+				// Both directions allowed in bidirectional mode
+				return true;
+			
+			default:
+				// Unknown direction, allow for backward compatibility
+				return true;
+		}
+	}
+
+	/**
+	 * New ownership-based sync permission check using mapping configuration
+	 */
+	private function canSyncWithOwnership(array $mappingConfig): bool
+	{
+		$syncDirection = $mappingConfig['sync_direction'];
+		$bridgeFrom = $mappingConfig['bridge_from'];
+		$bridgeTo = $mappingConfig['bridge_to'];
+		$apiCallReversed = $mappingConfig['api_call_reversed'];
+		
+		// Determine who is currently syncing (based on API call direction)
+		$currentSyncingBridge = $apiCallReversed ? $bridgeTo : $bridgeFrom;
+		
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Bridge_from owns events, only bridge_from can sync
+				return $currentSyncingBridge === $bridgeFrom;
+			
+			case 'target_to_source':
+				// Bridge_to owns events, only bridge_to can sync
+				return $currentSyncingBridge === $bridgeTo;
+			
+			case 'bidirectional':
+				// Both bridges can sync
+				return true;
+			
+			default:
+				// Unknown direction, allow for backward compatibility
+				return true;
+		}
+	}
+
+	/**
+	 * Check if the current sync operation is from the owner bridge
+	 * Uses mapping configuration, not API call direction, to determine ownership
+	 * - source_to_target: Source bridge owns the events
+	 * - target_to_source: Target bridge owns the events  
+	 * - bidirectional: Both bridges have ownership
+	 */
+	private function isOwnerSync(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	{
+		// If we have mapping config, use the proper ownership logic
+		if ($mappingConfig !== null) {
+			return $this->isOwnerWithMapping($mappingConfig);
+		}
+		
+		// Fallback to old logic for backward compatibility
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Source owns, so owner sync when not reversed (source -> target)
+				return !$isReversed;
+				
+			case 'target_to_source':
+				// Target owns, so owner sync when reversed (target -> source in method terms)
+				return $isReversed;
+				
+			case 'bidirectional':
+				// Both sides have ownership in bidirectional mode
+				return true;
+				
+			default:
+				// Unknown direction, assume no ownership
+				return false;
+		}
+	}
+
+	/**
+	 * Check ownership using mapping configuration
+	 */
+	private function isOwnerWithMapping(array $mappingConfig): bool
+	{
+		$syncDirection = $mappingConfig['sync_direction'];
+		$bridgeFrom = $mappingConfig['bridge_from'];
+		$bridgeTo = $mappingConfig['bridge_to'];
+		$apiCallReversed = $mappingConfig['api_call_reversed'];
+		
+		// Determine who is currently syncing (based on API call direction)
+		$currentSyncingBridge = $apiCallReversed ? $bridgeTo : $bridgeFrom;
+		
+		switch ($syncDirection) {
+			case 'source_to_target':
+				// Bridge_from owns events
+				return $currentSyncingBridge === $bridgeFrom;
+				
+			case 'target_to_source':
+				// Bridge_to owns events
+				return $currentSyncingBridge === $bridgeTo;
+				
+			case 'bidirectional':
+				// Both sides have ownership in bidirectional mode
+				return true;
+				
+			default:
+				// Unknown direction, assume no ownership
+				return false;
+		}
+	}
+
+	/**
+	 * Get human-readable explanation of ownership policy for logging
+	 */
+	private function getOwnershipExplanation(string $syncDirection, bool $isReversed, array $mappingConfig = null): string
+	{
+		// If we have mapping configuration, use it for more accurate ownership explanation
+		if ($mappingConfig) {
+			$bridgeFrom = $mappingConfig['bridge_from'] ?? 'unknown';
+			$bridgeTo = $mappingConfig['bridge_to'] ?? 'unknown';
+			$isApiReversed = $mappingConfig['api_call_reversed'] ?? false;
+			
+			switch ($syncDirection) {
+				case 'source_to_target':
+					return $isApiReversed 
+						? "Bridge {$bridgeFrom} cannot modify {$bridgeTo}-owned events (source_to_target ownership)"
+						: "Bridge {$bridgeFrom} can modify {$bridgeTo} in source_to_target ownership";
+						
+				case 'target_to_source':
+					return $isApiReversed 
+						? "Bridge {$bridgeFrom} can modify {$bridgeTo} in target_to_source ownership"
+						: "Bridge {$bridgeFrom} cannot modify {$bridgeTo}-owned events (target_to_source ownership)";
+						
+				case 'bidirectional':
+					return "Both {$bridgeFrom} and {$bridgeTo} can modify each other (bidirectional ownership)";
+					
+				default:
+					return "Unknown ownership model for direction: {$syncDirection} between {$bridgeFrom} and {$bridgeTo}";
+			}
+		}
+		
+		// Fallback to original logic for backward compatibility
+		switch ($syncDirection) {
+			case 'source_to_target':
+				return $isReversed 
+					? 'Target cannot modify source-owned events (source_to_target ownership)'
+					: 'Source can modify target in source_to_target ownership';
+					
+			case 'target_to_source':
+				return $isReversed 
+					? 'Target can modify source in target_to_source ownership'
+					: 'Source cannot modify target-owned events (target_to_source ownership)';
+					
+			case 'bidirectional':
+				return 'Both sides can modify each other (bidirectional ownership)';
+				
+			default:
+				return 'Unknown ownership model for direction: ' . $syncDirection;
+		}
+	}
+
+	/**
 	 * Update mapping with source event timing information
 	 * All datetime values are normalized to UTC for consistent cross-bridge comparison
 	 */
@@ -1322,6 +1690,7 @@ class BridgeManager
 					);
 
 					return [
+						'success' => true,
 						'action' => 'reactivated',
 						'source_event_id' => $sourceEvent['id'],
 						'target_event_id' => $mapping['target_event_id']
@@ -1362,6 +1731,7 @@ class BridgeManager
 			);
 
 			return [
+				'success' => true,
 				'action' => 'recreated',
 				'source_event_id' => $sourceEvent['id'],
 				'target_event_id' => $newTargetEventId,
@@ -1624,5 +1994,41 @@ class BridgeManager
 		}
 
 		return $allCancelled;
+	}
+
+	/**
+	 * Determine sync direction from resource mapping
+	 */
+	private function determineSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $tenantId = null): string
+	{
+		try
+		{
+			$tenantClause = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
+			$sql = "SELECT sync_direction FROM bridge_resource_mappings 
+					WHERE ((bridge_from = :source_bridge AND bridge_to = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
+					   OR (bridge_from = :target_bridge AND bridge_to = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
+					AND is_active = TRUE AND sync_enabled = TRUE" . $tenantClause . " LIMIT 1";
+			
+			$stmt = $this->db->prepare($sql);
+			$params = [
+				':source_bridge' => $sourceBridge,
+				':target_bridge' => $targetBridge,
+				':source_calendar_id' => $sourceCalendarId,
+				':target_calendar_id' => $targetCalendarId
+			];
+			if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+			
+			$stmt->execute($params);
+			$result = $stmt->fetch(\PDO::FETCH_ASSOC);
+			
+			return $result['sync_direction'] ?? 'bidirectional';
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->warning('Failed to determine sync direction, defaulting to bidirectional', [
+				'error' => $e->getMessage()
+			]);
+			return 'bidirectional';
+		}
 	}
 }

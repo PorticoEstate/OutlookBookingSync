@@ -1,6 +1,54 @@
 # OutlookBookingSync - Generic Calendar Bridge
 
-A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calendar systems. Built with PHP/Slim4, this system can synchronize events between Outlook (Microsoft 365) and any other calendar system using REST APIs.
+A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calendar systems. Built with PHP/Slim4, this system can synchronize events between Outl#### **Configuration Examples**
+
+Configure ownership via the `bridge_resource_mappings` table using the `sync_direction` field:
+
+**Example 1: Booking System Owns Events**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook", 
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "source_to_target"
+}
+```
+- Booking system has full control over events
+- Outlook receives read-only sync copies
+- Manual Outlook deletions trigger automatic recreation
+
+**Example 2: Outlook Owns Events**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123", 
+  "target_calendar_id": "conference-room-a@company.com",
+  "sync_direction": "target_to_source"
+}
+```
+- Outlook has full control over events
+- Booking system receives read-only sync copies
+- Manual booking system deletions trigger automatic recreation
+
+**Example 3: Shared Ownership (Traditional Bidirectional)**
+```json
+{
+  "bridge_from": "booking_system",
+  "bridge_to": "outlook",
+  "source_calendar_id": "room_123",
+  "target_calendar_id": "conference-room-a@company.com", 
+  "sync_direction": "bidirectional"
+}
+```
+- Both systems can create/modify events
+- No automatic recreation (both sides trusted)
+- Useful for collaborative scheduling scenarios
+
+#### **API Usage**
+
+Create ownership mapping with proper tenant scoping:ft 365) and any other calendar system using REST APIs.
 
 ## 🎯 Overview
 
@@ -227,13 +275,24 @@ See [README_BRIDGE.md](README_BRIDGE.md) for detailed booking system API require
 - Browser header issues with underscores: the UI also sends `X-API-Key`.
 - If you’re using a reverse proxy, ensure it forwards custom headers and doesn’t strip underscores, or rely on the hyphenated header.
 
-#### Bidirectional configuration (per tenant)
+#### **Sync Direction and Ownership Model (per tenant)**
 
-Bidirectional sync is configured via the `bridge_resource_mappings` table and the `sync_direction` field. For one tenant, you typically define a single mapping row per calendar pair and set `sync_direction` according to your needs:
+The Generic Calendar Bridge uses an **ownership-based sync direction model** where `sync_direction` determines which bridge has authority over events, rather than just controlling data flow direction.
 
-- `bidirectional` — a single row enables both flows (booking_system → outlook and outlook → booking_system)
-- `source_to_target` — only forward flow from `bridge_from` to `bridge_to`
-- `target_to_source` — only reverse flow (useful when you want to allow just the opposite direction)
+**🎯 Ownership Model Overview:**
+
+Events can be owned by different bridges depending on the `sync_direction` configuration:
+
+- **`source_to_target`** - Source bridge owns events (source has full authority)
+- **`target_to_source`** - Target bridge owns events (target has full authority)  
+- **`bidirectional`** - Shared ownership (both bridges can create/modify events)
+
+**⚠️ Key Ownership Rules:**
+
+- **Owner bridges** can create, modify, and delete events freely
+- **Non-owner bridges** cannot modify events (operations are skipped with `ownership_policy_violation`)
+- **Automatic recreation**: If a non-owner deletes an event, the owner bridge automatically recreates it
+- All ownership decisions are logged for transparency and troubleshooting
 
 Recommended model per tenant:
 
@@ -259,9 +318,36 @@ Content-Type: application/json
   "bridge_to": "outlook",
   "source_calendar_id": "room_123",
   "target_calendar_id": "conference-room-a@company.com",
-  "sync_direction": "bidirectional"
+  "sync_direction": "source_to_target"
 }
 ```
+
+Trigger sync operations (ownership is automatically enforced):
+
+- **Any direction sync**: `POST /bridges/sync/booking_system/outlook`
+- **Reverse direction sync**: `POST /bridges/sync/outlook/booking_system`
+
+The ownership model ensures that only authorized operations are performed regardless of which API endpoint is called.
+
+#### **Monitoring Ownership**
+
+All ownership decisions are logged in sync operations:
+- `ownership_policy_violation` - Non-owner attempted unauthorized operation
+- `ownership_recreation` - Owner automatically recreated deleted event
+- `ownership_enforcement` - Standard ownership rules applied
+
+Check logs via the dashboard or API:
+```bash
+# View recent ownership events
+curl -H "api_key: <key>" -H "X-Tenant-Id: tenantA" 
+  "http://localhost:8082/bridges/logs?filter=ownership"
+```
+
+**Notes:**
+
+- All mappings and sync operations are tenant-scoped. Include `X-Tenant-Id` on reads and writes.
+- You generally don't need two rows for the same pair; prefer a single row with the appropriate `sync_direction`.
+- The app also exposes a convenience view `v_active_resource_mappings` that shows only active/enabled rows with some derived stats.
 
 Then you can trigger either direction using the same mapping row:
 
