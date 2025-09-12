@@ -65,19 +65,37 @@ abstract class AbstractCalendarBridge
     public function validateEvent($event): bool
     {
         $required = ['subject', 'start', 'end'];
-        foreach ($required as $field) {
-            if (!isset($event[$field]) || empty($event[$field])) { return false; }
+        foreach ($required as $field)
+        {
+            if (!isset($event[$field]) || empty($event[$field]))
+            {
+                return false;
+            }
         }
-        try {
+        try
+        {
             $startDateTime = new \DateTime($event['start']);
             $endDateTime = new \DateTime($event['end']);
-            if ($startDateTime >= $endDateTime) { return false; }
-        } catch (\Exception $e) { return false; }
+            if ($startDateTime >= $endDateTime)
+            {
+                return false;
+            }
+        }
+        catch (\Exception $e)
+        {
+            return false;
+        }
         return true;
     }
 
-    public function formatEventForBridge($genericEvent): array { return $genericEvent; }
-    public function formatEventFromBridge($bridgeEvent): array { return $bridgeEvent; }
+    public function formatEventForBridge($genericEvent): array
+    {
+        return $genericEvent;
+    }
+    public function formatEventFromBridge($bridgeEvent): array
+    {
+        return $bridgeEvent;
+    }
 
     /**
      * @return array{supports_webhooks:bool,supports_recurring:bool,supports_all_day:bool,supports_attendees:bool,supports_attachments:bool,max_events_per_request:int,rate_limit_per_minute:int}
@@ -99,7 +117,9 @@ abstract class AbstractCalendarBridge
     protected function logOperation($operation, $data = [])
     {
         $this->logger->info("Bridge operation: {$operation}", [
-            'bridge_type' => $this->getBridgeType(), 'operation' => $operation, 'data' => $data
+            'bridge_type' => $this->getBridgeType(),
+            'operation' => $operation,
+            'data' => $data
         ]);
     }
 
@@ -107,7 +127,10 @@ abstract class AbstractCalendarBridge
     protected function logError($operation, $error, $data = [])
     {
         $this->logger->error("Bridge operation failed: {$operation}", [
-            'bridge_type' => $this->getBridgeType(), 'operation' => $operation, 'error' => $error, 'data' => $data
+            'bridge_type' => $this->getBridgeType(),
+            'operation' => $operation,
+            'error' => $error,
+            'data' => $data
         ]);
     }
 
@@ -115,33 +138,52 @@ abstract class AbstractCalendarBridge
     protected function isValidDateTime($dateString): bool
     {
         $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
-        if ($date !== false) { return true; }
+        if ($date !== false)
+        {
+            return true;
+        }
         $date = \DateTime::createFromFormat('c', $dateString);
-        if ($date !== false) { return true; }
-        try { new \DateTime($dateString); return true; } catch (\Exception $e) { return false; }
+        if ($date !== false)
+        {
+            return true;
+        }
+        try
+        {
+            new \DateTime($dateString);
+            return true;
+        }
+        catch (\Exception $e)
+        {
+            return false;
+        }
     }
 
     /** @param string $dateString */
     protected function normalizeDateTime($dateString): string
     {
-        if (empty($dateString)) {
+        if (empty($dateString))
+        {
             return '';
         }
 
-        try {
+        try
+        {
             // First try to parse with specific format
             $date = \DateTime::createFromFormat('Y-m-d H:i:s', $dateString);
-            if ($date === false) {
+            if ($date === false)
+            {
                 // Fallback to generic parsing which handles various formats including ISO8601
                 $date = new \DateTime($dateString);
             }
-            
+
             // Always convert to UTC for consistent storage and comparison
             $date->setTimezone(new \DateTimeZone('UTC'));
-            
+
             // Return in ISO8601 format with UTC timezone
             return $date->format('c');
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             // Log the error and return empty string as fallback
             $this->logger->warning('Failed to normalize datetime', [
                 'input' => $dateString,
@@ -152,14 +194,19 @@ abstract class AbstractCalendarBridge
     }
 
     /** Hook for bridge-specific initialization. */
-    protected function initialize() { }
+    protected function initialize()
+    {
+    }
     /** Hook for bridge-specific validation. */
-    protected function validateConfig() { }
+    protected function validateConfig()
+    {
+    }
 
     /** Basic health probe for the bridge. */
     public function healthCheck(): array
     {
-        try {
+        try
+        {
             $start = microtime(true);
             $resources = $this->getAvailableResources();
             $responseTime = round((microtime(true) - $start) * 1000, 2);
@@ -171,9 +218,14 @@ abstract class AbstractCalendarBridge
                 'capabilities' => $this->getCapabilities(),
                 'timestamp' => date('c')
             ];
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e)
+        {
             return [
-                'status' => 'unhealthy', 'bridge_type' => $this->getBridgeType(), 'error' => $e->getMessage(), 'timestamp' => date('c')
+                'status' => 'unhealthy',
+                'bridge_type' => $this->getBridgeType(),
+                'error' => $e->getMessage(),
+                'timestamp' => date('c')
             ];
         }
     }
@@ -206,7 +258,8 @@ abstract class AbstractCalendarBridge
 
     protected function isCliMode(): bool
     {
-        if ($this->isCliMode === null) {
+        if ($this->isCliMode === null)
+        {
             $forceFileSession = $this->config['force_file_session'] ?? false;
             $isApiRequest = $this->isApiRequest();
             $this->isCliMode = (
@@ -221,53 +274,89 @@ abstract class AbstractCalendarBridge
 
     protected function isApiRequest(): bool
     {
-        if (isset($_SERVER['REQUEST_URI'])) {
+        if (isset($_SERVER['REQUEST_URI']))
+        {
             $uri = $_SERVER['REQUEST_URI'];
-            foreach (['/api/', '/bridges/', '/webhook/', '/sync/'] as $pattern) {
-                if (strpos($uri, $pattern) !== false) { return true; }
+            foreach (['/api/', '/bridges/', '/webhook/', '/sync/'] as $pattern)
+            {
+                if (strpos($uri, $pattern) !== false)
+                {
+                    return true;
+                }
             }
         }
-        foreach (['HTTP_X_API_KEY','HTTP_AUTHORIZATION','HTTP_X_REQUESTED_WITH'] as $header) {
-            if (isset($_SERVER[$header])) { return true; }
+        foreach (['HTTP_X_API_KEY', 'HTTP_AUTHORIZATION', 'HTTP_X_REQUESTED_WITH'] as $header)
+        {
+            if (isset($_SERVER[$header]))
+            {
+                return true;
+            }
         }
-        if (isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) { return true; }
+        if (isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false)
+        {
+            return true;
+        }
         return false;
     }
 
     protected function initializeSessionStorage(): void
     {
-        if ($this->isCliMode()) { $this->initializeFileBasedSession(); } else { $this->initializeWebSession(); }
+        if ($this->isCliMode())
+        {
+            $this->initializeFileBasedSession();
+        }
+        else
+        {
+            $this->initializeWebSession();
+        }
     }
 
     protected function initializeFileBasedSession(): void
     {
-        if ($this->sessionData !== null) { return; }
+        if ($this->sessionData !== null)
+        {
+            return;
+        }
         $projectRoot = dirname(dirname(__DIR__));
         $sessionDir = $projectRoot . '/storage/sessions';
-        if (!is_dir($sessionDir)) { mkdir($sessionDir, 0755, true); }
+        if (!is_dir($sessionDir))
+        {
+            mkdir($sessionDir, 0755, true);
+        }
         $sessionId = $this->generateConsistentSessionId();
         $this->sessionFile = $sessionDir . '/session_' . $sessionId . '.json';
         $this->sessionData = [];
-        if (file_exists($this->sessionFile)) {
+        if (file_exists($this->sessionFile))
+        {
             $loadedData = json_decode(file_get_contents($this->sessionFile), true);
-            if ($loadedData && is_array($loadedData)) { $this->sessionData = $loadedData; }
+            if ($loadedData && is_array($loadedData))
+            {
+                $this->sessionData = $loadedData;
+            }
         }
         $this->logOperation('file_session_initialized', [
-            'session_file' => basename($this->sessionFile), 'session_dir' => $sessionDir,
-            'session_exists' => file_exists($this->sessionFile), 'session_data_count' => count($this->sessionData), 'sapi' => php_sapi_name()
+            'session_file' => basename($this->sessionFile),
+            'session_dir' => $sessionDir,
+            'session_exists' => file_exists($this->sessionFile),
+            'session_data_count' => count($this->sessionData),
+            'sapi' => php_sapi_name()
         ]);
     }
 
     protected function saveSessionToFile(): void
     {
-        if (!$this->isCliMode() || $this->sessionFile === null || $this->sessionData === null) { return; }
+        if (!$this->isCliMode() || $this->sessionFile === null || $this->sessionData === null)
+        {
+            return;
+        }
         file_put_contents($this->sessionFile, json_encode($this->sessionData, JSON_PRETTY_PRINT));
-        $this->logOperation('session_saved_to_file', [ 'session_file' => basename($this->sessionFile), 'data_count' => count($this->sessionData) ]);
+        $this->logOperation('session_saved_to_file', ['session_file' => basename($this->sessionFile), 'data_count' => count($this->sessionData)]);
     }
 
     protected function initializeWebSession(): void
     {
-        if (session_status() === PHP_SESSION_NONE) {
+        if (session_status() === PHP_SESSION_NONE)
+        {
             $sessionName = $this->config['session_name'] ?? 'BRIDGE_SESSION';
             $sessionLifetime = $this->config['session_lifetime'] ?? 3600;
             ini_set('session.name', $sessionName);
@@ -275,7 +364,10 @@ abstract class AbstractCalendarBridge
             ini_set('session.cookie_lifetime', $sessionLifetime);
             session_start();
             $this->logOperation('web_session_initialized', [
-                'session_name' => $sessionName, 'session_id' => substr(session_id(), 0, 8) . '...', 'sapi' => php_sapi_name(), 'lifetime' => $sessionLifetime
+                'session_name' => $sessionName,
+                'session_id' => substr(session_id(), 0, 8) . '...',
+                'sapi' => php_sapi_name(),
+                'lifetime' => $sessionLifetime
             ]);
         }
     }
@@ -296,10 +388,17 @@ abstract class AbstractCalendarBridge
     {
         $this->initializeSessionStorage();
         $sessionKey = $this->getSessionPrefix() . $key;
-        $sessionData = [ 'data' => $data, 'created_at' => time(), 'ttl' => $ttl, 'expires_at' => $ttl > 0 ? time() + $ttl : 0 ];
-        if ($this->isCliMode()) { $this->sessionData[$sessionKey] = $sessionData; $this->saveSessionToFile(); }
-        else { $_SESSION[$sessionKey] = $sessionData; }
-        $this->logOperation('session_set', [ 'key' => $key, 'ttl' => $ttl, 'expires_at' => $sessionData['expires_at'], 'mode' => $this->isCliMode() ? 'file' : 'web' ]);
+        $sessionData = ['data' => $data, 'created_at' => time(), 'ttl' => $ttl, 'expires_at' => $ttl > 0 ? time() + $ttl : 0];
+        if ($this->isCliMode())
+        {
+            $this->sessionData[$sessionKey] = $sessionData;
+            $this->saveSessionToFile();
+        }
+        else
+        {
+            $_SESSION[$sessionKey] = $sessionData;
+        }
+        $this->logOperation('session_set', ['key' => $key, 'ttl' => $ttl, 'expires_at' => $sessionData['expires_at'], 'mode' => $this->isCliMode() ? 'file' : 'web']);
     }
 
     protected function getSession(string $key, $default = null)
@@ -307,8 +406,12 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         $sessionKey = $this->getSessionPrefix() . $key;
         $sessionData = $this->isCliMode() ? ($this->sessionData[$sessionKey] ?? null) : ($_SESSION[$sessionKey] ?? null);
-        if ($sessionData === null) { return $default; }
-        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) {
+        if ($sessionData === null)
+        {
+            return $default;
+        }
+        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at'])
+        {
             $this->clearSession($key);
             $this->logOperation('session_expired', ['key' => $key, 'expired_at' => $sessionData['expires_at']]);
             return $default;
@@ -321,8 +424,15 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         $sessionKey = $this->getSessionPrefix() . $key;
         $sessionData = $this->isCliMode() ? ($this->sessionData[$sessionKey] ?? null) : ($_SESSION[$sessionKey] ?? null);
-        if ($sessionData === null) { return false; }
-        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at']) { $this->clearSession($key); return false; }
+        if ($sessionData === null)
+        {
+            return false;
+        }
+        if ($sessionData['expires_at'] > 0 && time() > $sessionData['expires_at'])
+        {
+            $this->clearSession($key);
+            return false;
+        }
         return true;
     }
 
@@ -330,10 +440,22 @@ abstract class AbstractCalendarBridge
     {
         $this->initializeSessionStorage();
         $sessionKey = $this->getSessionPrefix() . $key;
-        if ($this->isCliMode()) {
-            if (isset($this->sessionData[$sessionKey])) { unset($this->sessionData[$sessionKey]); $this->saveSessionToFile(); $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'file']); }
-        } else {
-            if (isset($_SESSION[$sessionKey])) { unset($_SESSION[$sessionKey]); $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'web']); }
+        if ($this->isCliMode())
+        {
+            if (isset($this->sessionData[$sessionKey]))
+            {
+                unset($this->sessionData[$sessionKey]);
+                $this->saveSessionToFile();
+                $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'file']);
+            }
+        }
+        else
+        {
+            if (isset($_SESSION[$sessionKey]))
+            {
+                unset($_SESSION[$sessionKey]);
+                $this->logOperation('session_cleared', ['key' => $key, 'mode' => 'web']);
+            }
         }
     }
 
@@ -342,17 +464,36 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         $prefix = $this->getSessionPrefix();
         $clearedKeys = [];
-        if ($this->isCliMode()) {
-            foreach ($this->sessionData as $sessionKey => $sessionData) {
-                if (strpos($sessionKey, $prefix) === 0) { unset($this->sessionData[$sessionKey]); $clearedKeys[] = str_replace($prefix, '', $sessionKey); }
+        if ($this->isCliMode())
+        {
+            foreach ($this->sessionData as $sessionKey => $sessionData)
+            {
+                if (strpos($sessionKey, $prefix) === 0)
+                {
+                    unset($this->sessionData[$sessionKey]);
+                    $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+                }
             }
-            if (!empty($clearedKeys)) { $this->saveSessionToFile(); }
-        } else {
-            foreach ($_SESSION as $sessionKey => $sessionData) {
-                if (strpos($sessionKey, $prefix) === 0) { unset($_SESSION[$sessionKey]); $clearedKeys[] = str_replace($prefix, '', $sessionKey); }
+            if (!empty($clearedKeys))
+            {
+                $this->saveSessionToFile();
             }
         }
-        if (!empty($clearedKeys)) { $this->logOperation('session_cleared_all', [ 'keys' => $clearedKeys, 'mode' => $this->isCliMode() ? 'file' : 'web' ]); }
+        else
+        {
+            foreach ($_SESSION as $sessionKey => $sessionData)
+            {
+                if (strpos($sessionKey, $prefix) === 0)
+                {
+                    unset($_SESSION[$sessionKey]);
+                    $clearedKeys[] = str_replace($prefix, '', $sessionKey);
+                }
+            }
+        }
+        if (!empty($clearedKeys))
+        {
+            $this->logOperation('session_cleared_all', ['keys' => $clearedKeys, 'mode' => $this->isCliMode() ? 'file' : 'web']);
+        }
     }
 
     protected function updateSessionTTL(string $key, int $ttl): bool
@@ -360,10 +501,22 @@ abstract class AbstractCalendarBridge
         $this->initializeSessionStorage();
         $sessionKey = $this->getSessionPrefix() . $key;
         $sessionData = $this->isCliMode() ? ($this->sessionData[$sessionKey] ?? null) : ($_SESSION[$sessionKey] ?? null);
-        if ($sessionData === null) { return false; }
-        $sessionData['ttl'] = $ttl; $sessionData['expires_at'] = $ttl > 0 ? time() + $ttl : 0;
-        if ($this->isCliMode()) { $this->sessionData[$sessionKey] = $sessionData; $this->saveSessionToFile(); } else { $_SESSION[$sessionKey] = $sessionData; }
-        $this->logOperation('session_ttl_updated', [ 'key' => $key, 'ttl' => $ttl, 'expires_at' => $sessionData['expires_at'], 'mode' => $this->isCliMode() ? 'file' : 'web' ]);
+        if ($sessionData === null)
+        {
+            return false;
+        }
+        $sessionData['ttl'] = $ttl;
+        $sessionData['expires_at'] = $ttl > 0 ? time() + $ttl : 0;
+        if ($this->isCliMode())
+        {
+            $this->sessionData[$sessionKey] = $sessionData;
+            $this->saveSessionToFile();
+        }
+        else
+        {
+            $_SESSION[$sessionKey] = $sessionData;
+        }
+        $this->logOperation('session_ttl_updated', ['key' => $key, 'ttl' => $ttl, 'expires_at' => $sessionData['expires_at'], 'mode' => $this->isCliMode() ? 'file' : 'web']);
         return true;
     }
 
@@ -371,15 +524,24 @@ abstract class AbstractCalendarBridge
     {
         $this->initializeSessionStorage();
         $prefix = $this->getSessionPrefix();
-        $stats = [ 'total_sessions' => 0, 'active_sessions' => 0, 'expired_sessions' => 0, 'sessions' => [], 'mode' => $this->isCliMode() ? 'file' : 'web' ];
+        $stats = ['total_sessions' => 0, 'active_sessions' => 0, 'expired_sessions' => 0, 'sessions' => [], 'mode' => $this->isCliMode() ? 'file' : 'web'];
         $sessionStore = $this->isCliMode() ? $this->sessionData : $_SESSION;
-        foreach ($sessionStore as $sessionKey => $sessionData) {
-            if (strpos($sessionKey, $prefix) === 0) {
+        foreach ($sessionStore as $sessionKey => $sessionData)
+        {
+            if (strpos($sessionKey, $prefix) === 0)
+            {
                 $stats['total_sessions']++;
                 $key = str_replace($prefix, '', $sessionKey);
                 $isExpired = $sessionData['expires_at'] > 0 && time() > $sessionData['expires_at'];
-                if ($isExpired) { $stats['expired_sessions']++; } else { $stats['active_sessions']++; }
-                $stats['sessions'][$key] = [ 'created_at' => $sessionData['created_at'], 'ttl' => $sessionData['ttl'], 'expires_at' => $sessionData['expires_at'], 'expired' => $isExpired, 'age_seconds' => time() - $sessionData['created_at'] ];
+                if ($isExpired)
+                {
+                    $stats['expired_sessions']++;
+                }
+                else
+                {
+                    $stats['active_sessions']++;
+                }
+                $stats['sessions'][$key] = ['created_at' => $sessionData['created_at'], 'ttl' => $sessionData['ttl'], 'expires_at' => $sessionData['expires_at'], 'expired' => $isExpired, 'age_seconds' => time() - $sessionData['created_at']];
             }
         }
         return $stats;
@@ -389,27 +551,42 @@ abstract class AbstractCalendarBridge
     {
         $this->initializeSessionStorage();
         $debug = [
-            'php_sapi' => php_sapi_name(), 'mode' => $this->isCliMode() ? 'file' : 'web', 'bridge_type' => $this->getBridgeType(),
+            'php_sapi' => php_sapi_name(),
+            'mode' => $this->isCliMode() ? 'file' : 'web',
+            'bridge_type' => $this->getBridgeType(),
             'session_prefix' => $this->getSessionPrefix(),
             'detection_info' => [
-                'is_cli_sapi' => php_sapi_name() === 'cli', 'is_cli_server' => php_sapi_name() === 'cli-server',
-                'force_file_session' => $this->config['force_file_session'] ?? false, 'is_api_request' => $this->isApiRequest(),
-                'request_uri' => $_SERVER['REQUEST_URI'] ?? null, 'content_type' => $_SERVER['CONTENT_TYPE'] ?? null, 'http_method' => $_SERVER['REQUEST_METHOD'] ?? null
+                'is_cli_sapi' => php_sapi_name() === 'cli',
+                'is_cli_server' => php_sapi_name() === 'cli-server',
+                'force_file_session' => $this->config['force_file_session'] ?? false,
+                'is_api_request' => $this->isApiRequest(),
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? null,
+                'content_type' => $_SERVER['CONTENT_TYPE'] ?? null,
+                'http_method' => $_SERVER['REQUEST_METHOD'] ?? null
             ]
         ];
-        if ($this->isCliMode()) {
+        if ($this->isCliMode())
+        {
             $debug['session_file'] = $this->sessionFile;
             $debug['session_file_exists'] = file_exists($this->sessionFile);
             $debug['session_data_count'] = count($this->sessionData);
             $debug['session_data_keys'] = array_keys($this->sessionData);
-            $debug['bridge_sessions'] = array_filter(array_keys($this->sessionData), function ($key) { return strpos($key, $this->getSessionPrefix()) === 0; });
-        } else {
+            $debug['bridge_sessions'] = array_filter(array_keys($this->sessionData), function ($key)
+            {
+                return strpos($key, $this->getSessionPrefix()) === 0;
+            });
+        }
+        else
+        {
             $debug['session_status'] = session_status();
             $debug['session_id'] = session_id();
             $debug['session_name'] = session_name();
             $debug['session_data_count'] = count($_SESSION);
             $debug['session_data_keys'] = array_keys($_SESSION);
-            $debug['bridge_sessions'] = array_filter(array_keys($_SESSION), function ($key) { return strpos($key, $this->getSessionPrefix()) === 0; });
+            $debug['bridge_sessions'] = array_filter(array_keys($_SESSION), function ($key)
+            {
+                return strpos($key, $this->getSessionPrefix()) === 0;
+            });
             $debug['session_cookie_params'] = session_get_cookie_params();
         }
         return $debug;
@@ -421,7 +598,8 @@ abstract class AbstractCalendarBridge
 
     public function updateSyncStatus($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $status, $errorMessage = null): bool
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             $sql = "
                 UPDATE bridge_mappings 
@@ -440,25 +618,50 @@ abstract class AbstractCalendarBridge
                     AND target_calendar_id = ? 
                     AND source_event_id = ?
             ";
-            if ($tenantId !== null) { $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )"; }
+            if ($tenantId !== null)
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
+            }
             $stmt = $this->db->prepare($sql);
-            $params = [ $status, $errorMessage, $status, $status, $status, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId ];
-            if ($tenantId !== null) { $params[] = (string)$tenantId; }
+            $params = [$status, $errorMessage, $status, $status, $status, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId];
+            if ($tenantId !== null)
+            {
+                $params[] = (string)$tenantId;
+            }
             return $stmt->execute($params);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to update sync status', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId, 'status' => $status ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to update sync status', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId, 'status' => $status]);
             return false;
         }
     }
 
-    protected function createEventMapping($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $eventData = null, $syncDirection = 'bidirectional'): bool
+    protected function createEventMapping($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $eventData = null, $syncDirection = 'source_to_target'): bool
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $stmt = $this->db->prepare("\n                INSERT INTO bridge_mappings \n                (source_bridge, target_bridge, source_calendar_id, target_calendar_id, \n                 source_event_id, target_event_id, sync_direction, sync_status, event_data, tenant_id, \n                 created_at, updated_at) \n                VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)\n                ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)\n                DO UPDATE SET \n                    target_event_id = EXCLUDED.target_event_id,\n                    sync_status = 'synced',\n                    event_data = EXCLUDED.event_data,\n                    updated_at = CURRENT_TIMESTAMP,\n                    last_synced_at = CURRENT_TIMESTAMP,\n                    retry_count = 0,\n                    error_message = NULL\n            ");
-            return $stmt->execute([ $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $syncDirection, json_encode($eventData), $tenantId ]);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to create event mapping', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId, 'target_event_id' => $targetEventId ]);
+            $stmt = $this->db->prepare("INSERT INTO bridge_mappings
+            (source_bridge, target_bridge, source_calendar_id, target_calendar_id,
+            source_event_id, target_event_id, sync_direction, sync_status, event_data, tenant_id,
+            created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
+            DO UPDATE SET
+                target_event_id = EXCLUDED.target_event_id,
+                sync_status = 'synced',
+                event_data = EXCLUDED.event_data,
+                updated_at = CURRENT_TIMESTAMP,
+                last_synced_at = CURRENT_TIMESTAMP,
+                retry_count = 0,
+                error_message = NULL
+            ");
+            return $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $syncDirection, json_encode($eventData), $tenantId]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to create event mapping', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId, 'target_event_id' => $targetEventId]);
             return false;
         }
     }
@@ -470,68 +673,106 @@ abstract class AbstractCalendarBridge
 
     protected function markEventPending($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId): bool
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             $sql = "\n                UPDATE bridge_mappings \n                SET sync_status = 'pending', target_event_id = '', error_message = NULL, retry_count = 0, updated_at = CURRENT_TIMESTAMP\n                WHERE source_bridge = ? AND target_bridge = ? AND source_calendar_id = ? AND target_calendar_id = ? AND source_event_id = ?\n            ";
-            if ($tenantId !== null) { $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )"; }
+            if ($tenantId !== null)
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
+            }
             $stmt = $this->db->prepare($sql);
-            $params = [ $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId ];
-            if ($tenantId !== null) { $params[] = (string)$tenantId; }
+            $params = [$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId];
+            if ($tenantId !== null)
+            {
+                $params[] = (string)$tenantId;
+            }
             return $stmt->execute($params);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to mark event as pending', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to mark event as pending', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_event_id' => $sourceEventId]);
             return false;
         }
     }
 
     public function getEventsToSync($sourceBridge, $targetBridge, $maxRetries = 3): array
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             $sql = "\n                SELECT * FROM bridge_mappings \n                WHERE source_bridge = ? AND target_bridge = ? AND (sync_status = 'pending' OR (sync_status = 'error' AND retry_count < ?))\n            ";
-            $params = [ $sourceBridge, $targetBridge, $maxRetries ];
-            if ($tenantId !== null) { $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )"; $params[] = (string)$tenantId; }
+            $params = [$sourceBridge, $targetBridge, $maxRetries];
+            if ($tenantId !== null)
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
+                $params[] = (string)$tenantId;
+            }
             $sql .= " ORDER BY CASE sync_status WHEN 'pending' THEN 1 WHEN 'error' THEN 2 ELSE 3 END, created_at ASC LIMIT 100";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get events to sync', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get events to sync', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge]);
             return [];
         }
     }
 
     public function getCancelledEvents($sourceBridge, $targetBridge): array
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             $sql = "\n                SELECT * FROM bridge_mappings \n                WHERE source_bridge = ? AND target_bridge = ? AND sync_status = 'cancelled' AND target_event_id != ''\n            ";
-            $params = [ $sourceBridge, $targetBridge ];
-            if ($tenantId !== null) { $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )"; $params[] = (string)$tenantId; }
+            $params = [$sourceBridge, $targetBridge];
+            if ($tenantId !== null)
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
+                $params[] = (string)$tenantId;
+            }
             $sql .= " ORDER BY updated_at ASC LIMIT 50";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get cancelled events', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get cancelled events', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge]);
             return [];
         }
     }
 
     public function getSyncStats($sourceBridge = null, $targetBridge = null): array
     {
-        try {
+        try
+        {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             $where = 'WHERE 1=1';
             $params = [];
-            if ($sourceBridge) { $where .= ' AND source_bridge = ?'; $params[] = $sourceBridge; }
-            if ($targetBridge) { $where .= ' AND target_bridge = ?'; $params[] = $targetBridge; }
-            if ($tenantId !== null) { $where .= ' AND (tenant_id IS NOT DISTINCT FROM ? )'; $params[] = (string)$tenantId; }
+            if ($sourceBridge)
+            {
+                $where .= ' AND source_bridge = ?';
+                $params[] = $sourceBridge;
+            }
+            if ($targetBridge)
+            {
+                $where .= ' AND target_bridge = ?';
+                $params[] = $targetBridge;
+            }
+            if ($tenantId !== null)
+            {
+                $where .= ' AND (tenant_id IS NOT DISTINCT FROM ? )';
+                $params[] = (string)$tenantId;
+            }
             $stmt = $this->db->prepare("\n                SELECT sync_status, COUNT(*) as count, AVG(retry_count) as avg_retries, MAX(retry_count) as max_retries\n                FROM bridge_mappings $where GROUP BY sync_status\n            ");
             $stmt->execute($params);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get sync stats', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get sync stats', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge]);
             return [];
         }
     }
@@ -539,21 +780,36 @@ abstract class AbstractCalendarBridge
     // Optional diagnostic
     public function getSessionDiagnostics(): array
     {
-        $diagnostics = [ 'bridge_type' => $this->getBridgeType(), 'session_mode' => $this->isCliMode() ? 'cli_file' : 'web_session', 'timestamp' => date('Y-m-d H:i:s'), 'php_sapi' => php_sapi_name() ];
-        if ($this->isCliMode()) {
+        $diagnostics = ['bridge_type' => $this->getBridgeType(), 'session_mode' => $this->isCliMode() ? 'cli_file' : 'web_session', 'timestamp' => date('Y-m-d H:i:s'), 'php_sapi' => php_sapi_name()];
+        if ($this->isCliMode())
+        {
             $diagnostics['cli_session'] = [
-                'session_file' => $this->getSessionFilePath(), 'file_exists' => file_exists($this->getSessionFilePath()), 'file_readable' => is_readable($this->getSessionFilePath()), 'file_writable' => is_writable(dirname($this->getSessionFilePath())), 'session_data_loaded' => $this->sessionData !== null, 'session_keys' => $this->sessionData ? array_keys($this->sessionData) : []
+                'session_file' => $this->getSessionFilePath(),
+                'file_exists' => file_exists($this->getSessionFilePath()),
+                'file_readable' => is_readable($this->getSessionFilePath()),
+                'file_writable' => is_writable(dirname($this->getSessionFilePath())),
+                'session_data_loaded' => $this->sessionData !== null,
+                'session_keys' => $this->sessionData ? array_keys($this->sessionData) : []
             ];
-            if (file_exists($this->getSessionFilePath())) { $diagnostics['cli_session']['file_size'] = filesize($this->getSessionFilePath()); $diagnostics['cli_session']['file_modified'] = date('Y-m-d H:i:s', filemtime($this->getSessionFilePath())); }
-        } else {
-            $diagnostics['web_session'] = [ 'session_status' => session_status(), 'session_id' => session_id() ? substr(session_id(), 0, 8) . '...' : 'none', 'session_name' => session_name(), 'session_keys' => array_keys($_SESSION ?? []) ];
+            if (file_exists($this->getSessionFilePath()))
+            {
+                $diagnostics['cli_session']['file_size'] = filesize($this->getSessionFilePath());
+                $diagnostics['cli_session']['file_modified'] = date('Y-m-d H:i:s', filemtime($this->getSessionFilePath()));
+            }
+        }
+        else
+        {
+            $diagnostics['web_session'] = ['session_status' => session_status(), 'session_id' => session_id() ? substr(session_id(), 0, 8) . '...' : 'none', 'session_name' => session_name(), 'session_keys' => array_keys($_SESSION ?? [])];
         }
         return $diagnostics;
     }
 
     protected function getSessionFilePath(): string
     {
-        if ($this->sessionFile) { return $this->sessionFile; }
+        if ($this->sessionFile)
+        {
+            return $this->sessionFile;
+        }
         $projectRoot = dirname(dirname(__DIR__));
         $sessionDir = $projectRoot . '/storage/sessions';
         $sessionId = $this->generateConsistentSessionId();
@@ -562,14 +818,20 @@ abstract class AbstractCalendarBridge
 
     protected function getResourceMappingSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId): string
     {
-        try {
-            $stmt = $this->db->prepare("\n                SELECT sync_direction FROM bridge_resource_mappings WHERE bridge_from = ? AND bridge_to = ? AND source_calendar_id = ? AND target_calendar_id = ? AND is_active = TRUE AND sync_enabled = TRUE LIMIT 1\n            ");
-            $stmt->execute([ $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId ]);
+        try
+        {
+            $stmt = $this->db->prepare("SELECT sync_direction FROM bridge_resource_mappings WHERE bridge_from = ? AND bridge_to = ? AND source_calendar_id = ? AND target_calendar_id = ? AND is_active = TRUE AND sync_enabled = TRUE LIMIT 1");
+            $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($result && isset($result['sync_direction'])) { return $result['sync_direction']; }
+            if ($result && isset($result['sync_direction']))
+            {
+                return $result['sync_direction'];
+            }
             return 'source_to_target';
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get resource mapping sync direction', [ 'error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_calendar_id' => $sourceCalendarId, 'target_calendar_id' => $targetCalendarId ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get resource mapping sync direction', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge, 'source_calendar_id' => $sourceCalendarId, 'target_calendar_id' => $targetCalendarId]);
             return 'source_to_target';
         }
     }
@@ -577,19 +839,32 @@ abstract class AbstractCalendarBridge
     // Default implementation; bridges may override
     public function reEnableFailedEvents(array $eventIds = []): array
     {
-        $results = [ 're_enabled_count' => 0, 'errors' => 0, 'error_details' => [] ];
-        try {
+        $results = ['re_enabled_count' => 0, 'errors' => 0, 'error_details' => []];
+        try
+        {
             $whereClause = "sync_status = 'error' AND (source_bridge = ? OR target_bridge = ?)";
-            $params = [ $this->getBridgeType(), $this->getBridgeType() ];
-            if (!empty($eventIds)) { $placeholders = str_repeat('?,', count($eventIds) - 1) . '?'; $whereClause .= " AND source_event_id IN ($placeholders)"; $params = array_merge($params, $eventIds); }
+            $params = [$this->getBridgeType(), $this->getBridgeType()];
+            if (!empty($eventIds))
+            {
+                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
+                $whereClause .= " AND source_event_id IN ($placeholders)";
+                $params = array_merge($params, $eventIds);
+            }
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            if ($tenantId !== null) { $whereClause .= " AND (tenant_id IS NOT DISTINCT FROM ?)"; $params[] = (string)$tenantId; }
+            if ($tenantId !== null)
+            {
+                $whereClause .= " AND (tenant_id IS NOT DISTINCT FROM ?)";
+                $params[] = (string)$tenantId;
+            }
             $stmt = $this->db->prepare("UPDATE bridge_mappings SET sync_status = 'pending', error_message = NULL, retry_count = 0, updated_at = CURRENT_TIMESTAMP WHERE $whereClause");
             $stmt->execute($params);
             $results['re_enabled_count'] = $stmt->rowCount();
-            $this->logOperation('re_enable_failed_events', [ 'bridge_type' => $this->getBridgeType(), 're_enabled_count' => $results['re_enabled_count'], 'event_ids_filter' => $eventIds ]);
-        } catch (\Exception $e) {
-            $results['errors']++; $results['error_details'][] = [ 'error' => 'Failed to re-enable failed events: ' . $e->getMessage() ];
+            $this->logOperation('re_enable_failed_events', ['bridge_type' => $this->getBridgeType(), 're_enabled_count' => $results['re_enabled_count'], 'event_ids_filter' => $eventIds]);
+        }
+        catch (\Exception $e)
+        {
+            $results['errors']++;
+            $results['error_details'][] = ['error' => 'Failed to re-enable failed events: ' . $e->getMessage()];
         }
         return $results;
     }
