@@ -345,7 +345,6 @@ class BridgeManager
 		$results = [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge,
-			'sync_direction' => $direction,
 			'source_events_found' => count($sourceEvents),
 			'created' => 0,
 			'updated' => 0,
@@ -372,8 +371,6 @@ class BridgeManager
 				'sync_direction' => $direction
 			]);
 
-			// Add sync direction to options for this event
-			$eventOptions = array_merge($options, ['current_sync_direction' => $direction]);
 
 			// Process this single event in complete isolation
 			$eventProcessingResult = $this->processSingleEventSafely(
@@ -383,7 +380,7 @@ class BridgeManager
 				$mappingIndex,
 				$sourceCalendarId,
 				$targetCalendarId,
-				$eventOptions,
+				$options,
 				$sourceBridge,
 				$targetBridge,
 				$index + 1,
@@ -981,7 +978,11 @@ class BridgeManager
 		$idx = [];
 		foreach ($mappings as $m)
 		{
-			if (isset($m['source_event_id']))
+			if($m['normalized_reversed'] && isset($m['target_event_id']))
+			{
+				$idx[$m['target_event_id']] = $m;
+			}
+			else if (isset($m['source_event_id']))
 			{
 				$idx[$m['source_event_id']] = $m;
 			}
@@ -1088,8 +1089,7 @@ class BridgeManager
 		$stmt->execute($params);
 		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-		$normalized = [];
-		foreach ($rows as $row)
+		foreach ($rows as &$row)
 		{
 			$isCurrentDirection =
 				$row['source_bridge'] === $sourceBridge &&
@@ -1100,30 +1100,15 @@ class BridgeManager
 			if ($isCurrentDirection)
 			{
 				$row['normalized_reversed'] = false;
-				$normalized[] = $row;
-				continue;
+			}
+			else
+			{
+				$row['normalized_reversed'] = true;
 			}
 
-			// Reverse orientation: swap source/target fields relevant for current run
-			$rev = $row;
-
-			$rev['source_bridge']      = $sourceBridge;
-			$rev['target_bridge']      = $targetBridge;
-			$rev['source_calendar_id'] = $sourceCalendarId;
-			$rev['target_calendar_id'] = $targetCalendarId;
-
-			// Swap event ids so source_event_id refers to the current source event
-			$rev['source_event_id']    = $row['target_event_id'];
-			$rev['target_event_id']    = $row['source_event_id'];
-
-			// Note: we leave timing fields as-is; they’re only used in deletion checks
-			// when syncing from the original source to the target.
-
-			$rev['normalized_reversed'] = true;
-			$normalized[] = $rev;
 		}
 
-		return $normalized;
+		return $rows;
 	}
 
 	/**
