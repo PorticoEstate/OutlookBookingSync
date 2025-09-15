@@ -158,7 +158,8 @@ class BridgeController
             'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
             'sync_method'      => $syncMethod,
             // Optional policy: if true, do not recreate target when user deletes it (for one-way mappings)
-            'respect_target_deletions' => $toBool($params['respect_target_deletions'] ?? $params['respectTargetDeletions'] ?? false)
+            // NOTE: Defaulting to true to avoid unintended recreations
+            'respect_target_deletions' => $toBool($params['respect_target_deletions'] ?? $params['respectTargetDeletions'] ?? true)
         ];
 
         try
@@ -183,7 +184,7 @@ class BridgeController
                     FROM bridge_resource_mappings 
                     WHERE (
                         (bridge_from = :bf AND bridge_to = :bt) OR 
-                        (bridge_from = :bt AND bridge_to = :bf AND sync_direction IN ('bidirectional', 'target_to_source'))
+                        (bridge_from = :bt AND bridge_to = :bf)
                     )
                     AND is_active = TRUE AND sync_enabled = TRUE" . $tenantClause;
 
@@ -233,8 +234,6 @@ class BridgeController
                     $targetCalendarId = $mapping['source_calendar_id']; // booking system resource (now target)
                 }
 
-//                $syncDirection = $mapping['sync_direction'];
-                $syncDirection = 'source_to_target';
 
                 try
                 {
@@ -242,7 +241,6 @@ class BridgeController
                         'mapping_id' => $mapping['id'],
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
-                        'direction' => $syncDirection,
                         'original_bridge_from' => $mapping['bridge_from'],
                         'original_bridge_to' => $mapping['bridge_to']
                     ]);

@@ -1087,7 +1087,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         // Fallback for common fields if not mapped
         $fallbacks = [
-            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? $reservationType ?? '',
+            'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? $bookingEvent['group_name'] ?? $bookingEvent['organization_name'] ?? $reservationType ?? '',
             'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
             'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
             'location' => $bookingEvent['location'] ?? $bookingEvent['resource_name'] ?? '',
