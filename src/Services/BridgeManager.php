@@ -990,19 +990,30 @@ class BridgeManager
 	}
 
 	/**
-	 * Check if a mapping's event is within the specified timeframe
-	 * This checks if the event was created/originated within the sync window
+	 * Check if a mapping's event overlaps with the specified timeframe
+	 * Uses proper overlap detection: event_start < window_end AND event_end > window_start
 	 */
 	private function isEventWithinTimeframe($mapping, $startDate, $endDate)
 	{
+		// Convert date strings to full datetime ranges for proper comparison
+		$windowStart = strtotime($startDate . ' 00:00:00');
+		$windowEnd = strtotime($endDate . ' 23:59:59');
+		
 		// Check if we have source event start/end times stored in the mapping
-		if (!empty($mapping['source_event_start']))
+		if (!empty($mapping['source_event_start']) && !empty($mapping['source_event_end']))
 		{
 			$eventStart = strtotime($mapping['source_event_start']);
-			$windowStart = strtotime($startDate);
-			$windowEnd = strtotime($endDate);
+			$eventEnd = strtotime($mapping['source_event_end']);
 
-			// Event start falls within the sync window
+			// Event overlaps window if: event_start < window_end AND event_end > window_start
+			return $eventStart < $windowEnd && $eventEnd > $windowStart;
+		}
+		// Fallback: if only start time available, check if it's within the window
+		elseif (!empty($mapping['source_event_start']))
+		{
+			$eventStart = strtotime($mapping['source_event_start']);
+
+			// Event start falls within the sync window (old logic as fallback)
 			return $eventStart >= $windowStart && $eventStart <= $windowEnd;
 		}
 
@@ -1010,10 +1021,10 @@ class BridgeManager
 		if (!empty($mapping['created_at']))
 		{
 			$createdAt = strtotime($mapping['created_at']);
-			$windowStart = strtotime($startDate);
-			$windowEnd = strtotime($endDate . ' +1 day'); // Give some buffer for creation time
+			// Use same window start but extend end by one day for creation time buffer
+			$creationWindowEnd = strtotime($endDate . ' +1 day 23:59:59');
 
-			return $createdAt >= $windowStart && $createdAt <= $windowEnd;
+			return $createdAt >= $windowStart && $createdAt <= $creationWindowEnd;
 		}
 
 		// If we don't have timing information, be conservative and don't delete
@@ -1028,7 +1039,10 @@ class BridgeManager
 	/**
 	 * Get bridge mappings from database
 	 * Normalizes rows so that source_* always refers to the current $sourceBridge/$sourceCalendarId
-	 * Optionally restricts rows to a time window (created_at or source_event_start within window)
+	 * Optionally restricts rows to a date range using proper overlap detection:
+	 * - windowStart/windowEnd are date strings (e.g., "2025-09-15") converted to full day ranges
+	 * - Events are included if they overlap the window (event_start < window_end AND event_end > window_start)
+	 * - Also includes events created during the window period
 	 */
 	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, ?string $windowStart = null, ?string $windowEnd = null): array
 	{
@@ -1039,8 +1053,13 @@ class BridgeManager
 		$baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
 		$reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
 		$tenantPredicate = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
+		
+		// Time predicate for event overlap detection:
+		// An event overlaps the window if: event_start < window_end AND event_end > window_start
+		// Date strings are converted to full day ranges (00:00:00 to 23:59:59)
+		// This catches events that start before, during, or after the window but have any time overlap
 		$timePredicate = ($windowStart && $windowEnd)
-			? " AND ((created_at BETWEEN :wstart AND :wend) OR (source_event_start BETWEEN :wstart AND :wend))"
+			? " AND ((created_at BETWEEN :wstart AND :wend) OR (source_event_start < :wend AND source_event_end > :wstart))"
 			: "";
 
 		$sql = "SELECT * FROM bridge_mappings WHERE $baseWhere$tenantPredicate$timePredicate
@@ -1061,8 +1080,10 @@ class BridgeManager
 		}
 		if ($windowStart && $windowEnd)
 		{
-			$params[':wstart'] = $windowStart;
-			$params[':wend'] = $windowEnd;
+			// Convert date strings to full datetime ranges for proper comparison
+			// windowStart becomes start of day (00:00:00), windowEnd becomes end of day (23:59:59)
+			$params[':wstart'] = date('Y-m-d H:i:s', strtotime($windowStart . ' 00:00:00'));
+			$params[':wend'] = date('Y-m-d H:i:s', strtotime($windowEnd . ' 23:59:59'));
 		}
 		$stmt->execute($params);
 		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
