@@ -1,5 +1,7 @@
 -- Migration: Fix source_event_start and source_event_end to use proper datetime types
--- This migration converts VARCHAR datetime fields to TIMESTAMPTZ for better performance and data integrity
+-- Description: This migration converts VARCHAR datetime fields to TIMESTAMPTZ for better performance and data integrity
+-- Version: 003
+-- Date: 2025-09-11
 
 -- Add new columns with proper datetime types (timezone-aware)
 ALTER TABLE bridge_mappings 
