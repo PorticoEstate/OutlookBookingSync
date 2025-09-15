@@ -538,6 +538,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
             //alter event start and end according to timezone for receiving system.
             $event = $this->adjustEventForTimeZone($event);
 
+            // if update - also set active=1 to reactivate if it was deactivated before
+            $event['active'] = 1;
+
             $success = $this->updateEventViaApi($calendarId, $eventId, $event);
 
             // Update sync status
@@ -1189,6 +1192,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         if ($activityId !== null) {
             $bookingEvent['activity_id'] = $activityId;
+        }
+
+        if ( isset($event['active']))
+        {
+            $bookingEvent['active'] = $event['active'];
         }
 
         return $bookingEvent;

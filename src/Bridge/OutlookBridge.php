@@ -88,6 +88,25 @@ class OutlookBridge extends AbstractCalendarBridge
 		// If not provided, will use the default /places/microsoft.graph.room endpoint
 	}
 
+	/**
+	 * Create a Graph API filter for event overlap detection with proper date-to-datetime conversion
+	 * Converts date strings to full day ranges and uses proper overlap logic
+	 * 
+	 * @param string $startDate Date string (e.g., "2025-09-15")
+	 * @param string $endDate Date string (e.g., "2025-09-16")
+	 * @return string Graph API filter string for overlapping events
+	 */
+	private function createOverlapFilter(string $startDate, string $endDate): string
+	{
+		// Convert date strings to full datetime ranges
+		$windowStart = $startDate . 'T00:00:00.000Z';  // Start of day in UTC
+		$windowEnd = $endDate . 'T23:59:59.999Z';      // End of day in UTC
+		
+		// Proper overlap logic: event_start < window_end AND event_end > window_start  
+		// In Graph API terms: start/dateTime lt 'windowEnd' and end/dateTime gt 'windowStart'
+		return "start/dateTime lt '{$windowEnd}' and end/dateTime gt '{$windowStart}'";
+	}
+
 	protected function initialize()
 	{
 		$this->initializeGraphClient();
@@ -163,9 +182,9 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * Fetch events for a calendar within a time window.
 	 *
 	 * @param string $calendarId Outlook user/calendar identifier (UPN or ID)
-	 * @param string $startDate ISO8601 start
-	 * @param string $endDate ISO8601 end
-	 * @return array List of generic event arrays
+	 * @param string $startDate Date string (e.g., "2025-09-15") - converted to start of day
+	 * @param string $endDate Date string (e.g., "2025-09-16") - converted to end of day  
+	 * @return array List of generic event arrays (includes overlapping events)
 	 * @throws \Exception on API errors
 	 */
 	public function getEvents($calendarId, $startDate, $endDate): array
@@ -176,7 +195,9 @@ class OutlookBridge extends AbstractCalendarBridge
 		{
 			$requestConfig = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetRequestConfiguration();
 			$requestConfig->queryParameters = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetQueryParameters();
-			$requestConfig->queryParameters->filter = "start/dateTime ge '{$startDate}' and end/dateTime le '{$endDate}'";
+			
+			// Use proper overlap detection with date-to-datetime conversion
+			$requestConfig->queryParameters->filter = $this->createOverlapFilter($startDate, $endDate);
 			$requestConfig->queryParameters->select = ['id', 'subject', 'start', 'end', 'location', 'attendees', 'body', 'organizer', 'isAllDay', 'createdDateTime', 'lastModifiedDateTime'];
 			$requestConfig->queryParameters->top = 999;
 			$requestConfig->queryParameters->orderby = ['start/dateTime asc'];
@@ -1396,11 +1417,11 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * Get calendar items for a specific resource (user mailbox).
 	 *
 	 * @param string $resourceId UPN or user ID
-	 * @param string|null $startDate Optional ISO8601 start
-	 * @param string|null $endDate Optional ISO8601 end
+	 * @param string|null $startDate Optional date string (e.g., "2025-09-15") - converted to start of day
+	 * @param string|null $endDate Optional date string (e.g., "2025-09-16") - converted to end of day
 	 * @param int $limit Optional page size
 	 * @param int $offset Optional page offset
-	 * @return array Events and optional metadata
+	 * @return array Events and optional metadata (includes overlapping events)
 	 */
 	public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null, $limit = 0, $offset = 0): array
 	{
@@ -1427,20 +1448,22 @@ class OutlookBridge extends AbstractCalendarBridge
 				$queryParams['$skip'] = $offset;
 			}
 
-			// Add date filtering if provided
-			$filters = [];
-			if ($startDate)
+			// Add date filtering if provided - use proper overlap detection
+			if ($startDate && $endDate)
 			{
-				$filters[] = "start/dateTime ge '{$startDate}'";
+				$queryParams['$filter'] = $this->createOverlapFilter($startDate, $endDate);
 			}
-			if ($endDate)
+			elseif ($startDate)
 			{
-				$filters[] = "end/dateTime le '{$endDate}'";
+				// Single date filter: events that end after start of the day
+				$windowStart = $startDate . 'T00:00:00.000Z';
+				$queryParams['$filter'] = "end/dateTime gt '{$windowStart}'";
 			}
-
-			if (!empty($filters))
+			elseif ($endDate)
 			{
-				$queryParams['$filter'] = implode(' and ', $filters);
+				// Single date filter: events that start before end of the day  
+				$windowEnd = $endDate . 'T23:59:59.999Z';
+				$queryParams['$filter'] = "start/dateTime lt '{$windowEnd}'";
 			}
 
 			// Add ordering for consistent pagination

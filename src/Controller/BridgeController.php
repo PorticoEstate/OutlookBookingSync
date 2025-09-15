@@ -233,7 +233,8 @@ class BridgeController
                     $targetCalendarId = $mapping['source_calendar_id']; // booking system resource (now target)
                 }
 
-                $syncDirection = $mapping['sync_direction'];
+//                $syncDirection = $mapping['sync_direction'];
+                $syncDirection = 'source_to_target';
 
                 try
                 {
