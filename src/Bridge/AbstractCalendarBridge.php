@@ -820,13 +820,52 @@ abstract class AbstractCalendarBridge
     {
         try
         {
+            // First check the direct mapping direction (source -> target)
             $stmt = $this->db->prepare("SELECT sync_direction FROM bridge_resource_mappings WHERE bridge_from = ? AND bridge_to = ? AND source_calendar_id = ? AND target_calendar_id = ? AND is_active = TRUE AND sync_enabled = TRUE LIMIT 1");
             $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($result && isset($result['sync_direction']))
             {
+                $this->logger->debug('Found direct resource mapping sync direction', [
+                    'direction' => $result['sync_direction'],
+                    'bridge_from' => $sourceBridge,
+                    'bridge_to' => $targetBridge,
+                    'lookup_type' => 'direct'
+                ]);
                 return $result['sync_direction'];
             }
+
+            // Check the reverse mapping direction (target -> source) and invert the sync_direction
+            $stmt = $this->db->prepare("SELECT sync_direction FROM bridge_resource_mappings WHERE bridge_from = ? AND bridge_to = ? AND source_calendar_id = ? AND target_calendar_id = ? AND is_active = TRUE AND sync_enabled = TRUE LIMIT 1");
+            $stmt->execute([$targetBridge, $sourceBridge, $targetCalendarId, $sourceCalendarId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($result && isset($result['sync_direction']))
+            {
+                // Invert the sync direction since we're looking at the reverse mapping
+                $invertedDirection = match ($result['sync_direction']) {
+                    'source_to_target' => 'target_to_source',
+                    'target_to_source' => 'source_to_target',
+                    'bidirectional' => 'bidirectional',
+                    default => 'source_to_target'
+                };
+                
+                $this->logger->debug('Found reverse resource mapping sync direction', [
+                    'original_direction' => $result['sync_direction'],
+                    'inverted_direction' => $invertedDirection,
+                    'bridge_from' => $targetBridge,
+                    'bridge_to' => $sourceBridge,
+                    'lookup_type' => 'reverse'
+                ]);
+                
+                return $invertedDirection;
+            }
+
+            // Default if no mapping found in either direction
+            $this->logger->debug('No resource mapping found, using default sync direction', [
+                'default_direction' => 'source_to_target',
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
             return 'source_to_target';
         }
         catch (\Exception $e)

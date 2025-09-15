@@ -76,6 +76,14 @@
       <div class="row">
         <div>Selected source: <span id="selSrc" class="muted">(none)</span></div>
         <div>Selected target: <span id="selTgt" class="muted">(none)</span></div>
+      </div>
+      <div class="row">
+        <label for="syncDirection">Ownership/Sync Direction</label>
+        <select id="syncDirection">
+          <option value="source_to_target">Source owns → Target follows</option>
+          <option value="target_to_source">Target owns → Source follows</option>
+          <option value="bidirectional" selected>Bidirectional (both can modify)</option>
+        </select>
         <button id="create" disabled>Create mapping</button>
       </div>
     </section>
@@ -203,10 +211,20 @@
           }
           const combined = [...(m1.mappings||[]), ...(m2.mappings||[])];
           const tbody = document.getElementById('mappings');
+          
+          function formatSyncDirection(direction) {
+            switch(direction) {
+              case 'source_to_target': return 'Source owns';
+              case 'target_to_source': return 'Target owns';
+              case 'bidirectional': return 'Bidirectional';
+              default: return direction || 'bidirectional';
+            }
+          }
+          
           const rows = combined.map(x => {
             const from = `${x.source_calendar_name||''} [${x.source_calendar_id}]`;
             const to = `${x.target_calendar_name||''} [${x.target_calendar_id}]`;
-            const dir = x.sync_direction || 'bidirectional';
+            const dir = formatSyncDirection(x.sync_direction);
             const act = x.is_active ? 'yes' : 'no';
             const del = `<button data-bridge-from="${x.bridge_from}" data-source-id="${x.source_calendar_id}" data-target-id="${x.target_calendar_id}" class="del">Delete</button>`;
             return `<tr><td>${from}</td><td>→</td><td>${to}</td><td>${dir}</td><td>${act}</td><td>${del}</td></tr>`;
@@ -235,6 +253,7 @@
         const tenantId = document.getElementById('tenantSelect').value;
         const src = document.getElementById('sourceBridge').value;
         const tgt = document.getElementById('targetBridge').value;
+        const syncDirection = document.getElementById('syncDirection').value;
         if(!(state.selSrc && state.selTgt)){ return; }
         const body = {
           bridge_from: src,
@@ -243,13 +262,13 @@
           target_calendar_id: idOf(state.selTgt),
           source_calendar_name: displayName(state.selSrc),
           target_calendar_name: displayName(state.selTgt),
-          sync_direction: 'bidirectional',
+          sync_direction: syncDirection,
           is_active: true,
           sync_enabled: true
         };
         try{
           await fetchJSON('/mappings/resources', { method:'POST', body: JSON.stringify(body) }, tenantId);
-          setMsg('Mapping created');
+          setMsg('Mapping created with ' + syncDirection + ' ownership');
           state.selSrc = null; state.selTgt = null;
           document.getElementById('selSrc').textContent = '(none)';
           document.getElementById('selTgt').textContent = '(none)';
