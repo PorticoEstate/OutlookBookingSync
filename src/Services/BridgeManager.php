@@ -529,6 +529,8 @@ class BridgeManager
 
 		if ($mapping)
 		{
+			$options['mapping_config']['api_call_reversed'] = $mapping['normalized_reversed'];
+
 			// Get sync direction and check permissions
 			$syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
 			$isReversed = $mapping['normalized_reversed'] ?? false;
