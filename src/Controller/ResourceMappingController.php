@@ -152,8 +152,8 @@ class ResourceMappingController
 				}
 			}
 
-			// Check if mapping already exists
-			$checkSql = "SELECT id FROM bridge_resource_mappings 
+			// Check if mapping already exists (active or inactive)
+			$checkSql = "SELECT id, is_active FROM bridge_resource_mappings 
                         WHERE bridge_from = :bridge_from 
                         AND bridge_to = :bridge_to 
                         AND source_calendar_id = :source_calendar_id 
@@ -169,13 +169,43 @@ class ResourceMappingController
 				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
 
-			if ($checkStmt->fetch())
+			$existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+			if ($existingMapping)
 			{
-				$response->getBody()->write(json_encode([
-					'success' => false,
-					'error' => 'Resource mapping already exists'
-				]));
-				return $response->withHeader('Content-Type', 'application/json')->withStatus(409);
+				if ($existingMapping['is_active'])
+				{
+					$response->getBody()->write(json_encode([
+						'success' => false,
+						'error' => 'Resource mapping already exists and is active'
+					]));
+					return $response->withHeader('Content-Type', 'application/json')->withStatus(409);
+				}
+				else
+				{
+					// Reactivate the existing mapping
+					$reactivateSql = "UPDATE bridge_resource_mappings 
+									 SET is_active = true, 
+										 sync_enabled = true,
+										 sync_direction = :sync_direction,
+										 updated_at = CURRENT_TIMESTAMP
+									 WHERE id = :id";
+
+					$reactivateStmt = $this->db->prepare($reactivateSql);
+					$reactivateStmt->execute([
+						'id' => $existingMapping['id'],
+						'sync_direction' => $data['sync_direction'] ?? 'bidirectional'
+					]);
+
+					$response->getBody()->write(json_encode([
+						'success' => true,
+						'mapping_id' => $existingMapping['id'],
+						'message' => 'Resource mapping reactivated successfully',
+						'reactivated' => true
+					]));
+
+					return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
+				}
 			}
 
 			// Create new mapping
