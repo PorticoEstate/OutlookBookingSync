@@ -1305,7 +1305,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
                         'name' => $resource['name'] ?? $resource['title'] ?? 'N/A',
                         'type' => $resource['type'] ?? 'resource',
                         'active' => $resource['active'] ?? null,
-                        'description' => $resource['description_json'] ? array_map('html_entity_decode', json_decode($resource['description_json'], true)) : null,
                         'bridge_type' => 'booking_system'
                     ];
 
