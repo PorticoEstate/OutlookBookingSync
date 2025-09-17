@@ -1568,24 +1568,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $mappedEvent = $event;
         }
 
-        // Return standardized event format
-        return [
+        // Prepare data for createGenericEvent standardization
+        $genericData = [
             'id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
             'subject' => $mappedEvent['subject'] ?? $event['title'] ?? $event['name'] ?? $event['subject'] ?? 'N/A',
-            'start' => $mappedEvent['start'] ?? $event['start_time'] ?? $event['start'] ?? null,
-            'end' => $mappedEvent['end'] ?? $event['end_time'] ?? $event['end'] ?? null,
-            'location' => $mappedEvent['location'] ?? $event['location'] ?? $event['room'] ?? null,
+            'subject' => $mappedEvent['subject'] ?? $event['name'] ?? $event['title'] ?? $event['organizer'] ?? $event['contact_name'] ?? $event['group_name'] ?? $event['organization_name'] ?? $event['type'] ?? '',
+            'start' => $mappedEvent['start'] ?? $event['start_time'] ?? $event['start'] ?? $event['from_'] ?? null,
+            'end' => $mappedEvent['end'] ?? $event['end_time'] ?? $event['end'] ?? $event['to_'] ?? null,
+            'location' => $mappedEvent['location'] ?? $event['resources'][0]['name'] ?? $event['building_name'] ?? null,
             'description' => $mappedEvent['description'] ?? $event['description'] ?? $event['notes'] ?? '',
             'organizer' => $mappedEvent['organizer'] ?? $event['organizer'] ?? $event['created_by'] ?? null,
             'attendees' => $this->normalizeAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
             'all_day' => $mappedEvent['all_day'] ?? $event['all_day'] ?? false,
             'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? $this->config['timezone'] ?? 'UTC',
-            'bridge_type' => 'booking_system',
-            'external_id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
             'last_modified' => $mappedEvent['last_modified'] ?? $event['modified_at'] ?? $event['updated_at'] ?? date('c'),
-            'created' => $mappedEvent['created'] ?? $event['created_at'] ?? date('c'),
-            'raw_data' => $event
+            'created' => $mappedEvent['created'] ?? $event['created_at'] ?? date('c')
         ];
+
+        // Use the standardized createGenericEvent method
+        return $this->createGenericEvent($genericData);
     }
 
     /**

@@ -348,6 +348,11 @@ $app->get('/bridges/webhook/{bridgeName}', [\App\Controller\BridgeController::cl
 // Create webhook subscriptions for a bridge
 $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeController::class, 'createSubscriptions']);
 
+// Event management routes
+$app->post('/bridges/{bridgeName}/resources/{resourceId}/events', [\App\Controller\BridgeController::class, 'createEvent']);
+$app->put('/bridges/{bridgeName}/events/{eventId}', [\App\Controller\BridgeController::class, 'updateEvent']);
+$app->delete('/bridges/{bridgeName}/events/{eventId}', [\App\Controller\BridgeController::class, 'deleteEvent']);
+
 // Get health status of all bridges
 $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealthStatus']);
 

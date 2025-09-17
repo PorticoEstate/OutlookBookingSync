@@ -1499,15 +1499,15 @@ class OutlookBridge extends AbstractCalendarBridge
 				{
 					foreach ($items as $item)
 					{
-						$events[] = [
+						// Prepare data for createGenericEvent standardization  
+						$genericData = [
 							'id' => $item->getId(),
 							'subject' => $item->getSubject(),
 							'start' => $item->getStart()->getDateTime(),
 							'end' => $item->getEnd()->getDateTime(),
-							'timezone' => $item->getStart()->getTimeZone(),
-							'organizer' => $item->getOrganizer() ? $item->getOrganizer()->getEmailAddress()->getAddress() : null,
 							'location' => $item->getLocation() ? $item->getLocation()->getDisplayName() : null,
 							'description' => $this->extractTextFromHtml($item->getBody() ? $item->getBody()->getContent() : ''),
+							'organizer' => $item->getOrganizer() ? $item->getOrganizer()->getEmailAddress()->getAddress() : null,
 							'attendees' => array_values(array_filter(array_map(function ($attendee)
 							{
 								$emailAddress = $attendee->getEmailAddress();
@@ -1520,9 +1520,27 @@ class OutlookBridge extends AbstractCalendarBridge
 									'name'  => $emailAddress->getName() ?? ''
 								];
 							}, $item->getAttendees() ?? []))),
-
-							'bridge_type' => 'outlook'
+							'all_day' => $item->getIsAllDay() ?? false,
+							'timezone' => $item->getStart()->getTimeZone(),
+							'last_modified' => $item->getLastModifiedDateTime() ? $item->getLastModifiedDateTime()->format('c') : date('c'),
+							'created' => $item->getCreatedDateTime() ? $item->getCreatedDateTime()->format('c') : date('c'),
+							'raw_data' => [
+								'id' => $item->getId(),
+								'subject' => $item->getSubject(),
+								'start' => $item->getStart(),
+								'end' => $item->getEnd(),
+								'location' => $item->getLocation(),
+								'organizer' => $item->getOrganizer(),
+								'attendees' => $item->getAttendees(),
+								'body' => $item->getBody(),
+								'isAllDay' => $item->getIsAllDay(),
+								'createdDateTime' => $item->getCreatedDateTime(),
+								'lastModifiedDateTime' => $item->getLastModifiedDateTime()
+							]
 						];
+
+						// Use the standardized createGenericEvent method
+						$events[] = $this->createGenericEvent($genericData);
 					}
 				}
 

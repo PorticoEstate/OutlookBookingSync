@@ -1497,4 +1497,374 @@ class BridgeController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
+
+    /**
+     * Create a new event on a bridge resource.
+     * POST /bridges/{bridgeName}/resources/{resourceId}/events
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include bridgeName and resourceId
+     * @return Response
+     */
+    public function createEvent(Request $request, Response $response, array $args): Response
+    {
+        try
+        {
+            $bridgeName = $args['bridgeName'];
+            $resourceId = $args['resourceId'];
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
+
+            $data = json_decode($request->getBody()->getContents(), true);
+            if (!$data)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Invalid JSON data'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Validate required fields
+            if (empty($data['title']) || empty($data['start_time']) || empty($data['end_time']))
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Missing required fields: title, start_time, end_time'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Transform admin UI format to generic event format expected by bridges
+            $eventData = $this->transformAdminDataToGenericEvent($data, $bridge);
+
+            // Create event through the bridge
+            $eventId = $bridge->createEvent($resourceId, $eventData);
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'bridge' => $bridgeName,
+                'resource_id' => $resourceId,
+                'event_id' => $eventId,
+                'message' => 'Event created successfully'
+            ]));
+
+            return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to create event', [
+                'bridge' => $bridgeName ?? 'unknown',
+                'resource_id' => $resourceId ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Failed to create event: ' . $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Update an existing event on a bridge.
+     * PUT /bridges/{bridgeName}/events/{eventId}
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include bridgeName and eventId
+     * @return Response
+     */
+    public function updateEvent(Request $request, Response $response, array $args): Response
+    {
+        try
+        {
+            $bridgeName = $args['bridgeName'];
+            $eventId = $args['eventId'];
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
+
+            $data = json_decode($request->getBody()->getContents(), true);
+            if (!$data)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Invalid JSON data'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Get resource ID from the request data
+            $resourceId = $data['resource_id'] ?? null;
+            if (!$resourceId)
+            {
+                // Fallback: try to find resource ID from existing event mappings
+                $resourceId = $this->findResourceIdForEvent($bridgeName, $eventId, $tenantId);
+            }
+            
+            // Transform admin UI format to generic event format expected by bridges
+            $eventData = $this->transformAdminDataToGenericEvent($data, $bridge);
+            
+            // Update event through the bridge
+            $success = $bridge->updateEvent($resourceId, $eventId, $eventData);
+
+            if ($success)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'bridge' => $bridgeName,
+                    'event_id' => $eventId,
+                    'message' => 'Event updated successfully'
+                ]));
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to update event'
+                ]));
+                return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+            }
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to update event', [
+                'bridge' => $bridgeName ?? 'unknown',
+                'event_id' => $eventId ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Failed to update event: ' . $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Delete an event from a bridge.
+     * DELETE /bridges/{bridgeName}/events/{eventId}
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include bridgeName and eventId
+     * @return Response
+     */
+    public function deleteEvent(Request $request, Response $response, array $args): Response
+    {
+        try
+        {
+            $bridgeName = $args['bridgeName'];
+
+            if($bridgeName === 'booking_system') {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Event deletion is not supported for the booking_system bridge'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            $eventId = $args['eventId'];
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
+
+            // Get resource ID from URL path (if route includes it) or from query params
+            $resourceId = $args['resourceId'] ?? null;
+            if (!$resourceId) {
+                $queryParams = $request->getQueryParams();
+                $resourceId = $queryParams['resource_id'] ?? null;
+            }
+            
+            if (!$resourceId) {
+                // Fallback: try to find resource ID from existing event mappings
+                $resourceId = $this->findResourceIdForEvent($bridgeName, $eventId, $tenantId);
+            }
+            
+            if (!$resourceId)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Unable to determine resource ID for event. Please provide resource_id in query params or ensure proper event mapping exists.'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Delete event through the bridge
+            $success = $bridge->deleteEvent($resourceId, $eventId);
+
+            if ($success)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'bridge' => $bridgeName,
+                    'event_id' => $eventId,
+                    'message' => 'Event deleted successfully'
+                ]));
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to delete event'
+                ]));
+                return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+            }
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to delete event', [
+                'bridge' => $bridgeName ?? 'unknown',
+                'event_id' => $eventId ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Failed to delete event: ' . $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Helper method to find resource ID for an existing event.
+     * This looks up the event in bridge mappings to determine its resource.
+     *
+     * @param string $bridgeName
+     * @param string $eventId
+     * @param string $tenantId
+     * @return string|null
+     */
+    private function findResourceIdForEvent(string $bridgeName, string $eventId, string $tenantId): ?string
+    {
+        try
+        {
+            // Look for the event in bridge_mappings table
+            $sql = "SELECT source_calendar_id, target_calendar_id, source_bridge, target_bridge 
+                    FROM bridge_mappings 
+                    WHERE (source_event_id = :event_id OR target_event_id = :event_id)
+                    AND (source_bridge = :bridge_name OR target_bridge = :bridge_name)
+                    AND (tenant_id = :tenant_id OR tenant_id IS NULL)
+                    LIMIT 1";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                'event_id' => $eventId,
+                'bridge_name' => $bridgeName,
+                'tenant_id' => $tenantId
+            ]);
+
+            $mapping = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($mapping)
+            {
+                // Return the appropriate calendar ID based on which bridge we're working with
+                if ($mapping['source_bridge'] === $bridgeName)
+                {
+                    return $mapping['source_calendar_id'];
+                }
+                elseif ($mapping['target_bridge'] === $bridgeName)
+                {
+                    return $mapping['target_calendar_id'];
+                }
+            }
+
+            return null;
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to find resource ID for event', [
+                'bridge' => $bridgeName,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Transform admin UI event data to generic event format expected by bridges.
+     * 
+     * @param array $adminData Event data from admin UI
+     * @param \App\Bridge\AbstractCalendarBridge $bridge Bridge instance for timezone configuration
+     * @return array Generic event data for bridge processing
+     */
+    private function transformAdminDataToGenericEvent(array $adminData, $bridge = null): array
+    {
+        $genericEvent = [];
+        
+        // Map admin UI fields to generic event fields
+        $fieldMappings = [
+            'title' => 'subject',
+            'start_time' => 'start', 
+            'end_time' => 'end',
+            'description' => 'description',
+            'location' => 'location'
+        ];
+        
+        foreach ($fieldMappings as $adminField => $genericField)
+        {
+            if (isset($adminData[$adminField]))
+            {
+                $genericEvent[$genericField] = $adminData[$adminField];
+            }
+        }
+        
+        // Get timezone from bridge configuration, fall back to admin data, then UTC
+        if ($bridge && method_exists($bridge, 'getTimezone'))
+        {
+            $genericEvent['timezone'] = $bridge->getTimezone();
+        }
+        else
+        {
+            $genericEvent['timezone'] = $adminData['timezone'] ?? 'UTC';
+        }
+        
+        // Convert datetime strings to proper format if needed
+        if (isset($genericEvent['start']))
+        {
+            $genericEvent['start'] = $this->normalizeDateTimeFormat($genericEvent['start']);
+        }
+        if (isset($genericEvent['end']))
+        {
+            $genericEvent['end'] = $this->normalizeDateTimeFormat($genericEvent['end']);
+        }
+        
+        // Add metadata to indicate this is from admin UI
+        $genericEvent['source'] = 'admin_ui';
+        $genericEvent['created_via'] = 'bridge_controller';
+        
+        return $genericEvent;
+    }
+
+    /**
+     * Normalize datetime format for bridge consumption.
+     * 
+     * @param string $datetime
+     * @return string
+     */
+    private function normalizeDateTimeFormat(string $datetime): string
+    {
+        try
+        {
+            // Parse the datetime and convert to ISO 8601 format
+            $dt = new \DateTime($datetime);
+            return $dt->format('c'); // ISO 8601 format (e.g., 2025-09-17T10:00:00+00:00)
+        }
+        catch (\Exception $e)
+        {
+            // If parsing fails, return the original string
+            return $datetime;
+        }
+    }
 }

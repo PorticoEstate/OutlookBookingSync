@@ -58,8 +58,8 @@ abstract class AbstractCalendarBridge
     abstract public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array;
     /** @param string|null $nameFilter @param int $limit @param int $offset @return array */
     abstract public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array;
-    /** @param string $resourceId @param string|null $startDate @param string|null $endDate @return array */
-    abstract public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null): array;
+    /** @param string $resourceId @param string|null $startDate @param string|null $endDate @param int $limit @param int $offset @return array */
+    abstract public function getResourceCalendarItems($resourceId, $startDate = null, $endDate = null, $limit = 0, $offset = 0): array;
 
     // Optional helpers
     public function validateEvent($event): bool
@@ -111,6 +111,16 @@ abstract class AbstractCalendarBridge
             'max_events_per_request' => 100,
             'rate_limit_per_minute' => 60
         ];
+    }
+
+    /**
+     * Get the timezone configured for this bridge.
+     * 
+     * @return string The timezone identifier (e.g., 'UTC', 'Europe/Oslo', etc.)
+     */
+    public function getTimezone(): string
+    {
+        return $this->config['timezone'] ?? 'UTC';
     }
 
     /** @param string $operation @param array $data */
