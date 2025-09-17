@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <title>Admin • Tenants</title>
     <link rel="stylesheet" href="/css/dashboard.css" />
+    <script src="js/auth.js"></script>
         <style>
 
       body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
@@ -34,18 +35,15 @@
     </section>
     <script>
       let CSRF = '';
-      function getAdminKey(){
-        return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
-      }
       async function ensureCsrf(){
-        const key = getAdminKey();
-        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const headers = adminAuth.getAuthHeaders();
+        const res = await fetch('/admin/csrf', { headers });
         const data = await res.json();
         CSRF = data.csrf_token || '';
       }
       async function loadTenants(){
-        const key = getAdminKey();
-        const res = await fetch('/admin/tenants', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const headers = adminAuth.getAuthHeaders();
+        const res = await fetch('/admin/tenants', { headers });
         const data = await res.json();
         const tbl = document.getElementById('tenants');
         tbl.innerHTML = '<tr><th>id</th><th>name</th><th>active</th><th>created</th><th>actions</th></tr>' +
@@ -58,20 +56,20 @@
         e.preventDefault();
         const fd = new FormData(e.target);
         const body = { id: fd.get('id'), name: fd.get('name'), active: fd.get('active')==='on' };
-  const key = getAdminKey();
-  await fetch('/admin/tenants', { method:'POST', headers: { 'Content-Type':'application/json','api_key': key, 'X-API-Key': key, 'X-CSRF-Token': CSRF }, body: JSON.stringify(body)});
+        const headers = { ...adminAuth.getAuthHeaders(), 'Content-Type':'application/json', 'X-CSRF-Token': CSRF };
+        await fetch('/admin/tenants', { method:'POST', headers, body: JSON.stringify(body)});
         loadTenants();
       });
       async function rotate(id){
-  const key = getAdminKey();
-  const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers: { 'api_key': key, 'X-API-Key': key, 'X-CSRF-Token': CSRF }});
+        const headers = { ...adminAuth.getAuthHeaders(), 'X-CSRF-Token': CSRF };
+        const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers});
         const data = await res.json();
         alert('New API key (copy now):\n' + data.api_key);
       }
       async function delTenant(id){
         if(!confirm('Delete tenant '+id+'?')) return;
-  const key = getAdminKey();
-  await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers: { 'api_key': key, 'X-API-Key': key, 'X-CSRF-Token': CSRF }});
+        const headers = { ...adminAuth.getAuthHeaders(), 'X-CSRF-Token': CSRF };
+        await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers});
         loadTenants();
       }
       ensureCsrf().then(loadTenants);

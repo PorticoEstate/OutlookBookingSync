@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event Management - OutlookBookingSync Admin</title>
     <link rel="stylesheet" href="css/dashboard.css">
+    <script src="js/auth.js"></script>
 </head>
 <body>
     <header>
@@ -164,57 +165,19 @@
         let totalRecords = 0;
         let totalPages = 1;
 
-        // Authentication helper functions (similar to dashboard.js)
-        function getApiKey() {
-            try {
-                return localStorage.getItem('dashboard_api_key') || '';
-            } catch (_) {
-                return '';
-            }
-        }
-
-        function setApiKey(key) {
-            try {
-                if (key) {
-                    localStorage.setItem('dashboard_api_key', key);
-                }
-            } catch (_) {
-                // ignore
-            }
-        }
-
-        function authHeaders() {
-            const key = getApiKey();
-            const headers = { 'Accept': 'application/json' };
-            if (key) {
-                headers['api_key'] = key;
-                headers['X-API-Key'] = key;
-            }
-            
-            // Add tenant ID if selected
-            const tenantId = document.getElementById('tenantSelect')?.value;
-            if (tenantId) {
-                headers['X-Tenant-ID'] = tenantId;
-            }
-            
-            return headers;
-        }
-
-        function promptForApiKey(message = 'Admin access required. Enter API key:') {
-            const key = window.prompt(message, '');
-            if (key && key.trim()) {
-                setApiKey(key.trim());
-                showMessage('API key saved for this session.', 'success');
-                return key.trim();
-            }
-            showMessage('API key not set. Some actions may fail with 401 Unauthorized.', 'error');
-            return '';
-        }
-
         // Initialize page
         document.addEventListener('DOMContentLoaded', function() {
-            loadTenants();
-            loadBridges();
+            // Set default API key for testing if none exists
+            if (!adminAuth.getApiKey()) {
+                adminAuth.setApiKey('change-me-strong-random');
+            }
+            
+            // Add a small delay to ensure all DOM elements are ready
+            setTimeout(() => {
+                loadTenants();
+                loadBridges();
+            }, 100);
+            
             setupDateDefaults();
             setupEventFormHandlers();
         });
@@ -282,26 +245,8 @@
         }
 
         async function loadTenants() {
-            console.log('loadTenants() called');
             try {
-                const headers = authHeaders();
-                console.log('Loading tenants with headers:', headers);
-                const response = await fetch('/admin/tenants', { headers });
-                
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        const key = promptForApiKey();
-                        if (key) {
-                            // Retry with the new key
-                            return loadTenants();
-                        }
-                        throw new Error('Admin authentication required');
-                    }
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                console.log('Received tenant data:', data);
+                const data = await adminAuth.authenticatedFetch('/admin/tenants', {}, null);
                 
                 const select = document.getElementById('tenantSelect');
                 if (!select) {
@@ -313,21 +258,19 @@
                 
                 // Handle both response formats - like dashboard.js
                 const tenants = (data && data.tenants) || [];
+                
                 if (tenants.length > 0) {
-                    console.log(`Adding ${tenants.length} tenants to select`);
                     tenants.forEach(tenant => {
                         const option = document.createElement('option');
                         option.value = tenant.id;
                         option.textContent = `${tenant.name} (${tenant.id})`;
                         select.appendChild(option);
-                        console.log(`Added tenant: ${tenant.name} (${tenant.id})`);
                     });
+                    showMessage(`Loaded ${tenants.length} tenant(s)`, 'success');
                 } else {
-                    console.log('No tenants returned from server');
                     showMessage('No tenants configured in the system', 'info');
                 }
                 
-                console.log('Final select options count:', select.options.length);
             } catch (error) {
                 console.error('Failed to load tenants:', error);
                 // Don't show error for authentication issues - user cancelled
@@ -339,14 +282,7 @@
 
         async function loadBridges() {
             try {
-                const headers = authHeaders();
-                const response = await fetch('/bridges', { headers });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
+                const data = await adminAuth.authenticatedFetch('/bridges');
                 
                 const select = document.getElementById('bridgeSelect');
                 select.innerHTML = '<option value="">Select Bridge</option>';
@@ -378,23 +314,17 @@
             try {
                 // Get tenant ID for proper config endpoint
                 const tenantId = document.getElementById('tenantSelect')?.value || '';
-                const headers = authHeaders();
                 
                 // Use tenant-specific config endpoint
                 const configUrl = tenantId 
                     ? `/admin/tenants/${tenantId}/configs/${bridgeName}`
                     : `/admin/tenants/default/configs/${bridgeName}`;
                 
-                const response = await fetch(configUrl, { headers });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    // Extract timezone from bridge configuration - check config_data first
-                    const timezone = data.config_data?.timezone || data.timezone || data.config?.timezone || 'UTC';
-                    currentBridgeTimezone = timezone;
-                    console.log(`Bridge ${bridgeName} timezone:`, timezone);
-                    return timezone;
-                }
+                const data = await adminAuth.authenticatedFetch(configUrl);
+                // Extract timezone from bridge configuration - check config_data first
+                const timezone = data.config_data?.timezone || data.timezone || data.config?.timezone || 'UTC';
+                currentBridgeTimezone = timezone;
+                return timezone;
             } catch (error) {
                 console.warn('Could not fetch bridge config:', error);
             }
@@ -408,7 +338,6 @@
             
             const defaultTz = timezoneDefaults[bridgeName.toLowerCase()] || 'UTC';
             currentBridgeTimezone = defaultTz;
-            console.log(`Using fallback timezone for ${bridgeName}:`, defaultTz);
             return defaultTz;
         }
         
@@ -421,14 +350,7 @@
             }
 
             try {
-                const headers = authHeaders();
-                const response = await fetch(`/bridges/${bridgeName}/available-resources`, { headers });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
+                const data = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/available-resources`);
                 
                 if (data.success && data.resources) {
                     allResources = data.resources;
@@ -595,7 +517,6 @@
 
             try {
                 showLoading(true);
-                const headers = authHeaders();
 
                 const params = new URLSearchParams();
                 if (startDate) params.append('startDate', startDate);
@@ -605,29 +526,15 @@
                 params.append('limit', pageSize.toString());
                 params.append('offset', ((currentPage - 1) * pageSize).toString());
 
-                const response = await fetch(`/bridges/${bridgeName}/resources/${resourceId}/calendar-items?${params}`, { headers });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
+                const data = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/resources/${resourceId}/calendar-items?${params}`);
                 
                 // Add debugging for different bridge formats
-                console.log(`Events response for bridge ${bridgeName}:`, data);
-                
                 if (data.success) {
                     currentEvents = data.calendar_items || [];
                     
                     // Extract pagination info from response
                     totalRecords = data.total_records || data.count || currentEvents.length;
                     totalPages = Math.ceil(totalRecords / pageSize);
-                    
-                    // Debug event structure differences
-                    if (currentEvents.length > 0) {
-                        console.log(`Sample event from ${bridgeName}:`, currentEvents[0]);
-                        console.log('Event fields:', Object.keys(currentEvents[0]));
-                    }
                     
                     displayEvents();
                     updatePaginationControls();
@@ -662,14 +569,6 @@
                 const titleField = event.title || event.subject || event.name || event.summary;
                 const eventId = event.id || event.event_id || event.eventId;
                 
-                console.log('Event field mapping:', {
-                    originalEvent: event,
-                    startTimeField,
-                    endTimeField,
-                    titleField,
-                    eventId
-                });
-
                 const startTime = formatDateTime(startTimeField, event.timezone);
                 const endTime = formatDateTime(endTimeField, event.timezone);
                 
@@ -817,14 +716,6 @@
                     displayTimezone = currentBridgeTimezone;
                 }
                 
-                console.log('formatDateTime:', {
-                    dateTimeString,
-                    eventTimezone,
-                    displayTimezone,
-                    currentBridgeTimezone,
-                    parsedDate: date.toISOString()
-                });
-                
                 // If we have a specific timezone and it's not UTC, format with timezone-aware display
                 if (displayTimezone && displayTimezone !== 'UTC') {
                     try {
@@ -838,7 +729,6 @@
                             minute: '2-digit',
                             hour12: false
                         });
-                        console.log('Timezone conversion result:', formatted);
                         return formatted;
                     } catch (e) {
                         // Fallback if timezone is not supported
@@ -886,13 +776,6 @@
         }
 
         function editEvent(eventId) {
-            console.log('editEvent called with:', eventId, 'type:', typeof eventId);
-            console.log('Available events and their IDs:', currentEvents.map(e => ({
-                id: e.id || e.event_id || e.eventId,
-                idType: typeof (e.id || e.event_id || e.eventId),
-                subject: e.subject || e.title
-            })));
-            
             // Convert eventId to both string and number for comparison since IDs might be different types
             const event = currentEvents.find(e => {
                 const eId = e.id || e.event_id || e.eventId;
@@ -907,8 +790,7 @@
                 showMessage('Event not found', 'error');
                 return;
             }
-
-            console.log('Found event for editing:', event);
+            
             editingEvent = event;
             document.getElementById('modalTitle').textContent = 'Edit Event';
             
@@ -924,15 +806,6 @@
             // Parse dates with proper timezone handling
             const startTimeString = event.start_time || event.start || event.startTime;
             const endTimeString = event.end_time || event.end || event.endTime;
-            
-            console.log('Edit event field mapping:', {
-                eventId,
-                titleField,
-                descriptionField,
-                startTimeString,
-                endTimeString,
-                allDay: event.all_day || event.isAllDay
-            });
             
             // Convert to local display timezone for editing
             const { date: startDate, time: startTime } = parseEventDateTime(startTimeString, event.timezone);
@@ -1006,15 +879,6 @@
                         const [datePart, timePart] = formatted.split(' ');
                         const timeOnly = timePart.substring(0, 5); // Remove seconds
                         
-                        console.log('Parsed event time for editing:', {
-                            original: dateTimeString,
-                            eventTimezone,
-                            displayTimezone,
-                            parsed: formatted,
-                            date: datePart,
-                            time: timeOnly
-                        });
-                        
                         return {
                             date: datePart,
                             time: timeOnly
@@ -1078,44 +942,30 @@
                 resource_id: resourceId
             };
 
-            console.log('Saving event with data:', eventData);
-
             try {
                 showLoading(true);
-                const headers = { 
-                    ...authHeaders(),
-                    'Content-Type': 'application/json'
-                };
 
                 let response;
                 if (editingEvent) {
                     // Update existing event
-                    response = await fetch(`/bridges/${bridgeName}/events/${editingEvent.id || editingEvent.event_id}`, {
+                    response = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/events/${editingEvent.id || editingEvent.event_id}`, {
                         method: 'PUT',
-                        headers,
                         body: JSON.stringify(eventData)
                     });
                 } else {
                     // Create new event
-                    response = await fetch(`/bridges/${bridgeName}/resources/${resourceId}/events`, {
+                    response = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/resources/${resourceId}/events`, {
                         method: 'POST',
-                        headers,
                         body: JSON.stringify(eventData)
                     });
                 }
 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                
-                if (data.success) {
+                if (response.success) {
                     showMessage(editingEvent ? 'Event updated successfully' : 'Event created successfully', 'success');
                     closeEventModal();
                     refreshEvents();
                 } else {
-                    showMessage('Failed to save event: ' + (data.error || 'Unknown error'), 'error');
+                    showMessage('Failed to save event: ' + (response.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 showMessage('Failed to save event: ' + error.message, 'error');
@@ -1138,14 +988,6 @@
             // Add timezone offset to the timestamps
             const startDateTimeWithTZ = startDateTime + timezoneOffset;
             const endDateTimeWithTZ = endDateTime + timezoneOffset;
-            
-            console.log('Sending form data with timezone offset to server:', {
-                bridgeTimezone,
-                timezoneOffset,
-                startDateTime: startDateTimeWithTZ,
-                endDateTime: endDateTimeWithTZ,
-                note: 'Includes timezone offset for proper server handling'
-            });
             
             return {
                 startDateTime: startDateTimeWithTZ,
@@ -1207,13 +1049,6 @@
                 const sign = actualOffsetMinutes >= 0 ? '+' : '-';
                 const offsetString = `${sign}${String(offsetHours).padStart(2, '0')}:${String(offsetMins).padStart(2, '0')}`;
                 
-                console.log('Calculated timezone offset:', {
-                    timezone,
-                    actualOffsetMinutes,
-                    offsetString,
-                    knownOffset: knownOffsets[timezone]
-                });
-                
                 return offsetString;
                 
             } catch (e) {
@@ -1254,19 +1089,11 @@
 
             try {
                 showLoading(true);
-                const headers = authHeaders();
 
                 // Include resource_id as query parameter for the backend
-                const response = await fetch(`/bridges/${bridgeName}/events/${eventId}?resource_id=${encodeURIComponent(resourceId)}`, {
-                    method: 'DELETE',
-                    headers
+                const data = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/events/${eventId}?resource_id=${encodeURIComponent(resourceId)}`, {
+                    method: 'DELETE'
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
                 
                 if (data.success) {
                     showMessage('Event deleted successfully', 'success');

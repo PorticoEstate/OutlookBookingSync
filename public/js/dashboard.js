@@ -5,53 +5,33 @@
 
 let refreshInterval;
 
-// Simple API key management for the dashboard
-const API_KEY_STORAGE_KEY = 'dashboard_api_key';
+// Dashboard-specific storage (tenant switching)
 const TENANT_STORAGE_KEY = 'dashboard_tenant_id';
 
+// Use shared auth module for API key management
 function getApiKey() {
-    try {
-        return localStorage.getItem(API_KEY_STORAGE_KEY) || '';
-    } catch (_) {
-        return '';
-    }
+    return adminAuth.getApiKey();
 }
 
 function setApiKey(key) {
-    try {
-        if (key) {
-            localStorage.setItem(API_KEY_STORAGE_KEY, key);
-        }
-    } catch (_) {
-        // ignore
-    }
+    adminAuth.setApiKey(key);
 }
 
 function clearApiKey() {
-    try { localStorage.removeItem(API_KEY_STORAGE_KEY); } catch (_) {}
+    adminAuth.setApiKey('');
 }
 
 function promptForApiKey(message = 'Enter API key for the API (header: api_key):') {
-    const key = window.prompt(message, '');
-    if (key && key.trim()) {
-        setApiKey(key.trim());
-        setActionStatus('API key saved for this browser (localStorage).', 'success');
-        return key.trim();
-    }
-    setActionStatus('API key not set. Some actions may fail with 401 Unauthorized.', 'warning');
-    return '';
+    return adminAuth.promptForApiKey(message);
 }
 
 function authHeaders() {
-    const key = getApiKey();
-    const hdrs = key ? { 'api_key': key } : {};
     try {
         const tenant = localStorage.getItem(TENANT_STORAGE_KEY);
-        if (tenant && tenant.trim()) {
-            hdrs['X-Tenant-Id'] = tenant.trim();
-        }
-    } catch (_) { /* ignore */ }
-    return hdrs;
+        return adminAuth.getAuthHeaders(tenant && tenant.trim() ? tenant : null);
+    } catch (_) {
+        return adminAuth.getAuthHeaders();
+    }
 }
 
 /**
@@ -1092,9 +1072,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!sel) return;
         const stored = localStorage.getItem(TENANT_STORAGE_KEY) || '';
         try {
-            // Load tenants via admin endpoint (requires global admin key in localStorage.dashboard_api_key)
-            const adminKey = localStorage.getItem('dashboard_api_key') || '';
-            const res = await fetch('/admin/tenants', { headers: adminKey ? { 'api_key': adminKey, 'X-API-Key': adminKey } : {} });
+            // Load tenants via admin endpoint (requires global admin key)
+            const headers = adminAuth.getAuthHeaders();
+            const res = await fetch('/admin/tenants', { headers });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             const tenants = (data && data.tenants) || [];

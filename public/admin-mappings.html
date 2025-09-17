@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <title>Admin • Resource Mappings</title>
     <link rel="stylesheet" href="/css/dashboard.css" />
+    <script src="js/auth.js"></script>
     <style>
       body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
       .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -109,15 +110,14 @@
         el.textContent = text || '';
         el.className = isError ? 'error' : 'note';
       }
-      function getAdminKey(){ return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || ''); }
       let CSRF = '';
       async function ensureCsrf(){
-        const key = getAdminKey();
-        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const headers = adminAuth.getAuthHeaders();
+        const res = await fetch('/admin/csrf', { headers });
         try{ const data = await res.json(); CSRF = data.csrf_token || ''; } catch{}
       }
       function hdrs(tenantId, hasBody){
-        const h = { 'api_key': getAdminKey(), 'X-API-Key': getAdminKey(), 'X-Tenant-Id': tenantId };
+        const h = adminAuth.getAuthHeaders(tenantId);
         if(hasBody) h['Content-Type'] = 'application/json';
         if(CSRF) h['X-CSRF-Token'] = CSRF;
         return h;
@@ -159,8 +159,9 @@
       }
 
       async function loadTenants(){
-        const key = getAdminKey(); if(!key){ setMsg('Set admin key in localStorage.dashboard_api_key', true); return; }
-        const res = await fetch('/admin/tenants', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const key = adminAuth.getApiKey(); if(!key){ setMsg('Set admin key via Ctrl+K or localStorage.dashboard_api_key', true); return; }
+        const headers = adminAuth.getAuthHeaders();
+        const res = await fetch('/admin/tenants', { headers });
         const data = await res.json();
         state.tenants = data.tenants || [];
         const sel = document.getElementById('tenantSelect');

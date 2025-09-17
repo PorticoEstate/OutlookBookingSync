@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <title>Admin • Bridge Configs</title>
     <link rel="stylesheet" href="/css/dashboard.css" />
+    <script src="js/auth.js"></script>
     <style>
        body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
       .row { display: flex; gap: 12px; align-items: center; }
@@ -50,20 +51,15 @@
         el.textContent = text || ''; el.className = isError ? 'error' : 'note';
       }
       let CSRF = '';
-      function getAdminKey(){
-        return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
-      }
       async function ensureCsrf(){
-        const key = getAdminKey();
-        const res = await fetch('/admin/csrf', { headers: { 'api_key': key, 'X-API-Key': key }});
+        const headers = adminAuth.getAuthHeaders();
+        const res = await fetch('/admin/csrf', { headers });
         const data = await res.json();
         CSRF = data.csrf_token || '';
       }
       async function fetchJSON(url, opts={}){
-  const headers = opts.headers || {};
-  const key = getAdminKey();
-  headers['api_key'] = key;
-  headers['X-API-Key'] = key;
+        const headers = opts.headers || {};
+        Object.assign(headers, adminAuth.getAuthHeaders());
         if(!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
         opts.headers = headers;
         const res = await fetch(url, opts);

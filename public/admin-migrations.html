@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Database Migration Manager - OutlookBookingSync</title>
     <link href="css/dashboard.css" rel="stylesheet">
+    <script src="js/auth.js"></script>
     <style>
         .migration-manager {
             max-width: 1200px;
@@ -345,19 +346,16 @@
         let migrations = [];
         let CSRF = '';
         
-        // Get admin API key from localStorage
-        function getAdminKey(){
-            return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
-        }
-        
         // Ensure CSRF token is available
         async function ensureCsrf(){
-            const key = getAdminKey();
-            const res = await fetch('/admin/csrf', { 
-                headers: { 'api_key': key, 'X-API-Key': key }
-            });
-            const data = await res.json();
-            CSRF = data.csrf_token || '';
+            try {
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch('/admin/csrf', { headers });
+                const data = await response.json();
+                CSRF = data.csrf_token || '';
+            } catch (error) {
+                console.error('Failed to get CSRF token:', error);
+            }
         }
 
         // Initialize the page
@@ -369,10 +367,8 @@
         async function refreshMigrations() {
             showLoading();
             try {
-                const key = getAdminKey();
-                const response = await fetch('/api/migrations/status', {
-                    headers: { 'api_key': key, 'X-API-Key': key }
-                });
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch('/api/migrations/status', { headers });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -464,10 +460,8 @@
         // View migration content
         async function viewMigrationContent(version) {
             try {
-                const key = getAdminKey();
-                const response = await fetch(`/api/migrations/${version}/content`, {
-                    headers: { 'api_key': key, 'X-API-Key': key }
-                });
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch(`/api/migrations/${version}/content`, { headers });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -493,15 +487,10 @@
             
             showLoading();
             try {
-                const key = getAdminKey();
+                const headers = { ...adminAuth.getAuthHeaders(), 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF };
                 const response = await fetch('/api/migrations/run', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'api_key': key,
-                        'X-API-Key': key,
-                        'X-CSRF-Token': CSRF
-                    },
+                    headers,
                     body: JSON.stringify({
                         version: version,
                         dry_run: dryRun
@@ -551,15 +540,10 @@
             
             showLoading();
             try {
-                const key = getAdminKey();
+                const headers = { ...adminAuth.getAuthHeaders(), 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF };
                 const response = await fetch('/api/migrations/run-all', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'api_key': key,
-                        'X-API-Key': key,
-                        'X-CSRF-Token': CSRF
-                    },
+                    headers,
                     body: JSON.stringify({
                         dry_run: dryRun
                     })
@@ -660,15 +644,10 @@
             showLoading();
             
             try {
-                const key = getAdminKey();
+                const headers = { ...adminAuth.getAuthHeaders(), 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF };
                 const response = await fetch('/api/migrations/create', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'api_key': key,
-                        'X-API-Key': key,
-                        'X-CSRF-Token': CSRF
-                    },
+                    headers,
                     body: JSON.stringify({
                         description: description,
                         sql_content: sql

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bridge Resources Management</title>
     <link rel="stylesheet" href="/css/dashboard.css">
+    <script src="js/auth.js"></script>
     <style>
         .upload-area {
             border: 2px dashed #ddd;
@@ -376,18 +377,23 @@
         let currentBridgeId = '';
         let CSRF = '';
 
-        // CSRF token management
+                // CSRF token management
         async function ensureCsrf() {
-            const key = getAdminKey();
-            if (!key) return;
             try {
-                const res = await fetch('/admin/csrf', { 
-                    headers: { 'api_key': key, 'X-API-Key': key }
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch('/admin/csrf', {
+                    method: 'GET',
+                    headers: headers
                 });
-                const data = await res.json();
-                CSRF = data.csrf_token || '';
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    CSRF = data.csrf_token || '';
+                } else {
+                    console.error('Failed to get CSRF token:', response.statusText);
+                }
             } catch (error) {
-                console.error('Failed to fetch CSRF token:', error);
+                console.error('Error getting CSRF token:', error);
             }
         }
 
@@ -435,9 +441,9 @@
         }
 
         async function loadTenants() {
-            const key = getAdminKey();
+            const key = adminAuth.getApiKey();
             if (!key) {
-                console.error('Admin API key not set. Set localStorage.dashboard_api_key');
+                console.error('Admin API key not set. Set via Ctrl+K or localStorage.dashboard_api_key');
                 const badge = document.getElementById('currentTenant');
                 badge.textContent = 'API key missing';
                 badge.className = 'badge badge-error';
@@ -445,9 +451,8 @@
             }
 
             try {
-                const response = await fetch('/admin/tenants', {
-                    headers: { 'api_key': key, 'X-API-Key': key }
-                });
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch('/admin/tenants', { headers });
                 const data = await response.json();
                 
                 const select = document.getElementById('tenantSelect');
@@ -570,20 +575,10 @@
             badge.className = 'badge ' + (currentTenantId ? 'badge-info' : 'badge-secondary');
         }
 
-        function getAdminKey() {
-            return (localStorage.dashboard_api_key || localStorage.getItem('dashboard_api_key') || '');
-        }
-
         function getHeaders(hasBody = true) {
-            const headers = {
-                'api_key': getAdminKey(),
-                'X-API-Key': getAdminKey()
-            };
+            const headers = adminAuth.getAuthHeaders(currentTenantId);
             if (hasBody) {
                 headers['Content-Type'] = 'application/json';
-            }
-            if (currentTenantId) {
-                headers['X-Tenant-Id'] = currentTenantId;
             }
             if (CSRF) {
                 headers['X-CSRF-Token'] = CSRF;
