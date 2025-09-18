@@ -6,6 +6,9 @@
     <title>Event Management - OutlookBookingSync Admin</title>
     <link rel="stylesheet" href="css/dashboard.css">
     <script src="js/auth.js"></script>
+	    <style>
+       body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+	   </style>
 </head>
 <body>
     <header>
@@ -13,8 +16,7 @@
         <nav>
        <a href="/dashboard">Dashboard</a> ·
       <a href="/admin-events" class="active">Event Management</a> ·
-      <a href="/admin-tenants">Tenants</a> ·
-      <a href="/admin-keys">API Keys</a> ·
+      <a href="/admin-tenants">Tenant & Key Management</a> ·
       <a href="/admin-configs">Bridge Configs</a> ·
       <a href="/admin-mappings">Resource Mappings</a> ·
       <a href="/admin-resources">Admin Resources</a> ·
@@ -22,7 +24,7 @@
         </nav>
     </header>
 
-    <main>
+    <main class="container">
         <div id="messageArea"></div>
 
         <!-- Event Query Section -->

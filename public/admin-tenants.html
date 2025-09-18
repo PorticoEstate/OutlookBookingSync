@@ -2,78 +2,274 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Admin • Tenants</title>
+    <title>Admin • Tenant & Key Management</title>
     <link rel="stylesheet" href="/css/dashboard.css" />
     <script src="js/auth.js"></script>
-        <style>
-
-      body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-      </style>
-
+    <style>
+      body { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+      .section-divider { border-top: 2px solid #e0e0e0; margin: 32px 0 24px 0; }
+      .key-management { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+      .tenant-row.selected { background-color: #e3f2fd; }
+      .manage-keys-btn { 
+        background: #1976d2; 
+        color: white; 
+        border: none; 
+        padding: 4px 8px; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        font-size: 0.9em;
+      }
+      .manage-keys-btn:hover { background: #1565c0; }
+      .key-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
+      .key-controls label { min-width: 120px; display: inline-block; }
+      .key-controls select, .key-controls button { padding: 6px 10px; }
+      .key-metadata { 
+        background: white; 
+        border: 1px solid #ddd; 
+        border-radius: 6px; 
+        padding: 12px; 
+        margin: 12px 0;
+        font-family: monospace;
+        white-space: pre-wrap;
+        max-height: 300px;
+        overflow: auto;
+      }
+      .note { color: #666; font-size: 0.9em; margin: 8px 0; }
+      .selected-tenant-info { 
+        background: #e8f5e8; 
+        padding: 12px; 
+        border-radius: 6px; 
+        margin: 12px 0;
+        border-left: 4px solid #4caf50;
+      }
+    </style>
   </head>
   <body>
-    <h1>Tenants</h1>
+    <h1>Tenant & Key Management</h1>
     <nav>
       <a href="/dashboard">Dashboard</a> ·
       <a href="/admin-events">Event Management</a> ·
-      <a href="/admin-tenants" class="active">Tenants</a> ·
-      <a href="/admin-keys">API Keys</a> ·
+      <a href="/admin-tenants" class="active">Tenant & Key Management</a> ·
       <a href="/admin-configs">Bridge Configs</a> ·
       <a href="/admin-mappings">Resource Mappings</a> ·
       <a href="/admin-resources">Admin Resources</a> ·
       <a href="/admin-migrations">DB Migrations</a>
     </nav>
+    
+    <p class="note">Use a global admin API key in your browser: <code>localStorage.dashboard_api_key</code> must be set. You can set it on the dashboard (Ctrl+K) or via the console.</p>
+
+    <!-- Tenant Management Section -->
     <section>
+      <h2>Create New Tenant</h2>
       <form id="createTenantForm">
         <input name="id" placeholder="tenant id" required />
         <input name="name" placeholder="name" required />
         <label><input type="checkbox" name="active" checked /> Active</label>
-        <button type="submit">Create</button>
+        <button type="submit">Create Tenant</button>
       </form>
     </section>
+    
     <section>
+      <h2>Tenant List</h2>
       <table id="tenants"></table>
+    </section>
+
+    <!-- Key Management Section -->
+    <div class="section-divider"></div>
+    <section class="key-management">
+      <h2>🔑 API Key Management</h2>
+      <p class="note">Select a tenant from the table above to manage their API key. The plaintext key is only shown once immediately after rotation.</p>
+      
+      <div id="selectedTenantInfo" class="selected-tenant-info" style="display: none;">
+        <strong>Selected Tenant:</strong> <span id="selectedTenantName"></span>
+      </div>
+
+      <div class="key-controls">
+        <button id="refreshMeta" disabled>Refresh Key Metadata</button>
+        <button id="rotateKey" disabled>Rotate API Key</button>
+      </div>
+
+      <div>
+        <h3>Key Metadata</h3>
+        <div id="keyMetadata" class="key-metadata">Select a tenant above to view key information...</div>
+      </div>
     </section>
     <script>
       let CSRF = '';
+      let selectedTenantId = '';
+      let selectedTenantName = '';
+
+      // CSRF token management
       async function ensureCsrf(){
         const headers = adminAuth.getAuthHeaders();
         const res = await fetch('/admin/csrf', { headers });
         const data = await res.json();
         CSRF = data.csrf_token || '';
       }
+
+      // Enhanced fetch function with error handling
+      async function fetchJSON(url, opts={}){
+        const headers = opts.headers || {};
+        Object.assign(headers, adminAuth.getAuthHeaders());
+        if(!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+        if(CSRF && (opts.method === 'POST' || opts.method === 'PUT' || opts.method === 'DELETE')) {
+          headers['X-CSRF-Token'] = CSRF;
+        }
+        opts.headers = headers;
+        const res = await fetch(url, opts);
+        let data; 
+        try { data = await res.json(); } catch { data = null; }
+        if(!res.ok){ throw new Error((data && data.error) || res.statusText); }
+        return data;
+      }
+
+      // Tenant Management Functions
       async function loadTenants(){
-        const headers = adminAuth.getAuthHeaders();
-        const res = await fetch('/admin/tenants', { headers });
-        const data = await res.json();
-        const tbl = document.getElementById('tenants');
-        tbl.innerHTML = '<tr><th>id</th><th>name</th><th>active</th><th>created</th><th>actions</th></tr>' +
-          data.tenants.map(t => `<tr><td>${t.id}</td><td>${t.name}</td><td>${t.active}</td><td>${t.created_at||''}</td><td>
-            <button onclick="rotate('${t.id}')">Rotate key</button>
-            <button onclick="delTenant('${t.id}')">Delete</button>
-          </td></tr>`).join('');
+        try {
+          const data = await fetchJSON('/admin/tenants');
+          const tbl = document.getElementById('tenants');
+          tbl.innerHTML = '<tr><th>ID</th><th>Name</th><th>Active</th><th>Created</th><th>Actions</th></tr>' +
+            data.tenants.map(t => `<tr class="tenant-row" data-tenant-id="${t.id}" data-tenant-name="${t.name}">
+              <td>${t.id}</td>
+              <td>${t.name}</td>
+              <td>${t.active ? '✅' : '❌'}</td>
+              <td>${t.created_at || ''}</td>
+              <td>
+                <button class="manage-keys-btn" onclick="selectTenant('${t.id}', '${t.name}')">Manage Keys</button>
+                <button onclick="rotateTenantKey('${t.id}')">Quick Rotate</button>
+                <button onclick="delTenant('${t.id}')">Delete</button>
+              </td>
+            </tr>`).join('');
+        } catch (error) {
+          console.error('Error loading tenants:', error);
+          document.getElementById('tenants').innerHTML = '<tr><td colspan="5">Error loading tenants: ' + error.message + '</td></tr>';
+        }
       }
-      document.getElementById('createTenantForm').addEventListener('submit', async (e)=>{
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const body = { id: fd.get('id'), name: fd.get('name'), active: fd.get('active')==='on' };
-        const headers = { ...adminAuth.getAuthHeaders(), 'Content-Type':'application/json', 'X-CSRF-Token': CSRF };
-        await fetch('/admin/tenants', { method:'POST', headers, body: JSON.stringify(body)});
+
+      async function createTenant(formData) {
+        const body = { 
+          id: formData.get('id'), 
+          name: formData.get('name'), 
+          active: formData.get('active') === 'on' 
+        };
+        await fetchJSON('/admin/tenants', { 
+          method: 'POST', 
+          body: JSON.stringify(body)
+        });
         loadTenants();
-      });
-      async function rotate(id){
-        const headers = { ...adminAuth.getAuthHeaders(), 'X-CSRF-Token': CSRF };
-        const res = await fetch(`/admin/tenants/${id}/keys/rotate`, { method:'POST', headers});
-        const data = await res.json();
-        alert('New API key (copy now):\n' + data.api_key);
       }
+
       async function delTenant(id){
-        if(!confirm('Delete tenant '+id+'?')) return;
-        const headers = { ...adminAuth.getAuthHeaders(), 'X-CSRF-Token': CSRF };
-        await fetch(`/admin/tenants/${id}`, { method:'DELETE', headers});
-        loadTenants();
+        if(!confirm(`Delete tenant ${id}? This will also delete their API key and all associated data.`)) return;
+        try {
+          await fetchJSON(`/admin/tenants/${id}`, { method: 'DELETE' });
+          loadTenants();
+          // Clear selection if deleted tenant was selected
+          if (selectedTenantId === id) {
+            clearTenantSelection();
+          }
+        } catch (error) {
+          alert('Error deleting tenant: ' + error.message);
+        }
       }
-      ensureCsrf().then(loadTenants);
+
+      async function rotateTenantKey(id){
+        try {
+          const res = await fetchJSON(`/admin/tenants/${id}/keys/rotate`, { method: 'POST' });
+          alert('New API key for ' + id + ' (copy now):\n' + res.api_key);
+          // Refresh metadata if this tenant is currently selected
+          if (selectedTenantId === id) {
+            refreshKeyMetadata();
+          }
+        } catch (error) {
+          alert('Error rotating key: ' + error.message);
+        }
+      }
+
+      // Key Management Functions
+      function selectTenant(tenantId, tenantName) {
+        // Clear previous selection styling
+        document.querySelectorAll('.tenant-row').forEach(row => {
+          row.classList.remove('selected');
+        });
+        
+        // Add selection styling to clicked row
+        const selectedRow = document.querySelector(`[data-tenant-id="${tenantId}"]`);
+        if (selectedRow) {
+          selectedRow.classList.add('selected');
+        }
+
+        selectedTenantId = tenantId;
+        selectedTenantName = tenantName;
+        
+        // Update UI
+        document.getElementById('selectedTenantName').textContent = `${tenantId} — ${tenantName}`;
+        document.getElementById('selectedTenantInfo').style.display = 'block';
+        document.getElementById('refreshMeta').disabled = false;
+        document.getElementById('rotateKey').disabled = false;
+        
+        // Load key metadata
+        refreshKeyMetadata();
+      }
+
+      function clearTenantSelection() {
+        selectedTenantId = '';
+        selectedTenantName = '';
+        document.querySelectorAll('.tenant-row').forEach(row => {
+          row.classList.remove('selected');
+        });
+        document.getElementById('selectedTenantInfo').style.display = 'none';
+        document.getElementById('refreshMeta').disabled = true;
+        document.getElementById('rotateKey').disabled = true;
+        document.getElementById('keyMetadata').textContent = 'Select a tenant above to view key information...';
+      }
+
+      async function refreshKeyMetadata(){
+        if (!selectedTenantId) return;
+        
+        try {
+          const meta = await fetchJSON(`/admin/tenants/${encodeURIComponent(selectedTenantId)}/keys/metadata`);
+          document.getElementById('keyMetadata').textContent = JSON.stringify(meta, null, 2);
+        } catch(error) {
+          document.getElementById('keyMetadata').textContent = 'No key metadata found or error: ' + error.message;
+        }
+      }
+
+      async function rotateSelectedKey(){
+        if (!selectedTenantId) return;
+        
+        if(!confirm(`Rotate API key for tenant ${selectedTenantId}? The old key will stop working immediately.`)) return;
+        
+        try {
+          const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(selectedTenantId)}/keys/rotate`, { 
+            method: 'POST' 
+          });
+          alert('New API key for ' + selectedTenantId + ' (copy now):\n' + data.api_key);
+          refreshKeyMetadata();
+        } catch (error) {
+          alert('Error rotating key: ' + error.message);
+        }
+      }
+
+      // Event Listeners
+      document.getElementById('createTenantForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await createTenant(new FormData(e.target));
+          e.target.reset();
+        } catch (error) {
+          alert('Error creating tenant: ' + error.message);
+        }
+      });
+
+      document.getElementById('refreshMeta').addEventListener('click', refreshKeyMetadata);
+      document.getElementById('rotateKey').addEventListener('click', rotateSelectedKey);
+
+      // Initialize
+      ensureCsrf().then(loadTenants).catch(err => {
+        console.error('Initialization error:', err);
+        document.getElementById('keyMetadata').textContent = 'Failed to initialize: ' + err.message;
+      });
     </script>
   </body>
 </html>
