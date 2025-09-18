@@ -281,7 +281,6 @@ class BridgeManager
 	): array
 	{
 		// Get sync direction from options or determine from resource mapping
-		$requestedSyncDirection = $options['sync_direction'] ?? null;
 		
 		$tenantId = $options['tenant_id'] ?? null;
 		if ($tenantId !== null)
@@ -295,11 +294,6 @@ class BridgeManager
 			$target = $this->getBridge($targetBridge);
 		}
 
-		// If sync direction not specified, try to determine from resource mapping
-		if (!$requestedSyncDirection)
-		{
-			$requestedSyncDirection = $this->determineSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $tenantId);
-		}
 
 		$this->logger->info('Starting bridge sync', [
 			'source_bridge' => $sourceBridge,
@@ -307,33 +301,19 @@ class BridgeManager
 			'source_calendar' => $sourceCalendarId,
 			'target_calendar' => $targetCalendarId,
 			'date_range' => [$startDate, $endDate],
-			'sync_direction' => $requestedSyncDirection
-		]);
-
-		// Perform sync with ownership policy enforcement
-		// The sync direction is always source -> target (based on API call)
-		// The requestedSyncDirection determines ownership policy:
-		// - 'source_to_target': Only source bridge owns events
-		// - 'target_to_source': Only target bridge owns events  
-		// - 'bidirectional': Both bridges can own events
-		$this->logger->info('Starting sync with ownership policy', [
-			'source_bridge' => $sourceBridge,
-			'target_bridge' => $targetBridge,
-			'ownership_policy' => $requestedSyncDirection,
-			'sync_direction' => 'source_to_target (API call direction)'
 		]);
 
 		return $this->performSync(
 			$source, $target, $sourceBridge, $targetBridge,
 			$sourceCalendarId, $targetCalendarId,
-			$startDate, $endDate, $options, $requestedSyncDirection
+			$startDate, $endDate, $options
 		);
 	}
 
 	/**
 	 * Perform sync from source to target with ownership policy enforcement
 	 */
-	private function performSync($source, $target, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options, $direction)
+	private function performSync($source, $target, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options)
 	{
 		// Get events from source
 		$sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
@@ -356,7 +336,7 @@ class BridgeManager
 
 		// Process each event individually with direction awareness
 		$totalEvents = count($sourceEvents);
-		$this->logger->info("Starting to process {$totalEvents} events in {$direction} direction", [
+		$this->logger->info("Starting to process {$totalEvents} events", [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge
 		]);
@@ -368,7 +348,6 @@ class BridgeManager
 			$this->logger->info("Processing event {$index}/{$totalEvents}", [
 				'event_id' => $sourceEvent['id'] ?? 'unknown',
 				'event_subject' => $sourceEvent['subject'] ?? 'N/A',
-				'sync_direction' => $direction
 			]);
 
 
@@ -415,7 +394,6 @@ class BridgeManager
 			{
 				$this->logger->error('Failed to handle deletions - continuing without deletion processing', [
 					'error' => $e->getMessage(),
-					'sync_direction' => $direction
 				]);
 				$results['errors'][] = [
 					'event_id' => 'deletion_process',
@@ -439,7 +417,6 @@ class BridgeManager
 		$this->logger->info('Bridge sync completed', array_merge($results['summary'], [
 			'source_bridge' => $sourceBridge,
 			'target_bridge' => $targetBridge,
-			'sync_direction' => $direction,
 			'details' => [
 				'created' => $results['created'],
 				'updated' => $results['updated'],
@@ -464,7 +441,6 @@ class BridgeManager
 					'source_calendar_id' => $sourceCalendarId,
 					'target_calendar_id' => $targetCalendarId,
 					'date_range' => [$startDate, $endDate],
-					'sync_direction' => $direction,
 					'created' => $results['created'] ?? 0,
 					'updated' => $results['updated'] ?? 0,
 					'deleted' => $results['deleted'] ?? 0,
@@ -1354,11 +1330,11 @@ class BridgeManager
 	 * - target_to_source: Only target bridge can modify source (target owns)
 	 * - bidirectional: Both bridges can modify each other
 	 */
-	private function canSyncInDirection(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	private function canSyncInDirection(string $syncDirection, bool $isReversed, array|null $mappingConfig): bool
 	{
 		// If we have mapping config, use the proper ownership logic
 		if ($mappingConfig !== null) {
-			return $this->canSyncWithOwnership($mappingConfig);
+			return $this->canSyncWithOwnership($mappingConfig, $syncDirection);
 		}
 		
 		// Fallback to old logic for backward compatibility
@@ -1384,9 +1360,8 @@ class BridgeManager
 	/**
 	 * New ownership-based sync permission check using mapping configuration
 	 */
-	private function canSyncWithOwnership(array $mappingConfig): bool
+	private function canSyncWithOwnership(array $mappingConfig, string $syncDirection): bool
 	{
-		$syncDirection = $mappingConfig['sync_direction'];
 		$bridgeFrom = $mappingConfig['bridge_from'];
 		$bridgeTo = $mappingConfig['bridge_to'];
 		$apiCallReversed = $mappingConfig['api_call_reversed'];
@@ -2004,39 +1979,4 @@ class BridgeManager
 		return $allCancelled;
 	}
 
-	/**
-	 * Determine sync direction from resource mapping
-	 */
-	private function determineSyncDirection($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $tenantId = null): string
-	{
-		try
-		{
-			$tenantClause = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
-			$sql = "SELECT sync_direction FROM bridge_resource_mappings 
-					WHERE ((bridge_from = :source_bridge AND bridge_to = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
-					   OR (bridge_from = :target_bridge AND bridge_to = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
-					AND is_active = TRUE AND sync_enabled = TRUE" . $tenantClause . " LIMIT 1";
-			
-			$stmt = $this->db->prepare($sql);
-			$params = [
-				':source_bridge' => $sourceBridge,
-				':target_bridge' => $targetBridge,
-				':source_calendar_id' => $sourceCalendarId,
-				':target_calendar_id' => $targetCalendarId
-			];
-			if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-			
-			$stmt->execute($params);
-			$result = $stmt->fetch(\PDO::FETCH_ASSOC);
-			
-			return $result['sync_direction'] ?? 'bidirectional';
-		}
-		catch (\Exception $e)
-		{
-			$this->logger->warning('Failed to determine sync direction, defaulting to bidirectional', [
-				'error' => $e->getMessage()
-			]);
-			return 'bidirectional';
-		}
-	}
 }

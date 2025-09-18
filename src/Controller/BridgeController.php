@@ -259,7 +259,6 @@ class BridgeController
                             'mapping_id' => $mapping['id'],
                             'bridge_from' => $sourceBridge, //actual source bridge for this sync call
                             'bridge_to' => $targetBridge, //actual target bridge for this sync call
-                            'sync_direction' => $mapping['sync_direction']
                         ];
                         
                         $results = $this->bridgeManager->syncBetweenBridges(
