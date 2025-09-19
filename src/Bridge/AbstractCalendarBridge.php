@@ -837,10 +837,9 @@ abstract class AbstractCalendarBridge
             if ($result && isset($result['sync_direction']))
             {
                 $this->logger->debug('Found direct resource mapping sync direction', [
-                    'direction' => $result['sync_direction'],
+                    'ownership' => $result['sync_direction'],
                     'bridge_from' => $sourceBridge,
-                    'bridge_to' => $targetBridge,
-                    'lookup_type' => 'direct'
+                    'bridge_to' => $targetBridge
                 ]);
                 return $result['sync_direction'];
             }
@@ -851,28 +850,19 @@ abstract class AbstractCalendarBridge
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($result && isset($result['sync_direction']))
             {
-                // Invert the sync direction since we're looking at the reverse mapping
-                $invertedDirection = match ($result['sync_direction']) {
-                    'source_to_target' => 'target_to_source',
-                    'target_to_source' => 'source_to_target',
-                    'bidirectional' => 'bidirectional',
-                    default => 'source_to_target'
-                };
-                
+                 
                 $this->logger->debug('Found reverse resource mapping sync direction', [
-                    'original_direction' => $result['sync_direction'],
-                    'inverted_direction' => $invertedDirection,
+                    'ownership' => $result['sync_direction'],
                     'bridge_from' => $targetBridge,
-                    'bridge_to' => $sourceBridge,
-                    'lookup_type' => 'reverse'
+                    'bridge_to' => $sourceBridge
                 ]);
-                
-                return $invertedDirection;
+                return $result['sync_direction'];
+
             }
 
             // Default if no mapping found in either direction
             $this->logger->debug('No resource mapping found, using default sync direction', [
-                'default_direction' => 'source_to_target',
+                'ownership' => 'source_to_target',
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge
             ]);
