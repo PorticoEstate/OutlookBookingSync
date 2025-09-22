@@ -917,6 +917,359 @@ class BridgeController
     }
 
     /**
+     * Process webhook queue (bridge_sync queue items).
+     * POST /bridges/process-webhook-queue
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
+     */
+    public function processWebhookQueue(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $batchSize = $body['batch_size'] ?? 50;
+            $tenantId = $request->getAttribute('tenant_id');
+
+            // Get pending webhook queue items
+            $sql = "
+                SELECT id, source_bridge, target_bridge, payload, attempts, created_at
+                FROM bridge_queue 
+                WHERE queue_type = 'bridge_sync' 
+                AND status = 'pending'
+            ";
+            
+            $params = [];
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " ORDER BY priority ASC, created_at ASC LIMIT ?";
+            $params[] = $batchSize;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $queueItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $processed = 0;
+            $errors = 0;
+            $errorDetails = [];
+
+            foreach ($queueItems as $item) {
+                try {
+                    // Mark as processing
+                    $updateSql = "UPDATE bridge_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?";
+                    $updateStmt = $this->db->prepare($updateSql);
+                    $updateStmt->execute([$item['id']]);
+
+                    // Process the webhook payload
+                    $payload = json_decode($item['payload'], true);
+                    $sourceBridge = $item['source_bridge'];
+                    $targetBridge = $item['target_bridge'];
+
+                    // Process sync operation based on payload
+                    if ($payload && isset($payload['resource_id'])) {
+                        // This is a webhook event - process it
+                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId);
+                    }
+
+                    // Mark as completed
+                    $completeSql = "UPDATE bridge_queue SET status = 'completed', processed_at = CURRENT_TIMESTAMP WHERE id = ?";
+                    $completeStmt = $this->db->prepare($completeSql);
+                    $completeStmt->execute([$item['id']]);
+
+                    $processed++;
+
+                } catch (\Exception $e) {
+                    $errors++;
+                    $errorDetails[] = [
+                        'queue_id' => $item['id'],
+                        'error' => $e->getMessage()
+                    ];
+
+                    // Mark as failed if max attempts reached, otherwise back to pending
+                    $maxAttempts = 3;
+                    $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                    
+                    $errorSql = "UPDATE bridge_queue SET status = ?, error_message = ? WHERE id = ?";
+                    $errorStmt = $this->db->prepare($errorSql);
+                    $errorStmt->execute([$newStatus, $e->getMessage(), $item['id']]);
+
+                    $this->logger->error('Failed to process webhook queue item', [
+                        'queue_id' => $item['id'],
+                        'attempts' => $item['attempts'] + 1,
+                        'max_attempts' => $maxAttempts,
+                        'new_status' => $newStatus,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Webhook queue processed',
+                'processed' => $processed,
+                'errors' => $errors,
+                'error_details' => $errorDetails,
+                'total_items' => count($queueItems)
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Webhook queue processing failed', ['error' => $e->getMessage()]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Process a webhook event from the queue.
+     *
+     * @param string $sourceBridge
+     * @param string $targetBridge  
+     * @param array $payload
+     * @param string|null $tenantId
+     * @return void
+     */
+    private function processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId)
+    {
+        // Get bridge instances
+        $sourceBridgeInstance = $tenantId 
+            ? $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge)
+            : $this->bridgeManager->getBridge($sourceBridge);
+            
+        $targetBridgeInstance = $tenantId
+            ? $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridge) 
+            : $this->bridgeManager->getBridge($targetBridge);
+
+        // Extract resource and event information from payload
+        $resourceId = $payload['resource_id'] ?? null;
+        $eventId = $payload['event_id'] ?? null;
+        $changeType = $payload['change_type'] ?? 'updated';
+
+        if (!$resourceId) {
+            throw new \Exception('No resource_id in webhook payload');
+        }
+
+        // Determine sync direction and create mapping entry
+        if ($changeType === 'deleted') {
+            // Handle deletion
+            $this->handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
+        } else {
+            // Handle create/update - mark for sync
+            $this->createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
+        }
+    }
+
+    /**
+     * Create a bridge mapping after successfully syncing the event.
+     */
+    private function createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
+    {
+        try {
+            // For webhook events, we need to use the resource mapping to find target calendar
+            // First, check if there's an existing resource mapping
+            $mappingSql = "
+                SELECT target_calendar_id, id as mapping_id
+                FROM bridge_resource_mappings 
+                WHERE bridge_from = ? 
+                AND bridge_to = ?
+                AND source_calendar_id = ?
+                AND is_active = true
+            ";
+            
+            $mappingParams = [$sourceBridge, $targetBridge, $resourceId];
+            if ($tenantId) {
+                $mappingSql .= " AND tenant_id = ?";
+                $mappingParams[] = $tenantId;
+            }
+
+            $mappingStmt = $this->db->prepare($mappingSql);
+            $mappingStmt->execute($mappingParams);
+            $resourceMapping = $mappingStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$resourceMapping) {
+                throw new \Exception("No resource mapping found for {$sourceBridge} resource {$resourceId} to {$targetBridge}");
+            }
+
+            $targetCalendarId = $resourceMapping['target_calendar_id'];
+            $resourceMappingId = $resourceMapping['mapping_id'];
+
+            // Get the source bridge instance and fetch the specific event directly
+            $sourceBridgeInstance = $tenantId 
+                ? $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge)
+                : $this->bridgeManager->getBridge($sourceBridge);
+
+            // Get the specific event directly using getEvent method
+            $sourceEvent = $sourceBridgeInstance->getEvent($resourceId, $eventId);
+            
+            if (!$sourceEvent) {
+                throw new \Exception("Event {$eventId} not found in {$sourceBridge} resource {$resourceId}");
+            }
+
+            // Perform the actual sync operation to the target bridge
+            $options = [
+                'tenant_id' => $tenantId,
+                'sync_method' => 'webhook',
+                'handle_deletions' => false,
+                'skip_updates' => false,
+                'dry_run' => false,
+                'mapping_config' => [
+                    'mapping_id' => $resourceMappingId,
+                    'bridge_from' => $sourceBridge,
+                    'bridge_to' => $targetBridge,
+                ]
+            ];
+
+            $this->logger->info('Performing webhook sync operation', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $resourceId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $eventId,
+                'tenant_id' => $tenantId
+            ]);
+
+            // Process the single event directly instead of full date range sync
+            $syncResults = $this->bridgeManager->processSingleEventSync(
+                $sourceBridge,
+                $targetBridge,
+                $resourceId,
+                $targetCalendarId,
+                $sourceEvent,
+                $options
+            );
+
+            // Check if sync was successful
+            if (!$syncResults['success']) {
+                throw new \Exception("Sync operation failed: " . ($syncResults['error'] ?? 'Unknown error'));
+            }
+
+            $totalCreated = $syncResults['created'] ?? 0;
+            $totalUpdated = $syncResults['updated'] ?? 0;
+            $totalErrors = $syncResults['errors'] ?? 0;
+
+            // Create bridge mapping only after successful sync
+            $mappingStatus = ($totalCreated > 0 || $totalUpdated > 0) ? 'completed' : 'pending';
+            
+            $sql = "
+                INSERT INTO bridge_mappings 
+                (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, sync_status, tenant_id, created_at, updated_at, target_event_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
+                DO UPDATE SET 
+                    sync_status = ?,
+                    updated_at = CURRENT_TIMESTAMP,
+                    retry_count = 0,
+                    error_message = NULL,
+                    target_event_id = ?
+            ";
+
+            // Extract target event ID from sync results if available
+            $targetEventId = $syncResults['target_event_id'] ?? null;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $sourceBridge,
+                $targetBridge, 
+                $resourceId,
+                $targetCalendarId,
+                $eventId,
+                $mappingStatus,
+                $tenantId,
+                $targetEventId,
+                // ON CONFLICT values
+                $mappingStatus,
+                $targetEventId
+            ]);
+
+            $this->logger->info('Created bridge mapping after successful sync', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $resourceId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $eventId,
+                'target_event_id' => $targetEventId,
+                'sync_status' => $mappingStatus,
+                'sync_results' => [
+                    'created' => $totalCreated,
+                    'updated' => $totalUpdated,
+                    'errors' => $totalErrors
+                ],
+                'tenant_id' => $tenantId
+            ]);
+
+            return $syncResults;
+
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to sync and create bridge mapping', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'resource_id' => $resourceId,
+                'event_id' => $eventId
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Handle event deletion from webhook.
+     */
+    private function handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
+    {
+        try {
+            // Mark existing mapping as cancelled for deletion processing
+            $sql = "
+                UPDATE bridge_mappings 
+                SET sync_status = 'cancelled', 
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE source_bridge = ? 
+                AND target_bridge = ?
+                AND source_calendar_id = ? 
+                AND source_event_id = ?
+            ";
+            
+            $params = [$sourceBridge, $targetBridge, $resourceId, $eventId];
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            $this->logger->info('Marked mapping as cancelled for deletion', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'resource_id' => $resourceId,
+                'event_id' => $eventId,
+                'tenant_id' => $tenantId
+            ]);
+
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to handle event deletion', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'resource_id' => $resourceId,
+                'event_id' => $eventId
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Get available resources for a specific bridge.
      *
      * @param Request $request

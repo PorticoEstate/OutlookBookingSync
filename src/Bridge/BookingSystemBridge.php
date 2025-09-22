@@ -431,7 +431,9 @@ class BookingSystemBridge extends AbstractCalendarBridge
     {
         $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
         $originalId = $this->extractOriginalId($eventId);
-        return $this->getEventViaApi($originalId);
+        $event = $this->getEventViaApi($originalId);
+        //mapped to generic format
+        return $this->normalizeBookingEvent($event);
     }
 
     /**
@@ -791,7 +793,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         $response = $this->makeApiRequest($endpoint['method'], $url);
 
-        return $response['event'] ?? [];
+        return $response ?? [];
     }
 
     private function createEventViaApi($resourceId, $event): string

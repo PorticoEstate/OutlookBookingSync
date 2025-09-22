@@ -365,6 +365,9 @@ $app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 
 // Process deletion check queue
 $app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController::class, 'processDeletionQueue']);
 
+// Process webhook queue (bridge_sync queue items)
+$app->post('/bridges/process-webhook-queue', [\App\Controller\BridgeController::class, 'processWebhookQueue']);
+
 // Resource Mapping API Routes
 
 // Get all resource mappings
@@ -422,6 +425,9 @@ if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLE
 // Get detailed sync status for monitoring
 $app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getSyncStatusDetails']);
 
+// Get queue statistics for dashboard monitoring
+$app->get('/health/queue-stats', [\App\Controller\HealthController::class, 'getQueueStats']);
+
 // Re-enable failed events endpoint
 $app->post('/health/re-enable-failed', [\App\Controller\HealthController::class, 'reEnableFailedEvents']);
 
@@ -476,13 +482,15 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /bridges/{bridge}/available-groups' => 'Get available groups/collections for bridge (query: ?query=string&limit=int&offset=int)',
                 'GET /bridges/{bridge}/resources/{resourceId}/calendar-items' => 'Get calendar items for specific resource on bridge (query: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&limit=int&offset=int)',
                 'POST /bridges/sync/{source}/{target}' => 'Sync events between bridges (body/query: start_date=YYYY-MM-DD, end_date=YYYY-MM-DD, optional: pair_id, source_calendar_id, target_calendar_id, handle_deletions, skip_updates, dry_run, sync_method)',
-                'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks',
+                'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks (body format varies by bridge - see docs for booking_system webhook example)',
+                'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
                 'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
                 'GET /bridges/health' => 'Get health status of all bridges'
             ],
             'sync_status_management' => [
                 'GET /health/sync-status' => 'Get detailed sync status monitoring (optional query: ?status=failed|pending|completed&limit=int&offset=int)',
+                'GET /health/queue-stats' => 'Get queue statistics for dashboard monitoring',
                 'POST /health/re-enable-failed' => 'Re-enable failed events (all bridges)',
                 'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges) (body: batch_size=int)',
                 'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge (body: batch_size=int)',

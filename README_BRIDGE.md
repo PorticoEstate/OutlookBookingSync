@@ -399,6 +399,28 @@ POST /bridges/webhook/{bridgeName}
 
 Used by calendar systems to notify of changes. Automatically queues sync operations.
 
+#### Booking System Webhook Format
+
+Your booking system should send webhooks in this format:
+
+```bash
+curl -X POST "http://localhost:8082/bridges/webhook/booking_system" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: change-me-strong-random" \
+  -d '{
+    "event_type": "booking_created",
+    "resource_id": "452",
+    "event_id": "event_115360",
+    "timestamp": "2025-09-19T10:00:00Z"
+  }'
+```
+
+**Webhook Payload Fields:**
+- `event_type`: `booking_created`, `booking_updated`, or `booking_deleted`
+- `resource_id`: The booking system resource/calendar ID
+- `event_id`: The specific event/booking ID that changed
+- `timestamp`: ISO 8601 timestamp of when the change occurred
+
 #### Notes
 
 - Microsoft Graph performs a validation handshake with a GET and validationToken. This service also accepts GET on the same path and returns the token per Graph requirements.

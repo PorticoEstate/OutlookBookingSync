@@ -1071,8 +1071,26 @@ curl -X POST "http://localhost:8082/bridges/sync/{source_bridge}/{target_bridge}
 #### Process Pending Bridge Operations
 
 ```bash
-# Process all pending sync operations
-curl -X POST "http://localhost:8082/bridge/process-pending" -H "api_key: your_key" -H "X-Tenant-Id: tenantA"
+# Process webhook queue items (converts webhook events to sync mappings)
+curl -X POST "http://localhost:8082/bridges/process-webhook-queue" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: tenantA" \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 50}'
+
+# Process pending sync mappings (performs actual calendar sync)
+curl -X POST "http://localhost:8082/bridges/process-pending-syncs" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: tenantA" \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 50}'
+
+# Process pending syncs for specific bridge only
+curl -X POST "http://localhost:8082/bridges/process-pending-syncs/outlook" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: tenantA" \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 50}'
 ```
 
 #### Handle Deletions and Cancellations
@@ -1098,6 +1116,49 @@ POST /bridges/webhook/outlook
 
 # Example: Google Calendar webhook  
 POST /bridges/webhook/google_calendar
+
+# Example: Booking System webhook
+POST /bridges/webhook/booking_system
+```
+
+#### Booking System Webhook Format
+
+Your booking system should send webhooks to the bridge in the following format:
+
+```bash
+curl -X POST "http://localhost:8082/bridges/webhook/booking_system" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: change-me-strong-random" \
+  -d '{
+    "event_type": "booking_created",
+    "resource_id": "452",
+    "event_id": "event_115360",
+    "timestamp": "2025-09-19T10:00:00Z"
+  }'
+```
+
+**Webhook Payload Fields:**
+
+- `event_type`: Type of event (e.g., `booking_created`, `booking_updated`, `booking_deleted`)
+- `resource_id`: The booking system resource/calendar ID
+- `event_id`: The specific event/booking ID that changed
+- `timestamp`: ISO 8601 timestamp of when the change occurred
+
+**Supported Event Types:**
+
+- `booking_created` - New booking was created
+- `booking_updated` - Existing booking was modified
+- `booking_deleted` - Booking was cancelled/deleted
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Webhook processed and sync queued",
+  "bridge": "booking_system", 
+  "target_bridge": "outlook"
+}
 ```
 
 ```bash
@@ -1162,6 +1223,32 @@ curl -X GET "http://localhost:8082/bridge/stats" -H "api_key: your_key" -H "X-Te
 
 Shows overall statistics about bridge sync operations between all connected systems.
 
+#### Webhook Processing Pipeline
+
+The bridge system uses a streamlined processing pipeline for handling webhook events:
+
+1. **Webhook Queue Processing** - Receives webhook events, performs sync operations, and creates bridge mappings after successful sync
+2. **Sync Mapping Processing** - Handles any remaining pending sync operations and retry logic
+
+```bash
+# Stage 1: Process webhook queue (performs immediate sync for webhook events)
+curl -X POST "http://localhost:8082/bridges/process-webhook-queue" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: tenantA"
+
+# Stage 2: Process pending sync mappings (handles retries and batch operations)
+curl -X POST "http://localhost:8082/bridges/process-pending-syncs" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: tenantA"
+```
+
+**Pipeline Flow:**
+- Webhook received → Stored in `bridge_queue` table
+- Webhook queue processor → Performs actual sync operation → Creates `bridge_mappings` entry only after successful sync
+- Sync processor → Handles any remaining pending operations and retries
+
+Both stages run automatically via cron jobs but can be triggered manually for testing or emergency processing.
+
 ### 5. Bridge Status and Monitoring
 
 #### Get Bridge Statistics
@@ -1221,6 +1308,17 @@ curl -X GET "http://localhost:8082/bridge/automation-stats" -H "api_key: your_ke
 ```
 
 **Recommended Automation:**
+
+The bridge system includes automated processing via cron jobs:
+
+```bash
+# Webhook queue processing (every minute)
+* * * * * curl -s -X POST http://localhost:8082/bridges/process-webhook-queue -H "api_key: your_key" -H "X-Tenant-Id: default"
+
+# Sync mapping processing (every 5 minutes)  
+*/5 * * * * curl -s -X POST http://localhost:8082/bridges/process-pending-syncs -H "api_key: your_key" -H "X-Tenant-Id: default"
+```
+
 - Set up cron jobs for regular bridge sync operations
 - Use webhooks for real-time updates when available
 - Implement polling as a fallback mechanism

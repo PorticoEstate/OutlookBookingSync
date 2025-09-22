@@ -79,9 +79,10 @@ function formatTimestamp(timestamp) {
  * Render system overview statistics
  * @param {Object} data - Dashboard data
  * @param {Object} syncStatusData - Sync status data
+ * @param {Object} queueData - Queue statistics data
  * @returns {string} - HTML for system overview
  */
-function renderSystemOverview(data, syncStatusData) {
+function renderSystemOverview(data, syncStatusData, queueData) {
     if (!data.success || !data.dashboard) {
         return '<div class="stat-box"><div class="stat-number">ERROR</div><div class="stat-label">System Data</div></div>';
     }
@@ -94,21 +95,40 @@ function renderSystemOverview(data, syncStatusData) {
         </div>
     `;
 
-    // Use sync status data if available, otherwise fall back to dashboard data
+    // Queue Statistics (actual events waiting for processing)
+    if (queueData && queueData.success && queueData.queue_stats) {
+        const queueStats = queueData.queue_stats;
+        html += `
+            <div class="stat-box">
+                <div class="stat-number">${queueStats.webhook_queue_size || 0}</div>
+                <div class="stat-label">Queued Events</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">${queueStats.deletion_queue_size || 0}</div>
+                <div class="stat-label">Deletion Queue</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">${queueStats.failed_queue_items || 0}</div>
+                <div class="stat-label">Failed Queue</div>
+            </div>
+        `;
+    }
+
+    // Mapping Statistics (sync status of established mappings)
     if (syncStatusData && syncStatusData.success && syncStatusData.sync_status) {
         const breakdown = syncStatusData.sync_status.overall_sync_health.breakdown;
         html += `
             <div class="stat-box">
                 <div class="stat-number">${breakdown.synced || 0}</div>
-                <div class="stat-label">Synced</div>
+                <div class="stat-label">Synced Mappings</div>
             </div>
             <div class="stat-box">
                 <div class="stat-number">${breakdown.pending || 0}</div>
-                <div class="stat-label">Pending</div>
+                <div class="stat-label">Pending Mappings</div>
             </div>
             <div class="stat-box">
                 <div class="stat-number">${breakdown.error || 0}</div>
-                <div class="stat-label">Errors</div>
+                <div class="stat-label">Error Mappings</div>
             </div>
             <div class="stat-box">
                 <div class="stat-number">${breakdown.cancelled || 0}</div>
@@ -133,6 +153,147 @@ function renderSystemOverview(data, syncStatusData) {
         `;
     }
 
+    return html;
+}
+
+/**
+ * Render queue statistics section
+ * @param {Object} queueData - Queue statistics data from API
+ * @returns {string} - HTML for queue statistics
+ */
+function renderQueueStatistics(queueData) {
+    if (!queueData || !queueData.success || !queueData.data) {
+        return `
+            <div class="card">
+                <h3>📋 Event Queue Status</h3>
+                <p>Unable to retrieve queue statistics. <em>Endpoint may not be implemented yet.</em></p>
+                <div class="metric">
+                    <span class="metric-label">Webhook Queue</span>
+                    <span class="metric-value">N/A</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Deletion Queue</span>
+                    <span class="metric-value">N/A</span>
+                </div>
+            </div>
+        `;
+    }
+
+    const queueStats = queueData.data;
+    const webhookQueue = queueStats.webhook_queue || {};
+    const deletionQueue = queueStats.deletion_queue || {};
+    const totalQueued = (webhookQueue.pending_count || 0) + (deletionQueue.pending_count || 0);
+    const queueHealthStatus = totalQueued > 100 ? 'warning' : (totalQueued > 0 ? 'pending' : 'healthy');
+
+    let html = `
+        <div class="card">
+            <h3>📋 Event Queue Status ${getStatusBadge(queueHealthStatus)}</h3>
+            <div class="metric">
+                <span class="metric-label">Webhook Queue Size</span>
+                <span class="metric-value">${webhookQueue.pending_count || 0}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Deletion Queue Size</span>
+                <span class="metric-value">${deletionQueue.pending_count || 0}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Processing Health</span>
+                <span class="metric-value">${queueStats.processing_health?.health_status || 'unknown'}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Last Updated</span>
+                <span class="metric-value">${queueStats.timestamp || 'unknown'}</span>
+            </div>
+    `;
+
+    // Queue health warnings
+    if (totalQueued > 100) {
+        html += `
+            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+                <strong>⚠️ High Queue Volume:</strong> ${totalQueued} items queued. Consider processing or checking for issues.
+            </div>
+        `;
+    }
+    
+    // Check for stuck items warning
+    if (queueStats.processing_health?.stuck_items?.length > 0) {
+        html += `
+            <div style="margin-top: 15px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+                <strong>⚠️ Processing Issues:</strong> ${queueStats.processing_health.stuck_items.length} stuck queue(s) detected.
+            </div>
+        `;
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+/**
+ * Render mapping statistics section  
+ * @param {Object} syncStatusData - Sync status data from API
+ * @returns {string} - HTML for mapping statistics
+ */
+function renderMappingStatistics(syncStatusData) {
+    if (!syncStatusData || !syncStatusData.success || !syncStatusData.sync_status) {
+        return '<div class="card"><h3>🔄 Mapping Sync Status</h3><p>Unable to retrieve mapping sync statistics</p></div>';
+    }
+
+    const syncStatus = syncStatusData.sync_status;
+    const overallHealth = syncStatus.overall_sync_health;
+    const breakdown = overallHealth.breakdown;
+
+    let html = `
+        <div class="card">
+            <h3>🔄 Mapping Sync Status ${getStatusBadge(overallHealth.status)}</h3>
+            <div class="metric">
+                <span class="metric-label">Total Mappings</span>
+                <span class="metric-value">${overallHealth.total_items}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Synced Mappings</span>
+                <span class="metric-value">${breakdown.synced || 0} (${((breakdown.synced || 0) / overallHealth.total_items * 100).toFixed(1)}%)</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Pending Mappings</span>
+                <span class="metric-value">${breakdown.pending || 0} (${overallHealth.pending_rate_percent}%)</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Error Mappings</span>
+                <span class="metric-value">${breakdown.error || 0} (${overallHealth.error_rate_percent}%)</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Cancelled Mappings</span>
+                <span class="metric-value">${breakdown.cancelled || 0}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Stuck Syncs</span>
+                <span class="metric-value">${overallHealth.stuck_syncs}</span>
+            </div>
+    `;
+
+    if (overallHealth.last_activity) {
+        html += `
+            <div class="metric">
+                <span class="metric-label">Last Mapping Activity</span>
+                <span class="metric-value">${formatTimestamp(overallHealth.last_activity)}</span>
+            </div>
+        `;
+    }
+
+    // Issues
+    if (overallHealth.issues && overallHealth.issues.length > 0) {
+        html += `
+            <div style="margin-top: 15px;">
+                <h4 style="color: #e53e3e; margin-bottom: 10px;">⚠️ Mapping Issues:</h4>
+                <ul style="margin: 0; padding-left: 20px;">
+        `;
+        overallHealth.issues.forEach(issue => {
+            html += `<li style="color: #e53e3e; margin-bottom: 5px;">${issue}</li>`;
+        });
+        html += `</ul></div>`;
+    }
+
+    html += `</div>`;
     return html;
 }
 
@@ -561,23 +722,29 @@ async function loadDashboard() {
     try {
         document.getElementById('lastUpdate').textContent = 'Loading...';
         
-        // Fetch health, dashboard, bridge, and sync status data in parallel
-        const [healthData, dashboardData, bridgeHealthData, syncStatusData] = await Promise.all([
+        // Fetch health, dashboard, bridge, sync status, and queue data in parallel
+        const [healthData, dashboardData, bridgeHealthData, syncStatusData, queueData] = await Promise.all([
             fetchData('/health/system'),
             fetchData('/health/dashboard'),
             fetchData('/bridges/health').catch(error => {
                 console.warn('Bridge health endpoint not available:', error);
                 return { success: false, error: 'Bridge health endpoint not available' };
             }),
-            fetchData('/health/sync-status')
+            fetchData('/health/sync-status'),
+            fetchData('/health/queue-stats').catch(error => {
+                console.warn('Queue stats endpoint not available:', error);
+                return { success: false, error: 'Queue stats endpoint not available' };
+            })
         ]);
 
-        // Update system overview with sync status data
-        document.getElementById('systemOverview').innerHTML = renderSystemOverview(dashboardData, syncStatusData);
+        // Update system overview with sync status and queue data
+        document.getElementById('systemOverview').innerHTML = renderSystemOverview(dashboardData, syncStatusData, queueData);
 
-        // Update dashboard content
+        // Update dashboard content with separated queue and mapping statistics
         let dashboardHTML = renderHealthChecks(healthData);
         dashboardHTML += renderBridgeHealth(bridgeHealthData);
+        dashboardHTML += renderQueueStatistics(queueData);
+        dashboardHTML += renderMappingStatistics(syncStatusData);
         dashboardHTML += renderSyncStatusOverview(syncStatusData);
         dashboardHTML += renderSyncStatus(dashboardData);
         dashboardHTML += renderSyncActions();
@@ -847,6 +1014,45 @@ async function viewBridgesList() {
     }
 }
 
+// Process webhook queue action
+async function processWebhookQueue() {
+    setActionStatus('Processing webhook queue...', 'info');
+    try {
+        const response = await fetch('/bridges/process-webhook-queue', { 
+            method: 'POST',
+            headers: { 
+                ...authHeaders(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ batch_size: 50 })
+        });
+        const result = await response.json();
+        if (result.success) {
+            const processed = result.processed || 0;
+            const errors = result.errors || 0;
+            const totalItems = result.total_items || 0;
+            
+            let message = `📬 Processed ${processed}/${totalItems} webhook queue items`;
+            if (errors > 0) {
+                message += ` (${errors} errors)`;
+                setActionStatus(message, 'warning');
+            } else if (processed === 0) {
+                message = '📬 No webhook queue items to process';
+                setActionStatus(message, 'info');
+            } else {
+                setActionStatus(message, 'success');
+            }
+            
+            // Refresh dashboard to show updated queue stats
+            setTimeout(() => loadDashboard(), 1000);
+        } else {
+            setActionStatus('❌ Failed to process webhook queue: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        setActionStatus('❌ Error processing webhook queue: ' + error.message, 'error');
+    }
+}
+
 // New sync status action functions
 async function processPendingSyncs() {
     setActionStatus('Processing pending syncs...', 'info');
@@ -1002,6 +1208,7 @@ function renderSyncActions() {
             </div>
             <div style="margin-bottom: 15px;">
                 <h4>Sync Status Management:</h4>
+                <button class="action-button" onclick="processWebhookQueue()">📬 Process Webhook Queue</button>
                 <button class="action-button" onclick="processPendingSyncs()">⏳ Process Pending Syncs</button>
                 <button class="action-button" onclick="reEnableFailedEvents()">🔄 Re-enable Failed Events</button>
             </div>

@@ -38,6 +38,8 @@ abstract class AbstractCalendarBridge
     // Abstract methods that each bridge must implement
     /** @param string $calendarId @param string $startDate @param string $endDate @return array<int,array<string,mixed>> */
     abstract public function getEvents($calendarId, $startDate, $endDate): array;
+    /** @param string $calendarId @param string $eventId @return array<string,mixed> Single event data */
+    abstract public function getEvent($calendarId, $eventId): array;
     /** @param string $calendarId @param array $event @return string Newly created event ID */
     abstract public function createEvent($calendarId, $event): string;
     /** @param string $calendarId @param string $eventId @param array $event @return bool */

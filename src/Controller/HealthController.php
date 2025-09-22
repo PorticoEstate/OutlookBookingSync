@@ -860,6 +860,43 @@ class HealthController
     }
     
     /**
+     * Get queue statistics for dashboard monitoring.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
+     */
+    public function getQueueStats(Request $request, Response $response, $args)
+    {
+        try {
+            $tenantId = $request->getAttribute('tenant_id');
+            
+            $queueStats = [
+                'timestamp' => date('Y-m-d H:i:s'),
+                'webhook_queue' => $this->getWebhookQueueStats($tenantId),
+                'deletion_queue' => $this->getDeletionQueueStats($tenantId),
+                'processing_health' => $this->getQueueProcessingHealth($tenantId),
+                'queue_metrics' => $this->getQueueMetrics($tenantId)
+            ];
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'data' => $queueStats
+            ]));
+            
+            return $response->withHeader('Content-Type', 'application/json');
+            
+        } catch (Exception $e) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => 'Failed to get queue statistics: ' . $e->getMessage()
+            ]));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+    }
+    
+    /**
      * Get bridge-specific sync stats.
      *
      * @return array
@@ -1010,6 +1047,236 @@ class HealthController
             }
             
             return $metrics;
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get webhook queue statistics.
+     *
+     * @param string|null $tenantId Tenant identifier
+     * @return array
+     */
+    private function getWebhookQueueStats($tenantId)
+    {
+        try {
+            $sql = "
+                SELECT 
+                    status,
+                    COUNT(*) as count,
+                    AVG(attempts) as avg_attempts,
+                    MIN(created_at) as oldest_item,
+                    MAX(created_at) as newest_item
+                FROM bridge_queue 
+                WHERE queue_type = 'bridge_sync'
+            ";
+            
+            $params = [];
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " GROUP BY status ORDER BY status";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $statusStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Get total pending count
+            $sql = "SELECT COUNT(*) as pending_count FROM bridge_queue WHERE queue_type = 'bridge_sync' AND status = 'pending'";
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($tenantId ? [$tenantId] : []);
+            $pendingCount = $stmt->fetchColumn();
+            
+            return [
+                'pending_count' => (int)$pendingCount,
+                'status_breakdown' => $statusStats,
+                'health_status' => $pendingCount > 100 ? 'warning' : ($pendingCount > 500 ? 'critical' : 'healthy')
+            ];
+            
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get deletion queue statistics.
+     *
+     * @param string|null $tenantId Tenant identifier
+     * @return array
+     */
+    private function getDeletionQueueStats($tenantId)
+    {
+        try {
+            $sql = "
+                SELECT 
+                    status,
+                    COUNT(*) as count,
+                    AVG(attempts) as avg_attempts,
+                    MIN(created_at) as oldest_item,
+                    MAX(created_at) as newest_item
+                FROM bridge_queue 
+                WHERE queue_type = 'deletion_check'
+            ";
+            
+            $params = [];
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " GROUP BY status ORDER BY status";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $statusStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Get total pending count
+            $sql = "SELECT COUNT(*) as pending_count FROM bridge_queue WHERE queue_type = 'deletion_check' AND status = 'pending'";
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($tenantId ? [$tenantId] : []);
+            $pendingCount = $stmt->fetchColumn();
+            
+            return [
+                'pending_count' => (int)$pendingCount,
+                'status_breakdown' => $statusStats,
+                'health_status' => $pendingCount > 50 ? 'warning' : ($pendingCount > 200 ? 'critical' : 'healthy')
+            ];
+            
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get queue processing health metrics.
+     *
+     * @param string|null $tenantId Tenant identifier
+     * @return array
+     */
+    private function getQueueProcessingHealth($tenantId)
+    {
+        try {
+            // Check for stuck/old pending items
+            $sql = "
+                SELECT 
+                    queue_type,
+                    COUNT(*) as stuck_count
+                FROM bridge_queue 
+                WHERE status = 'pending' 
+                AND created_at < NOW() - INTERVAL '1 HOUR'
+            ";
+            
+            $params = [];
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " GROUP BY queue_type";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $stuckItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Check processing rate (items processed in last hour)
+            $sql = "
+                SELECT 
+                    queue_type,
+                    COUNT(*) as processed_count
+                FROM bridge_queue 
+                WHERE status IN ('completed', 'failed')
+                AND processed_at > NOW() - INTERVAL '1 HOUR'
+            ";
+            
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+            }
+            
+            $sql .= " GROUP BY queue_type";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($tenantId ? [$tenantId] : []);
+            $recentProcessed = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'stuck_items' => $stuckItems,
+                'processing_rate_last_hour' => $recentProcessed,
+                'health_status' => count($stuckItems) > 0 ? 'warning' : 'healthy'
+            ];
+            
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * Get general queue metrics.
+     *
+     * @param string|null $tenantId Tenant identifier
+     * @return array
+     */
+    private function getQueueMetrics($tenantId)
+    {
+        try {
+            // Get overall queue statistics
+            $sql = "
+                SELECT 
+                    queue_type,
+                    status,
+                    COUNT(*) as count,
+                    AVG(attempts) as avg_attempts,
+                    MAX(attempts) as max_attempts
+                FROM bridge_queue
+            ";
+            
+            $params = [];
+            if ($tenantId) {
+                $sql .= " WHERE tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " GROUP BY queue_type, status ORDER BY queue_type, status";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $metrics = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Get average processing time for completed items
+            $sql = "
+                SELECT 
+                    queue_type,
+                    AVG(EXTRACT(EPOCH FROM (processed_at - created_at))) as avg_processing_time_seconds
+                FROM bridge_queue 
+                WHERE status = 'completed' 
+                AND processed_at IS NOT NULL
+            ";
+            
+            if ($tenantId) {
+                $sql .= " AND tenant_id = ?";
+            }
+            
+            $sql .= " GROUP BY queue_type";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($tenantId ? [$tenantId] : []);
+            $processingTimes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'queue_breakdown' => $metrics,
+                'average_processing_times' => $processingTimes
+            ];
+            
         } catch (Exception $e) {
             return ['error' => $e->getMessage()];
         }

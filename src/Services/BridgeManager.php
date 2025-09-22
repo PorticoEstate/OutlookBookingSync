@@ -1801,6 +1801,105 @@ class BridgeManager
 	}
 
 	/**
+	 * Process a single event sync directly (for webhook processing)
+	 */
+	public function processSingleEventSync($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEvent, $options = []): array
+	{
+		try {
+			// Get bridge instances
+			$tenantId = $options['tenant_id'] ?? null;
+			$source = $tenantId 
+				? $this->getBridgeForTenant($tenantId, $sourceBridge)
+				: $this->getBridge($sourceBridge);
+			$target = $tenantId
+				? $this->getBridgeForTenant($tenantId, $targetBridge)
+				: $this->getBridge($targetBridge);
+
+		// Get any existing mappings for ownership tracking
+		$eventDate = $sourceEvent['start'] ?? date('Y-m-d');
+		if (strlen($eventDate) > 10) {
+			$eventDate = substr($eventDate, 0, 10); // Extract YYYY-MM-DD
+		}
+		
+		$rawMappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $eventDate, $eventDate);
+		$mappings = $this->indexMappingsBySourceId($rawMappings);			// Set sync method to webhook if not specified
+			$options['sync_method'] = $options['sync_method'] ?? 'webhook';
+
+			// Process the single event directly
+			$eventResult = $this->processSingleEventSafely(
+				$source,
+				$target,
+				$sourceEvent,
+				$mappings,
+				$sourceCalendarId,
+				$targetCalendarId,
+				$options,
+				$sourceBridge,
+				$targetBridge,
+				1, // currentIndex
+				1  // totalEvents
+			);
+
+			if ($eventResult['success']) {
+				return [
+					'success' => true,
+					'action' => $eventResult['action'],
+					'source_event_id' => $eventResult['source_event_id'],
+					'target_event_id' => $eventResult['target_event_id'] ?? null,
+					'created' => $eventResult['action'] === 'created' ? 1 : 0,
+					'updated' => $eventResult['action'] === 'updated' ? 1 : 0,
+					'skipped' => $eventResult['action'] === 'skipped' ? 1 : 0,
+					'errors' => 0,
+					'summary' => [
+						'total_source_events' => 1,
+						'successfully_processed' => 1,
+						'failed_events' => 0,
+						'success_rate_percent' => 100
+					]
+				];
+			} else {
+				return [
+					'success' => false,
+					'error' => $eventResult['error'] ?? 'Unknown error',
+					'created' => 0,
+					'updated' => 0,
+					'skipped' => 0,
+					'errors' => 1,
+					'summary' => [
+						'total_source_events' => 1,
+						'successfully_processed' => 0,
+						'failed_events' => 1,
+						'success_rate_percent' => 0
+					]
+				];
+			}
+
+		} catch (\Exception $e) {
+			$this->logger->error('Single event sync failed', [
+				'source_bridge' => $sourceBridge,
+				'target_bridge' => $targetBridge,
+				'source_event_id' => $sourceEvent['id'] ?? 'unknown',
+				'error' => $e->getMessage()
+			]);
+
+			return [
+				'success' => false,
+				'error' => $e->getMessage(),
+				'created' => 0,
+				'updated' => 0,
+				'skipped' => 0,
+				'errors' => 1,
+				'summary' => [
+					'total_source_events' => 1,
+					'successfully_processed' => 0,
+					'failed_events' => 1,
+					'success_rate_percent' => 0
+				]
+			];
+		}
+	}
+
+	/**
 	 * Process pending syncs across all bridges
 	 */
 	public function processPendingSyncs($bridgeName = null, $batchSize = 50): array
