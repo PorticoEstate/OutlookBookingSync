@@ -13,6 +13,7 @@ Configure ownership via the `bridge_resource_mappings` table using the `sync_dir
   "target_calendar_id": "conference-room-a@company.com",
   "sync_direction": "source_to_target"
 }
+```
 # Generic Calendar Bridge (OutlookBookingSync)
 
 A production-ready, extensible synchronization platform connecting Outlook (Microsoft 365) and booking / other calendar systems via a pluggable bridge architecture.
@@ -48,15 +49,19 @@ Bridges implement a common contract (fetch/create/update/delete/transform). The 
 ## 🏁 Quick Start
 
 1. Clone
+
 ```bash
 git clone <repository-url>
 cd OutlookBookingSync
 ```
+
 2. Configure env
+
 ```bash
 cp .env.example .env; cp .env.compose.example .env.compose
 # edit DB + Outlook creds
 ```
+
 3. Init DB
 ```bash
 scripts/setup_bridge_database.sh
