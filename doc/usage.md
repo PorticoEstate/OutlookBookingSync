@@ -62,6 +62,8 @@ POST `/bridges/sync/{source}/{target}` with optional body:
 | Outlook → Bridge | Yes | Graph subscription + validation token GET |
 | Booking System → Bridge | No | Direct POST (optional signing) |
 
+For the full rationale, prerequisites, creation, renewal and troubleshooting steps of Outlook subscriptions see the "Outlook Webhook Subscriptions" section in `operations.md`.
+
 ## Multi-Tenant Invocation
 
 Add headers:

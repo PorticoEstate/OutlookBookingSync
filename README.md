@@ -123,7 +123,7 @@ Implement a new bridge by extending `AbstractCalendarBridge` (fetch resources, l
 
 ## 🛠 Operations
 
-Cron-friendly endpoints: sync passes, deletion sync, subscription renewal, log cleanup. See schedules & guidance in `doc/operations.md`.
+Cron-friendly endpoints: sync passes, deletion sync, subscription renewal, log cleanup. See schedules & guidance in `doc/operations.md` (including detailed "Outlook Webhook Subscriptions" section for real-time updates rationale & setup).
 
 ## 🧪 Local Dev
 
