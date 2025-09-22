@@ -47,6 +47,13 @@ cat >> /tmp/crontab << 'EOF'
 # Enable by setting ENABLE_MULTI_TENANT_SYNC=true (default off)
 */10 * * * * if [ "$TENANT_MODE" = "multi" ] && [ "${ENABLE_MULTI_TENANT_SYNC}" = "true" ] && [ -f /scripts/multi_tenant_sync.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" /scripts/multi_tenant_sync.sh >> /var/log/bridge-cron.log 2>&1; fi
 
+# 2c. WEBHOOK QUEUE PROCESSING (Process queued webhook events)
+# Process pending sync operations from webhooks every minute
+* * * * * curl -s -X POST "http://localhost/bridges/process-pending-syncs" -H "api_key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[queue] /' >> /var/log/bridge-cron.log 2>&1
+
+# Process deletion check queue every 5 minutes
+*/5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" -H "api_key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":25}' | sed 's/^/[deletion-queue] /' >> /var/log/bridge-cron.log 2>&1
+
 # 3. SYSTEM HEALTH & MONITORING
 # Check bridge health every 10 minutes
 */10 * * * * curl -s -X GET "http://localhost/bridges/health" -H "api_key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
