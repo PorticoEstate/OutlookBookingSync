@@ -425,18 +425,31 @@ class BridgeController
                 'data' => $body
             ]);
 
-            // Process Microsoft Graph notifications for deletions
-            if ($bridgeName === 'outlook' && isset($body['value']))
-            {
-                $this->processMicrosoftGraphNotifications($body['value']);
-            }
-
             // Determine the target bridge for sync
             $targetBridge = $this->determineTargetBridge($bridgeName);
-
-            // Queue the sync operation using Redis or database queue
             $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-            $this->queueSyncOperation($bridgeName, $targetBridge, $body, $tenantId);
+
+            // Process Microsoft Graph notifications and transform them
+            if ($bridgeName === 'outlook' && isset($body['value']))
+            {
+                // Process deletion checks first
+                $this->processMicrosoftGraphNotifications($body['value']);
+                
+                // Transform Graph notifications to internal format and queue sync operations
+                foreach ($body['value'] as $notification)
+                {
+                    $transformedPayload = $this->transformOutlookNotification($notification, $tenantId);
+                    if ($transformedPayload)
+                    {
+                        $this->queueSyncOperation($bridgeName, $targetBridge, $transformedPayload, $tenantId);
+                    }
+                }
+            }
+            else
+            {
+                // For non-Outlook bridges, queue the raw payload
+                $this->queueSyncOperation($bridgeName, $targetBridge, $body, $tenantId);
+            }
 
             $response->getBody()->write(json_encode([
                 'success' => true,
@@ -542,6 +555,72 @@ class BridgeController
                 'error' => $e->getMessage(),
                 'data' => $queueData
             ]);
+        }
+    }
+
+    /**
+     * Transform Microsoft Graph notification to internal webhook format.
+     *
+     * @param array $notification Raw Microsoft Graph notification
+     * @param string|null $tenantId Tenant identifier
+     * @return array|null Transformed payload or null if invalid
+     */
+    private function transformOutlookNotification($notification, $tenantId)
+    {
+        try {
+            // Extract basic notification data
+            $changeType = $notification['changeType'] ?? null;
+            $resourceUrl = $notification['resource'] ?? null;
+            $eventId = $notification['resourceData']['id'] ?? null;
+
+            if (!$resourceUrl || !$eventId) {
+                $this->logger->warning('Invalid Outlook notification - missing resource or event ID', [
+                    'notification' => $notification,
+                    'tenant_id' => $tenantId
+                ]);
+                return null;
+            }
+
+            // Extract calendar ID from resource URL
+            // Format: users/{calendarId}/calendar/events/{eventId}
+            if (preg_match('/users\/([^\/]+)\/calendar\/events/', $resourceUrl, $matches)) {
+                $calendarId = $matches[1];
+                
+                // Transform to internal format
+                $transformedPayload = [
+                    'resource_id' => $calendarId, // The calendar/resource email
+                    'event_id' => $eventId,       // The Outlook event ID
+                    'change_type' => $changeType, // created, updated, deleted
+                    'timestamp' => date('c'),     // Current timestamp
+                    'source' => 'outlook_webhook',
+                    'original_notification' => $notification
+                ];
+
+                $this->logger->info('Transformed Outlook notification', [
+                    'original_resource' => $resourceUrl,
+                    'extracted_calendar_id' => $calendarId,
+                    'event_id' => $eventId,
+                    'change_type' => $changeType,
+                    'tenant_id' => $tenantId
+                ]);
+
+                return $transformedPayload;
+            } else {
+                $this->logger->warning('Could not parse calendar ID from resource URL', [
+                    'resource_url' => $resourceUrl,
+                    'notification' => $notification,
+                    'tenant_id' => $tenantId
+                ]);
+                return null;
+            }
+
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to transform Outlook notification', [
+                'error' => $e->getMessage(),
+                'notification' => $notification,
+                'tenant_id' => $tenantId
+            ]);
+            return null;
         }
     }
 

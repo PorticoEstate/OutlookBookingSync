@@ -426,10 +426,35 @@ class OutlookBridge extends AbstractCalendarBridge
 	{
 		$this->logOperation('get_calendars');
 
-		// If group_id is configured, get calendars from group members
+		// If group_id is configured, get calendars from group members using getAvailableResources
 		if (isset($this->config['group_id']) && !empty($this->config['group_id']))
 		{
-			return $this->getCalendarsFromGroup($this->config['group_id']);
+			// Use getAvailableResources for better pagination and performance
+			$resourcesResult = $this->getAvailableResources();
+			$resources = $resourcesResult['resources'] ?? $resourcesResult; // Handle both formats
+			
+			// Convert resources to calendar format
+			$calendars = [];
+			foreach ($resources as $resource)
+			{
+				// Skip if no email/UPN available for calendar subscription
+				$calendarId = $resource['email'] ?? $resource['userPrincipalName'] ?? null;
+				if (empty($calendarId))
+				{
+					continue;
+				}
+				
+				$calendars[] = [
+					'id' => $calendarId, // Use email/UPN as calendar ID for subscriptions
+					'name' => $resource['name'] ?? $calendarId,
+					'email' => $resource['email'] ?? '',
+					'type' => $resource['type'] ?? 'user', // Use existing type or default to 'user'
+					'bridge_type' => $this->getBridgeType(),
+					'raw_data' => $resource['raw_data'] ?? $resource
+				];
+			}
+			
+			return $calendars;
 		}
 
 		// Default: Get room mailboxes from /places endpoint
@@ -457,122 +482,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	}
 
 
-	/**
-	 * Get calendars from a specific Outlook group.
-	 *
-	 * @param string $groupId Microsoft 365 group ID
-	 * @return array List of calendars derived from group members
-	 */
-	private function getCalendarsFromGroup($groupId): array
-	{
-		$this->logOperation('get_calendars_from_group', ['group_id' => $groupId]);
 
-		try
-		{
-			// Get group members
-			$membersResponse = $this->graphServiceClient->groups()->byGroupId($groupId)->members()->get()->wait();
-
-			$calendars = [];
-			$totalMembers = count($membersResponse->getValue() ?? []);
-
-			$this->logger->info('Processing group members', [
-				'group_id' => $groupId,
-				'total_members' => $totalMembers,
-				'bridge' => 'outlook'
-			]);
-
-			foreach ($membersResponse->getValue() ?? [] as $member)
-			{
-				$this->logger->debug('Processing group member', [
-					'member_id' => $member->getId(),
-					'member_type' => get_class($member),
-					'display_name' => $member->getDisplayName(),
-					'odata_type' => $member->getOdataType(),
-					'bridge' => 'outlook'
-				]);
-
-				// Check if this is a User object with calendar access
-				if ($member instanceof \Microsoft\Graph\Generated\Models\User)
-				{
-					$userEmail = $member->getMail() ?? $member->getUserPrincipalName();
-					if (!empty($userEmail))
-					{
-						$calendars[] = [
-							'id' => $userEmail, // Use email/UPN as calendar ID
-							'name' => $member->getDisplayName() ?? $userEmail,
-							'email' => $userEmail,
-							'type' => 'user',
-							'bridge_type' => $this->getBridgeType(),
-							'raw_data' => [
-								'id' => $member->getId(),
-								'userPrincipalName' => $member->getUserPrincipalName(),
-								'mail' => $member->getMail(),
-								'displayName' => $member->getDisplayName(),
-								'jobTitle' => $member->getJobTitle(),
-								'odataType' => $member->getOdataType()
-							]
-						];
-					}
-				}
-				// Check if this is a Group object (nested groups)
-				elseif ($member instanceof \Microsoft\Graph\Generated\Models\Group)
-				{
-					$groupEmail = $member->getMail();
-					if (!empty($groupEmail))
-					{
-						$calendars[] = [
-							'id' => $groupEmail,
-							'name' => $member->getDisplayName() ?? $groupEmail,
-							'email' => $groupEmail,
-							'type' => 'group',
-							'bridge_type' => $this->getBridgeType(),
-							'raw_data' => [
-								'id' => $member->getId(),
-								'displayName' => $member->getDisplayName(),
-								'mail' => $member->getMail(),
-								'odataType' => $member->getOdataType()
-							]
-						];
-					}
-				}
-				// Handle other directory objects (like service principals, etc.)
-				else
-				{
-					// Try to get basic info from any directory object
-					$objectId = $member->getId();
-					$displayName = $member->getDisplayName();
-
-					if ($objectId && $displayName)
-					{
-						$calendars[] = [
-							'id' => $objectId,
-							'name' => $displayName,
-							'email' => '', // May not have email
-							'type' => 'other',
-							'bridge_type' => $this->getBridgeType(),
-							'raw_data' => [
-								'id' => $objectId,
-								'displayName' => $displayName,
-								'odataType' => $member->getOdataType()
-							]
-						];
-					}
-				}
-			}
-
-			$this->logger->info('Retrieved calendars from group', [
-				'group_id' => $groupId,
-				'calendar_count' => count($calendars),
-				'bridge' => 'outlook'
-			]);
-
-			return $calendars;
-		}
-		catch (\Exception $e)
-		{
-			throw new \Exception("Failed to get calendars from group: " . $e->getMessage());
-		}
-	}
 
 	/**
 	 * Create a Microsoft Graph webhook subscription for a calendar's events.

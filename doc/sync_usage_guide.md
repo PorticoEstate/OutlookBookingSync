@@ -902,38 +902,111 @@ Your app registration needs these permissions (likely already configured):
 - `Calendars.Read.Shared` 
 - `Calendars.ReadWrite.Shared`
 
-#### 3. Create Webhook Subscriptions
+#### 3. Resource Mappings
 
-Once your server is publicly accessible with HTTPS, create webhook subscriptions:
+Before webhooks can work, you need to create resource mappings between Outlook calendars and your booking system:
+
+```bash
+# Create a resource mapping
+curl -X POST "http://localhost:8082/resource-mappings" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: bergen" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource_type": "outlook",
+    "resource_email": "reslandgan@bergen.kommune.no",
+    "target_resource_type": "booking_system",
+    "target_resource_id": "452"
+  }'
+```
+
+#### 4. Create Webhook Subscriptions
+
+Once your server is publicly accessible with HTTPS and resource mappings are in place, create webhook subscriptions:
 
 ```bash
 # Create webhook subscription for a specific calendar
-curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: tenantA" "https://your-domain.com/bridges/outlook/subscriptions" \
+curl -X POST -H "api_key: your_key" -H "X-Tenant-Id: bergen" "https://your-domain.com/bridges/outlook/subscriptions" \
   -H "Content-Type: application/json" \
-  -H "api_key: YOUR_API_KEY" \
   -d '{
-    "calendar_ids": ["room1@company.com"]
+    "calendar_ids": ["reslandgan@bergen.kommune.no"]
   }'
 
 # Test webhook validation (Graph will call with validationToken)
 curl "https://your-domain.com/bridges/webhook/outlook?validationToken=test"
 ```
 
-#### 4. Webhook Endpoints
+#### 5. Webhook Endpoints
 
 Current webhook endpoints provided by the bridge:
 
 - `POST /bridges/{bridge}/subscriptions` - Create webhook subscriptions (e.g., `{bridge}=outlook`)
 - `POST /bridges/webhook/{bridge}` - Receive webhook notifications (Graph calls this)
+- `POST /bridges/process-webhook-queue` - Process queued webhook notifications
 
-#### 5. Webhook Validation
+#### 6. Webhook Processing Flow
+
+The system implements a queue-based webhook processing flow:
+
+1. **Microsoft Graph Notification** - Graph sends webhook to `/bridges/webhook/outlook`
+2. **Format Transformation** - Convert Graph format to internal format
+3. **Queue Processing** - Webhook queued for batch processing
+4. **Sync Execution** - Process queue and sync changes to target systems
+
+**Webhook Format Transformation:**
+
+Microsoft Graph sends notifications in this format:
+```json
+{
+  "value": [
+    {
+      "subscriptionId": "12345",
+      "resource": "Users('user@domain.com')/Calendars('calendar-id')/Events('event-id')",
+      "changeType": "updated",
+      "clientState": null,
+      "subscriptionExpirationDateTime": "2025-09-23T00:00:00Z",
+      "tenantId": "tenant-id"
+    }
+  ]
+}
+```
+
+This is automatically transformed to internal format:
+```json
+{
+  "event_type": "outlook_updated",
+  "resource_id": "user@domain.com",
+  "event_id": "event-id",
+  "timestamp": "2025-09-22T10:00:00Z"
+}
+```
+
+#### 7. Webhook Validation
 
 Microsoft Graph requires webhook endpoint validation. The system automatically handles:
 - **Validation Token Response** - Returns validation token during subscription creation
 - **Notification Processing** - Processes incoming change notifications
 - **Subscription Renewal** - Automatically renews subscriptions before expiration
 
-#### 6. Production Deployment Considerations
+#### 8. Queue Management
+
+Process webhook queue manually or check status:
+
+```bash
+# Process webhook queue (batch processing)
+curl -X POST "http://localhost:8082/bridges/process-webhook-queue" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: bergen" \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 5}'
+
+# Check queue statistics
+curl -X GET "http://localhost:8082/bridges/queue-stats" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: bergen"
+```
+
+#### 9. Production Deployment Considerations
 
 **For Production Webhook Setup:**
 
@@ -948,6 +1021,39 @@ Microsoft Graph requires webhook endpoint validation. The system automatically h
    # Allow HTTPS traffic
    ufw allow 443
    ```
+
+#### 10. Troubleshooting Webhooks
+
+**Common Issues:**
+
+1. **"No resource mapping found"** - Create resource mappings between Outlook and booking system
+2. **SSL Certificate Errors** - Ensure valid HTTPS certificate
+3. **Subscription Creation Fails** - Check Graph API permissions and public URL accessibility
+4. **Webhooks Not Received** - Verify firewall settings and webhook endpoint URLs
+
+**Debug Webhook Processing:**
+
+```bash
+# Test webhook with sample Graph notification
+curl -X POST "http://localhost:8082/bridges/webhook/outlook" \
+  -H "X-Tenant-Id: bergen" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "value": [
+      {
+        "subscriptionId": "12345",
+        "resource": "Users('\''reslandgan@bergen.kommune.no'\'')/Calendars('\''calendar-id'\'')/Events('\''event-id'\'')",
+        "changeType": "updated",
+        "clientState": null,
+        "subscriptionExpirationDateTime": "2025-09-23T00:00:00Z",
+        "tenantId": "tenant-id"
+      }
+    ]
+  }'
+
+# Check logs for processing details
+tail -f storage/logs/bridge.log
+```
 
 3. **Reverse Proxy (Nginx)**
    ```nginx

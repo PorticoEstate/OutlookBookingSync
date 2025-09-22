@@ -390,14 +390,61 @@ Response:
 
 ### Webhooks
 
+The bridge supports real-time synchronization through webhooks from both Microsoft Graph and booking systems. Webhooks provide immediate event notifications and are processed through a queue-based system for reliability.
+
+#### Prerequisites for Webhook Setup
+
+1. **Public HTTPS Endpoint Required**
+   - Microsoft Graph requires HTTPS for webhook endpoints
+   - Your server must be accessible from the internet
+   - SSL certificate must be valid (self-signed certificates won't work)
+
+2. **Resource Mappings Required**
+   - Create mappings between Outlook calendars and booking system resources
+   - Use the Resource Mapping API to establish connections
+
+3. **Environment Configuration**
+   ```env
+   APP_BASE_URL=https://your-domain.com
+   ```
+
 #### Handle Bridge Webhook
 
- 
 ```http
 POST /bridges/webhook/{bridgeName}
 ```
 
-Used by calendar systems to notify of changes. Automatically queues sync operations.
+Used by calendar systems to notify of changes. Automatically queues sync operations and processes them through the webhook queue.
+
+#### Microsoft Graph Webhook Processing
+
+Microsoft Graph sends notifications in their specific format, which is automatically transformed:
+
+**Graph Notification Format (Input):**
+```json
+{
+  "value": [
+    {
+      "subscriptionId": "12345",
+      "resource": "Users('user@domain.com')/Calendars('calendar-id')/Events('event-id')",
+      "changeType": "updated",
+      "clientState": null,
+      "subscriptionExpirationDateTime": "2025-09-23T00:00:00Z",
+      "tenantId": "tenant-id"
+    }
+  ]
+}
+```
+
+**Internal Format (After Transformation):**
+```json
+{
+  "event_type": "outlook_updated",
+  "resource_id": "user@domain.com",
+  "event_id": "event-id",
+  "timestamp": "2025-09-22T10:00:00Z"
+}
+```
 
 #### Booking System Webhook Format
 
@@ -421,25 +468,102 @@ curl -X POST "http://localhost:8082/bridges/webhook/booking_system" \
 - `event_id`: The specific event/booking ID that changed
 - `timestamp`: ISO 8601 timestamp of when the change occurred
 
-#### Notes
+#### Webhook Queue Management
 
-- Microsoft Graph performs a validation handshake with a GET and validationToken. This service also accepts GET on the same path and returns the token per Graph requirements.
-- Security: Webhook authentication uses Microsoft Graph clientState validation (the ApiKeyMiddleware is bypassed for this path).
-- Queueing: Notifications are enqueued (Redis if available; database fallback) to ensure durability.
+Process webhook queues manually or check processing status:
+
+```bash
+# Process webhook queue (batch processing)
+curl -X POST "http://localhost:8082/bridges/process-webhook-queue" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: your_tenant" \
+  -H "Content-Type: application/json" \
+  -d '{"batch_size": 5}'
+
+# Check queue statistics
+curl -X GET "http://localhost:8082/bridges/queue-stats" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: your_tenant"
+```
 
 #### Create Webhook Subscriptions
- 
+
 ```http
 POST /bridges/{bridgeName}/subscriptions
 ```
 
 Request body:
- 
 ```json
 {
   "webhook_url": "https://your-bridge.com/bridges/webhook/outlook",
   "calendar_ids": ["room1@company.com", "room2@company.com"]
 }
+```
+
+Example for Bergen Kommune:
+```bash
+curl -s -X POST "https://bridge.example.com/bridges/outlook/subscriptions" \
+  -H "Content-Type: application/json" \
+  -H "api_key: your_key" \
+  -H "X-Tenant-Id: bergen" \
+  -d '{
+    "calendar_ids": ["reslandgan@bergen.kommune.no"]
+  }'
+```
+
+#### Webhook Validation & Security
+
+- **Microsoft Graph Validation**: Graph performs a validation handshake with GET and validationToken
+- **Security**: Webhook authentication uses Microsoft Graph clientState validation (ApiKeyMiddleware is bypassed)
+- **Queueing**: Notifications are enqueued (Redis if available; database fallback) for durability
+- **Processing**: Queue-based processing ensures reliable webhook handling
+
+#### Troubleshooting Webhooks
+
+**Common Issues:**
+
+1. **"No resource mapping found"**
+   ```bash
+   # Create resource mapping
+   curl -X POST "http://localhost:8082/resource-mappings" \
+     -H "api_key: your_key" \
+     -H "X-Tenant-Id: bergen" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "resource_type": "outlook",
+       "resource_email": "reslandgan@bergen.kommune.no",
+       "target_resource_type": "booking_system",
+       "target_resource_id": "452"
+     }'
+   ```
+
+2. **SSL Certificate Issues**
+   - Ensure valid HTTPS certificate
+   - Test webhook endpoint accessibility from external networks
+
+3. **Subscription Creation Failures**
+   - Verify Microsoft Graph API permissions
+   - Check public URL accessibility
+   - Confirm tenant configuration
+
+**Debug Webhook Processing:**
+```bash
+# Test with sample Graph notification
+curl -X POST "http://localhost:8082/bridges/webhook/outlook" \
+  -H "X-Tenant-Id: bergen" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "value": [
+      {
+        "subscriptionId": "12345",
+        "resource": "Users('\''reslandgan@bergen.kommune.no'\'')/Events('\''event-id'\'')",
+        "changeType": "updated"
+      }
+    ]
+  }'
+
+# Check processing logs
+tail -f storage/logs/bridge.log
 ```
 
 #### Register Webhooks
