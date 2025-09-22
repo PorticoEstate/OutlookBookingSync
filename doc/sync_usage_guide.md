@@ -872,6 +872,49 @@ The calendar bridge system is production-ready and designed to scale with your i
 
 The system supports both **webhook-based real-time sync** and **polling-based sync**. Webhooks provide immediate synchronization when Outlook events change, while polling is a fallback mechanism.
 
+### Understanding Webhook Subscriptions
+
+**Important: Subscriptions are only needed for ONE direction of webhook flow.**
+
+#### When You DO Need Subscriptions
+
+**For Outlook → Bridge webhooks:**
+- **Microsoft Graph requires explicit subscription registration**
+- **You must create subscriptions** via the Microsoft Graph API
+- **Subscriptions expire** (typically 3 days) and need automatic renewal
+- **Example**: When someone creates/updates/deletes an event in Outlook, Microsoft Graph sends a webhook to your bridge
+
+```bash
+# This direction REQUIRES subscriptions
+Outlook Calendar Event Changes → Microsoft Graph → Webhook → Bridge → Sync to Booking System
+```
+
+#### When You DON'T Need Subscriptions
+
+**For Booking System → Bridge webhooks:**
+- **No subscriptions required** - your booking system calls the bridge directly
+- **No expiration management** needed
+- **Simple HTTP POST** to the webhook endpoint
+- **Example**: When someone creates/updates/deletes a booking in your system, your booking system sends a webhook directly to the bridge
+
+```bash
+# This direction does NOT need subscriptions
+Booking System Changes → Direct HTTP POST → Bridge → Sync to Outlook
+```
+
+#### Why This Difference?
+
+**Microsoft Graph Design**: Microsoft Graph is a third-party service that needs to validate and manage webhook endpoints before sending notifications. This requires formal subscription registration.
+
+**Your Booking System**: You control your own booking system, so it can directly send webhooks without any registration process.
+
+#### Summary Table
+
+| Webhook Direction | Subscriptions Needed? | Managed By | Expires? |
+|-------------------|----------------------|------------|----------|
+| Outlook → Bridge | ✅ YES | Microsoft Graph | ✅ Yes (3 days) |
+| Booking System → Bridge | ❌ NO | Your system | ❌ No |
+
 ### Steps to Get Webhooks Working
 
 #### 1. Update Environment Variables

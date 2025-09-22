@@ -6,6 +6,42 @@ This guide provides comprehensive instructions for setting up and configuring we
 
 The webhook system enables real-time synchronization between Microsoft Outlook and your booking system. When events change in either system, webhooks immediately notify the bridge to trigger synchronization.
 
+## Understanding When Subscriptions Are Needed
+
+**IMPORTANT**: Webhook subscriptions are only required for ONE direction of webhook flow.
+
+### Subscription Requirements by Direction
+
+#### Outlook → Bridge Webhooks (REQUIRES Subscriptions)
+
+**When Microsoft Graph sends webhooks to your bridge:**
+- ✅ **Subscriptions Required**: Must create via Microsoft Graph API
+- ✅ **Subscription Management**: Automatic renewal needed (expire in ~3 days)
+- ✅ **Validation Required**: Microsoft Graph validates webhook endpoints
+- ✅ **Used For**: Real-time notification when Outlook events change
+
+```
+Outlook Event Changes → Microsoft Graph → Subscription → Webhook → Bridge
+```
+
+#### Booking System → Bridge Webhooks (NO Subscriptions Needed)
+
+**When your booking system sends webhooks to the bridge:**
+- ❌ **No Subscriptions**: Direct HTTP POST to bridge endpoint
+- ❌ **No Expiration**: Your system controls the webhook calls
+- ❌ **No Validation**: You control both systems
+- ✅ **Used For**: Real-time notification when booking system events change
+
+```
+Booking System Changes → Direct HTTP POST → Bridge
+```
+
+### Why This Difference?
+
+**Microsoft Graph Design**: As a third-party service, Microsoft Graph requires formal subscription registration to validate webhook endpoints and manage notification delivery.
+
+**Your Booking System**: Since you control your booking system, it can directly call the bridge webhook endpoint without any registration process.
+
 ## Prerequisites
 
 ### 1. Public HTTPS Endpoint
