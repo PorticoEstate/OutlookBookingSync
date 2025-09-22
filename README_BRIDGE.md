@@ -35,11 +35,6 @@ The detailed booking system adapter specification (required endpoints, webhook c
 
 `doc/booking_system_adapter.md`
 
-This removal reduces README size and eliminates duplication. Refer there when implementing or validating a booking system API.
-### Run Test Suite
-```bash
-./test_bridge.sh
-```
 
 ### Manual Testing
 
