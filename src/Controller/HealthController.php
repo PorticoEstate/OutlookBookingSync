@@ -797,67 +797,7 @@ class HealthController
         }
     }
     
-    /**
-     * Re-enable failed events endpoint.
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args
-     * @return Response
-     */
-    public function reEnableFailedEvents(Request $request, Response $response, $args)
-    {
-        try {
-            $body = json_decode($request->getBody()->getContents(), true) ?? [];
-            $bridgeName = $body['bridge_name'] ?? null;
-            $eventIds = $body['event_ids'] ?? [];
-            
-            // Re-enable failed events via BridgeManager
-            $sql = "
-                UPDATE bridge_mappings 
-                SET sync_status = 'pending', 
-                    retry_count = 0, 
-                    error_message = NULL,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE sync_status = 'error'
-            ";
-            
-            $params = [];
-            
-            if ($bridgeName) {
-                $sql .= " AND (source_bridge = ? OR target_bridge = ?)";
-                $params = [$bridgeName, $bridgeName];
-            }
-            
-            if (!empty($eventIds)) {
-                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
-                $sql .= " AND (source_event_id IN ($placeholders) OR target_event_id IN ($placeholders))";
-                $params = array_merge($params, $eventIds, $eventIds);
-            }
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            
-            $reEnabledCount = $stmt->rowCount();
-            
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => "Re-enabled {$reEnabledCount} failed events",
-                're_enabled_count' => $reEnabledCount,
-                'bridge_name' => $bridgeName,
-                'event_ids_filter' => $eventIds
-            ]));
-
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (Exception $e) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => 'Failed to re-enable failed events: ' . $e->getMessage()
-            ]));
-            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
-        }
-    }
+    
     
     /**
      * Get queue statistics for dashboard monitoring.

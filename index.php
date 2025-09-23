@@ -407,9 +407,6 @@ $app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getS
 // Get queue statistics for dashboard monitoring
 $app->get('/health/queue-stats', [\App\Controller\HealthController::class, 'getQueueStats']);
 
-// Re-enable failed events endpoint
-$app->post('/health/re-enable-failed', [\App\Controller\HealthController::class, 'reEnableFailedEvents']);
-
 // Process pending syncs for specific bridge or all bridges
 $app->post('/bridges/process-pending-syncs[/{bridgeName}]', [\App\Controller\BridgeController::class, 'processPendingSyncs']);
 
@@ -473,7 +470,6 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             'sync_status_management' => [
                 'GET /health/sync-status' => 'Get detailed sync status monitoring (optional query: ?status=failed|pending|completed&limit=int&offset=int)',
                 'GET /health/queue-stats' => 'Get queue statistics for dashboard monitoring',
-                'POST /health/re-enable-failed' => 'Re-enable failed events (all bridges)',
                 'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges) (body: batch_size=int)',
                 'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge (body: batch_size=int)',
                 'POST /bridges/re-enable-failed' => 'Re-enable failed events (all bridges)',
