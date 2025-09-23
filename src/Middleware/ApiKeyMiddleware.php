@@ -36,7 +36,7 @@ class ApiKeyMiddleware
 
 		// Allow unauthenticated access for webhook validation/notifications
 		$path = $request->getUri()->getPath();
-		if (preg_match('#^/bridges/webhook/#', $path) || preg_match('#^/webhook/outlook-notifications$#', $path))
+		if (preg_match('#^/bridges/webhook/#', $path))
 		{
 			return $handler->handle($request);
 		}

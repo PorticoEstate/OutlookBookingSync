@@ -627,17 +627,4 @@ class ResourceMappingController
 		}
 	}
 
-	/**
-	 * Legacy method for backward compatibility.
-	 * GET /mappings (redirects to /mappings/resources)
-	 *
-	 * @param Request $request
-	 * @param Response $response
-	 * @param array $args
-	 * @return Response
-	 */
-	public function getMapping(Request $request, Response $response, array $args): Response
-	{
-		return $this->getResourceMappings($request, $response);
-	}
 }
