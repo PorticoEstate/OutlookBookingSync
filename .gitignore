@@ -3,3 +3,4 @@
 .env
 .env.compose
 composer.lock
+copilot-instructions.md
