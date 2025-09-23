@@ -19,13 +19,19 @@ class ApiKeyMiddleware
 	 */
 	public function __invoke(Request $request, Handler $handler): Response
 	{
-		// If routing info is available and the matched route is the catch-all 404, bypass auth
+		// If routing info is available and the matched route is the catch-all 404, bypass auth.
+		// Also, if no route is matched (null), allow the request to proceed so the 404 handler can respond
 		try
 		{
 			$routeContext = \Slim\Routing\RouteContext::fromRequest($request);
 			$route = $routeContext->getRoute();
 			if ($route && $route->getName() === 'catch_all_404')
 			{
+				return $handler->handle($request);
+			}
+			if ($route === null)
+			{
+				// No matching route; let the not found handler produce a helpful 404 without requiring auth
 				return $handler->handle($request);
 			}
 		}
