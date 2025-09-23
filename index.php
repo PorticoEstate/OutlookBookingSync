@@ -419,9 +419,6 @@ $app->get('/bridges/sync-stats[/{bridgeName}]', [\App\Controller\BridgeControlle
 // Get cancelled events for cleanup for specific bridge or all bridges
 $app->get('/bridges/cancelled-events[/{bridgeName}]', [\App\Controller\BridgeController::class, 'getCancelledEvents']);
 
-// Get events pending sync for a specific bridge
-$app->get('/bridges/{bridgeName}/pending-events', [\App\Controller\BridgeController::class, 'getPendingSyncEvents']);
-
 // Custom 404 handler with helpful JSON responses for API endpoints
 $errorHandler = $errorMiddleware->getDefaultErrorHandler();
 $errorHandler->forceContentType('application/json');

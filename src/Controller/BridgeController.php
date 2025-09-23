@@ -2250,48 +2250,6 @@ class BridgeController
         }
     }
 
-    /**
-     * Get events pending sync for a bridge.
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args Must include bridgeName
-     * @return Response
-     */
-    public function getPendingSyncEvents(Request $request, Response $response, $args)
-    {
-        try
-        {
-            $bridgeName = $args['bridgeName'];
-            $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
-            $bridge = $this->bridgeManager->getBridgeForTenant($tenantId, $bridgeName);
-
-            $pendingEvents = $bridge->getEventsToSync($bridgeName, 3);
-
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'bridge_name' => $bridgeName,
-                'pending_events' => $pendingEvents,
-                'count' => count($pendingEvents)
-            ]));
-
-            return $response->withHeader('Content-Type', 'application/json');
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Failed to get pending sync events', [
-                'bridge' => $bridgeName,
-                'error' => $e->getMessage()
-            ]);
-
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => $e->getMessage()
-            ]));
-
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
 
     /**
      * Create a new event on a bridge resource.
