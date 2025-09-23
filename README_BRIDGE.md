@@ -29,7 +29,7 @@ Core docs live under `doc/`:
 | Security Hardening | `doc/security_hardening.md` |
 | Changelog | `CHANGELOG.md` |
 
-## � Booking System Integration
+## 🔗 Booking System Integration
 
 The detailed booking system adapter specification (required endpoints, webhook contract, polling operation, resource mapping workflow, deletions/cancellations & reactivation handling) has moved to:
 
@@ -53,13 +53,12 @@ curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_key" -H "X-
 
 ## 🚀 Production Deployment
 
-### Docker Deployment
+  portico_outlook:
 
 ```yaml
-# docker-compose.yml
+      - "8082:80"
 version: '3.8'
-services:
-  portico_outlook:
+      - DB_HOST=postgres
     build: .
     ports:
       - "8080:80"
@@ -121,19 +120,21 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🔌 Booking System API Requirements
 
 The Generic Calendar Bridge can integrate with booking systems in two ways:
+ 
 1. **REST API Mode**: Your booking system exposes REST endpoints (recommended)
-2. **Direct Database Mode**: Bridge accesses your booking system database directly (fallback)
 
 ### Required REST API Endpoints
 
 If you want to use REST API mode (recommended), your booking system needs to implement these endpoints:
 
 #### **1. List Resources/Calendars**
+
 ```http
 GET /api/resources
 ```
 
 **Response Format:**
+
 ```json
 {
   "success": true,
@@ -162,6 +163,7 @@ GET /api/resources
 ```
 
 #### **2. Get Events for a Resource**
+
 ```http
 GET /api/resources/{resourceId}/events?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&format=json
 ```
@@ -169,6 +171,7 @@ GET /api/resources/{resourceId}/events?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 **Example:** `GET /api/resources/123/events?start_date=2025-06-14&end_date=2025-06-21`
 
 **Response Format:**
+
 ```json
 {
   "success": true,
@@ -198,11 +201,13 @@ GET /api/resources/{resourceId}/events?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 ```
 
 #### **3. Create New Event**
+
 ```http
 POST /api/resources/{resourceId}/events
 ```
 
 **Request Body:**
+
 ```json
 {
   "title": "New Meeting",
@@ -219,6 +224,7 @@ POST /api/resources/{resourceId}/events
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -235,11 +241,13 @@ POST /api/resources/{resourceId}/events
 ```
 
 #### **4. Update Existing Event**
+
 ```http
 PUT /api/resources/{resourceId}/events/{eventId}
 ```
 
 **Request Body:** (same as create, but for updating)
+
 ```json
 {
   "title": "Updated Meeting Title",
@@ -251,6 +259,7 @@ PUT /api/resources/{resourceId}/events/{eventId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -259,12 +268,15 @@ PUT /api/resources/{resourceId}/events/{eventId}
 }
 ```
 
+
 #### **5. Delete Event**
+
 ```http
 DELETE /api/resources/{resourceId}/events/{eventId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -276,11 +288,13 @@ DELETE /api/resources/{resourceId}/events/{eventId}
 #### **6. Webhook Management (Optional but Recommended)**
 
 **Subscribe to Changes:**
+
 ```http
 POST /api/webhooks/subscribe
 ```
 
 **Request Body:**
+
 ```json
 {
   "resource_id": "123",
@@ -290,6 +304,7 @@ POST /api/webhooks/subscribe
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -302,6 +317,7 @@ POST /api/webhooks/subscribe
 ```
 
 **Unsubscribe:**
+
 ```http
 DELETE /api/webhooks/{subscriptionId}
 ```
@@ -310,12 +326,14 @@ DELETE /api/webhooks/{subscriptionId}
 
 When your booking system detects changes, it should POST to the bridge webhook URL:
 
+
 ```http
 POST https://your-bridge.com/bridges/webhook/booking_system
 Content-Type: application/json
 ```
 
 **Payload:**
+
 ```json
 {
   "action": "created",  // "created", "updated", "deleted"
@@ -343,6 +361,7 @@ GET /bridges/health
 X-API-Key: your_api_key
 ```
 
+
 ```bash
 curl -H "X-API-Key: your_api_key" http://localhost:8082/bridges/health
 curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_api_key" \
@@ -359,6 +378,7 @@ Dashboard usage:
 ### Error Handling
 
 **Standard Error Response:**
+
 ```json
 {
   "success": false,
@@ -371,6 +391,7 @@ Dashboard usage:
 ```
 
 **Common HTTP Status Codes:**
+
 - `200` - Success
 - `201` - Created
 - `400` - Bad Request (validation errors)
@@ -580,6 +601,7 @@ class BookingSystemApiController
 
 Use these curl commands to test the bridge endpoints (replace with your values). If you’re testing your own booking system API, use whatever auth your API requires; the bridge itself uses `X-API-Key` header.
 
+
 ```bash
 # Test resource listing
 curl -H "X-API-Key: your_api_key" -H "X-Tenant-Id: tenantA" \
@@ -603,11 +625,13 @@ The bridge provides a comprehensive API to manage resource mappings between your
 ### Resource Mapping Endpoints
 
 #### **1. Get All Resource Mappings**
+
 ```http
 GET /mappings/resources?bridge_from=booking_system&bridge_to=outlook&active_only=true
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -633,11 +657,13 @@ GET /mappings/resources?bridge_from=booking_system&bridge_to=outlook&active_only
 ```
 
 #### **2. Create Resource Mapping**
+
 ```http
 POST /mappings/resources
 ```
 
 **Request Body:**
+
 ```json
 {
   "bridge_from": "booking_system",
@@ -651,6 +677,7 @@ POST /mappings/resources
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -660,11 +687,13 @@ POST /mappings/resources
 ```
 
 #### **3. Update Resource Mapping**
+
 ```http
 PUT /mappings/resources/{id}
 ```
 
 **Request Body:**
+
 ```json
 {
   "calendar_name": "Updated Room Name",
@@ -673,6 +702,7 @@ PUT /mappings/resources/{id}
 ```
 
 #### **4. Get Mapping by Resource ID**
+
 ```http
 GET /mappings/resources/by-resource/{resourceId}?bridge_from=booking_system
 ```
@@ -766,11 +796,13 @@ The sync direction ($sourceBridge → $targetBridge) is controlled by endpoint p
 
 #### **5. Trigger Resource Sync**
 
+
 ```http
 POST /mappings/resources/{id}/sync
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -782,6 +814,7 @@ POST /mappings/resources/{id}/sync
 ### Integration in Your Booking System
 
 You can integrate resource mapping checks directly into your booking system:
+
 
 ```php
 <?php
@@ -838,6 +871,7 @@ private function triggerBridgeSync($mappingId) {
 
 ### Testing Resource Mappings
 
+
 ```bash
 # Create a resource mapping
 curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/mappings/resources \
@@ -875,17 +909,20 @@ The bridge system automatically handles event deletions from Outlook and syncs t
 ### **Deletion Sync Endpoints:**
 
 #### **Manual Deletion Sync**
+
 ```http
 POST /bridges/sync-deletions
 ```
 
 Manually check all recent mappings for deleted Outlook events:
 
+
 ```bash
 curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -899,17 +936,20 @@ curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost
 ```
 
 #### **Process Deletion Queue**
+
 ```http
 POST /bridges/process-deletion-queue
 ```
 
 Process pending deletion checks from the webhook queue:
 
+
 ```bash
 curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -943,6 +983,7 @@ When an Outlook event is deleted, the bridge:
 
 Check deletion sync activity:
 
+
 ```bash
 # View recent deletion operations
 curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" "http://localhost:8082/bridges/health" | jq '.logs[] | select(.operation == "delete")'
@@ -972,17 +1013,20 @@ The bridge automatically handles when events become inactive in your booking sys
 ### **🔧 Cancellation API Endpoints**
 
 #### **Automatic Cancellation Detection**
+
 ```http
 POST /bridges/sync-deletions
 ```
 
 Scans for inactive events in booking system and deletes corresponding Outlook events:
 
+
 ```bash
 curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -1064,6 +1108,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 ### **📊 Monitoring Cancellations**
 
 #### **Cancellation Statistics**
+
 ```bash
 # Get cancellation/sync stats
 curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-stats
@@ -1071,6 +1116,7 @@ curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/br
 ```
 
 #### **View Cancelled Events**
+
 ```bash
 # List recently cancelled events
 curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/cancelled-events
@@ -1078,6 +1124,7 @@ curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/br
 ```
 
 #### **Manual Processing Triggers**
+
 ```bash
 # Detect deletions and process webhook-driven queue
 curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
@@ -1110,6 +1157,7 @@ curl -X POST -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost
 ### **💡 Implementation Notes**
 
 The cancellation system monitors these tables:
+
 - `your_event_table` - Events/reservations
 - `your_booking_table` - Bookings (if available)
 - `your_allocation_table` - Resource allocations (if available)
@@ -1123,6 +1171,7 @@ Events are considered cancelled when `active != 1` in these tables. The bridge m
 **Perfect for systems not reachable from the internet!**
 
 The bridge system works excellently without webhooks using polling-based synchronization. This is ideal for:
+
 - Internal networks behind firewalls
 - Systems without public IP addresses  
 - Development/testing environments
@@ -1165,7 +1214,7 @@ For webhook-free deployment patterns see polling guidance in `doc/operations.md`
 
 To configure Outlook integration, you'll need to set up an application in Azure Active Directory:
 
-#### **1. Create Azure AD Application**
+### **1. Create Azure AD Application**
 
 1. Go to [Azure Portal](https://portal.azure.com) → **Azure Active Directory** → **App registrations**
 2. Click **New registration**
@@ -1178,9 +1227,10 @@ To configure Outlook integration, you'll need to set up an application in Azure 
 
 After creating the app, collect these values for your `.env` file:
 
-- **OUTLOOK_CLIENT_ID**: Found on app's **Overview** page → **Application (client) ID**
-- **OUTLOOK_TENANT_ID**: Found on app's **Overview** page → **Directory (tenant) ID**
-- **OUTLOOK_CLIENT_SECRET**: 
+- These values are captured per tenant via the Admin API, not via environment variables:
+  - Client ID (Application ID)
+  - Tenant ID (Directory ID)
+  - Client Secret
   1. Go to **Certificates & secrets** → **Client secrets**
   2. Click **New client secret**
   3. Copy the **Value** (not the Secret ID)
@@ -1200,12 +1250,14 @@ After creating the app, collect these values for your `.env` file:
 
 The `OUTLOOK_GROUP_ID` is used to discover room calendars from a specific Outlook distribution group:
 
-**Option A: Use Graph Explorer**
+#### Option A: Use Graph Explorer
+
 1. Go to [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
 2. Sign in and run: `GET https://graph.microsoft.com/v1.0/groups`
 3. Find your room calendars group and copy its `id`
 
-**Option B: Use PowerShell**
+#### Option B: Use PowerShell
+
 ```powershell
 # Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Group.Read.All"
@@ -1219,25 +1271,30 @@ Get-MgGroup | Where-Object {$_.DisplayName -like "*room*"} | Select-Object Displ
 # Room Calendars       12345678-1234-1234-1234-123456789abc
 ```
 
-**Option C: Use Azure Portal**
+#### Option C: Use Azure Portal
+
 1. Go to **Azure Active Directory** → **Groups**
 2. Find your group containing room calendars
 3. Click on the group → copy the **Object ID**
 
 #### **5. Configure Calendar Discovery**
 
-**With OUTLOOK_GROUP_ID** (Recommended for specific room groups):
+With OUTLOOK_GROUP_ID (recommended for specific room groups):
+
 ```env
 OUTLOOK_GROUP_ID=12345678-1234-1234-1234-123456789abc
 ```
+
 - Bridge will discover calendars from group members
 - Perfect for curated lists of room calendars
 - Supports rooms, resources, and mailbox-enabled users
 
-**Without OUTLOOK_GROUP_ID** (Default):
+Without OUTLOOK_GROUP_ID (default):
+
 ```env
 # OUTLOOK_GROUP_ID=  # Leave empty or omit
 ```
+
 - Bridge will use `/places/microsoft.graph.room` endpoint
 - Discovers all room mailboxes in your tenant
 - May include rooms you don't want to sync
