@@ -1262,7 +1262,7 @@ class BridgeManager
 	 * - target_to_source: Only target bridge can delete (target owns the events)
 	 * - bidirectional: Both bridges can delete
 	 */
-	private function canDeleteInDirection(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	private function canDeleteInDirection(string $syncDirection, bool $isReversed, array|null $mappingConfig): bool
 	{
 		// If we have mapping config, use the proper ownership logic
 		if ($mappingConfig !== null) {
@@ -1395,7 +1395,7 @@ class BridgeManager
 	 * - target_to_source: Target bridge owns the events  
 	 * - bidirectional: Both bridges have ownership
 	 */
-	private function isOwnerSync(string $syncDirection, bool $isReversed, array $mappingConfig = null): bool
+	private function isOwnerSync(string $syncDirection, bool $isReversed, array|null $mappingConfig): bool
 	{
 		// If we have mapping config, use the proper ownership logic
 		if ($mappingConfig !== null) {
@@ -1457,7 +1457,7 @@ class BridgeManager
 	/**
 	 * Get human-readable explanation of ownership policy for logging
 	 */
-	private function getOwnershipExplanation(string $syncDirection, bool $isReversed, array $mappingConfig = null): string
+	private function getOwnershipExplanation(string $syncDirection, bool $isReversed, array|null $mappingConfig): string
 	{
 		// If we have mapping configuration, use it for more accurate ownership explanation
 		if ($mappingConfig) {
