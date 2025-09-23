@@ -177,7 +177,7 @@
       async function rotateTenantKey(id){
         try {
           const res = await fetchJSON(`/admin/tenants/${id}/keys/rotate`, { method: 'POST' });
-          alert('New API key for ' + id + ' (copy now):\n' + res.api_key);
+          alert('New API key for ' + id + ' (copy now):\n' + res.X-API-Key);
           // Refresh metadata if this tenant is currently selected
           if (selectedTenantId === id) {
             refreshKeyMetadata();
@@ -245,7 +245,7 @@
           const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(selectedTenantId)}/keys/rotate`, { 
             method: 'POST' 
           });
-          alert('New API key for ' + selectedTenantId + ' (copy now):\n' + data.api_key);
+          alert('New API key for ' + selectedTenantId + ' (copy now):\n' + data.X-API-Key);
           refreshKeyMetadata();
         } catch (error) {
           alert('Error rotating key: ' + error.message);

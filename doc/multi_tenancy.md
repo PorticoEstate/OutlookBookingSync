@@ -80,7 +80,7 @@ Option A (single script loops tenants):
 
 ```bash
 for t in tenantA tenantB; do
-  curl -s -H "api_key: $(getKey $t)" -H "X-Tenant-Id: $t" \
+  curl -s -H "X-API-Key: $(getKey $t)" -H "X-Tenant-Id: $t" \
     -X POST http://bridge/bridges/sync/booking_system/outlook \
     -H 'Content-Type: application/json' \
     -d '{"start_date":"$(date +%F)","end_date":"$(date -d "+7 days" +%F)"}'

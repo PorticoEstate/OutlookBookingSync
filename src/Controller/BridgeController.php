@@ -451,14 +451,41 @@ class BridgeController
                 $this->queueSyncOperation($bridgeName, $targetBridge, $body, $tenantId);
             }
 
-            $response->getBody()->write(json_encode([
+            // Prepare response data
+            $responseData = [
                 'success' => true,
                 'message' => 'Webhook processed and sync queued',
                 'bridge' => $bridgeName,
                 'target_bridge' => $targetBridge
-            ]));
+            ];
 
-            return $response->withStatus(202)->withHeader('Content-Type', 'application/json');
+            $response->getBody()->write(json_encode($responseData));
+            $response = $response->withStatus(202)->withHeader('Content-Type', 'application/json');
+
+            // Check if we should process the queue immediately after responding
+            $immediateProcessing = $_ENV['WEBHOOK_IMMEDIATE_PROCESSING'] ?? 'true';
+            if ($immediateProcessing === 'true')
+            {
+                // Use FastCGI finish request to send response before processing
+                if (function_exists('fastcgi_finish_request'))
+                {
+                    // For FastCGI: finish the request and then process
+                    fastcgi_finish_request();
+                    
+                    // Now process the queue after response is sent
+                    $this->processWebhookQueueImmediate($tenantId);
+                }
+                else
+                {
+                    // Fallback: queue processing will be handled by cron job HTTP endpoint
+                    $this->logger->info('Webhook queued for background processing', [
+                        'tenant_id' => $tenantId,
+                        'note' => 'Processing will be handled by cron job (/bridges/process-webhook-queue) - fastcgi_finish_request not available'
+                    ]);
+                }
+            }
+
+            return $response;
         }
         catch (\Exception $e)
         {
@@ -1344,6 +1371,119 @@ class BridgeController
     }
 
     /**
+     * Process webhook queue immediately (internal method for FastCGI finish request).
+     *
+     * @param string|null $tenantId
+     * @param int $batchSize
+     * @return void
+     */
+    private function processWebhookQueueImmediate(?string $tenantId = null, int $batchSize = 1): void
+    {
+        try
+        {
+            $maxProcessingTime = intval($_ENV['WEBHOOK_MAX_PROCESSING_TIME'] ?? 10);
+            $startTime = time();
+            
+            // Get the most recent pending item for this tenant
+            $sql = "
+                SELECT id, source_bridge, target_bridge, payload, attempts, created_at, tenant_id
+                FROM bridge_queue 
+                WHERE queue_type = 'bridge_sync' 
+                AND status = 'pending'
+            ";
+            
+            $params = [];
+            if ($tenantId)
+            {
+                $sql .= " AND tenant_id = ?";
+                $params[] = $tenantId;
+            }
+            
+            $sql .= " ORDER BY priority ASC, created_at DESC LIMIT ?";
+            $params[] = $batchSize;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $queueItems = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $processed = 0;
+            $errors = 0;
+
+            foreach ($queueItems as $item)
+            {
+                // Check processing time limit
+                if (time() - $startTime > $maxProcessingTime)
+                {
+                    $this->logger->warning('Immediate webhook processing time limit reached', [
+                        'processed' => $processed,
+                        'time_limit' => $maxProcessingTime
+                    ]);
+                    break;
+                }
+
+                try
+                {
+                    // Mark as processing
+                    $updateSql = "UPDATE bridge_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?";
+                    $updateStmt = $this->db->prepare($updateSql);
+                    $updateStmt->execute([$item['id']]);
+
+                    // Process the webhook payload
+                    $payload = json_decode($item['payload'], true);
+                    $this->processWebhookEvent($item['source_bridge'], $item['target_bridge'], $payload, $item['tenant_id']);
+
+                    // Mark as completed
+                    $completeSql = "UPDATE bridge_queue SET status = 'completed', processed_at = CURRENT_TIMESTAMP WHERE id = ?";
+                    $completeStmt = $this->db->prepare($completeSql);
+                    $completeStmt->execute([$item['id']]);
+
+                    $processed++;
+
+                    $this->logger->info('Immediate webhook processing completed', [
+                        'queue_id' => $item['id'],
+                        'source_bridge' => $item['source_bridge'],
+                        'target_bridge' => $item['target_bridge'],
+                        'tenant_id' => $item['tenant_id']
+                    ]);
+
+                }
+                catch (\Exception $e)
+                {
+                    $errors++;
+                    
+                    // Mark as failed or back to pending based on attempts
+                    $maxAttempts = intval($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 3);
+                    $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                    
+                    $errorSql = "UPDATE bridge_queue SET status = ?, error_message = ? WHERE id = ?";
+                    $errorStmt = $this->db->prepare($errorSql);
+                    $errorStmt->execute([$newStatus, $e->getMessage(), $item['id']]);
+
+                    $this->logger->error('Immediate webhook processing failed', [
+                        'queue_id' => $item['id'],
+                        'error' => $e->getMessage(),
+                        'tenant_id' => $item['tenant_id']
+                    ]);
+                }
+            }
+
+            $this->logger->info('Immediate webhook queue processing completed', [
+                'processed' => $processed,
+                'errors' => $errors,
+                'total_items' => count($queueItems),
+                'processing_time' => time() - $startTime
+            ]);
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Immediate webhook queue processing failed', [
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
+        }
+    }
+
+    /**
      * Process a webhook event from the queue.
      *
      * @param string $sourceBridge
@@ -1354,14 +1494,6 @@ class BridgeController
      */
     private function processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId)
     {
-        // Get bridge instances
-        $sourceBridgeInstance = $tenantId 
-            ? $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge)
-            : $this->bridgeManager->getBridge($sourceBridge);
-            
-        $targetBridgeInstance = $tenantId
-            ? $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridge) 
-            : $this->bridgeManager->getBridge($targetBridge);
 
         // Extract resource and event information from payload
         $resourceId = $payload['resource_id'] ?? null;

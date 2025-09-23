@@ -7,7 +7,7 @@
 set -e
 
 BRIDGE_URL="${BRIDGE_URL:-http://localhost}"
-API_KEY_HEADER="${API_KEY:+-H \"api_key: ${API_KEY}\"}"
+API_KEY_HEADER="${API_KEY:+-H \"X-API-Key: ${API_KEY}\"}"
 LOG_FILE="${LOG_FILE:-/var/log/bridge-deletion-sync.log}"
 TENANT_MODE="${TENANT_MODE:-single}"
 SPECIFIC_TENANT="${1:-}"

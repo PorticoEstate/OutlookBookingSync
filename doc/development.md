@@ -11,7 +11,7 @@ php -S localhost:8082 -t . index.php
 ## Running Local Sync
 
 ```bash
-curl -X POST -H "api_key: change-me" -H "X-Tenant-Id: dev" \
+curl -X POST -H "X-API-Key: change-me" -H "X-Tenant-Id: dev" \
   -H "Content-Type: application/json" \
   -d '{"source_calendar_id":"room@company.com","target_calendar_id":"123","dry_run":true}' \
   http://localhost:8082/bridges/sync/outlook/booking_system

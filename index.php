@@ -286,18 +286,10 @@ $container->set('bridgeManager', function () use ($container)
 
     // Register Outlook bridge
     $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
-        'client_id' => $_ENV['OUTLOOK_CLIENT_ID'],
-        'client_secret' => $_ENV['OUTLOOK_CLIENT_SECRET'],
-        'tenant_id' => $_ENV['OUTLOOK_TENANT_ID'],
-        'group_id' => $_ENV['OUTLOOK_GROUP_ID'] ?? null
     ]);
 
     // Register Booking System bridge
     $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
-        'api_base_url' => $_ENV['BOOKING_SYSTEM_API_URL'] ?? 'http://localhost',
-        'system_login' => $_ENV['BOOKING_SYSTEM_LOGIN'] ?? null,
-        'system_password' => $_ENV['BOOKING_SYSTEM_PASSWORD'] ?? null,
-        'system_domain' => $_ENV['BOOKING_SYSTEM_DOMAIN'] ?? null,
         'throw_on_api_failure' => $_ENV['BOOKING_SYSTEM_THROW_ON_FAILURE'] ?? true
     ]);
 
@@ -406,24 +398,6 @@ $app->group('/admin/resources', function ($group) {
     $group->get('/stats', [\App\Controller\BridgeResourceController::class, 'getStats']);
 });
 
-// Backwards compatibility routes (redirect to bridge endpoints) - gated by env flag
-if (filter_var($_ENV['ENABLE_LEGACY_WEBHOOKS'] ?? 'false', FILTER_VALIDATE_BOOLEAN))
-{
-    $app->get('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
-    {
-        // Redirect Outlook webhooks to bridge webhook handler
-        $bridgeController = $container->get(\App\Controller\BridgeController::class);
-        $request = $request->withAttribute('bridgeName', 'outlook');
-        return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
-    });
-
-    $app->post('/webhook/outlook-notifications', function (Request $request, Response $response, $args) use ($container)
-    {
-        // Redirect Outlook webhooks to bridge webhook handler
-        $bridgeController = $container->get(\App\Controller\BridgeController::class);
-        return $bridgeController->handleWebhook($request, $response, ['bridgeName' => 'outlook']);
-    });
-}
 
 // Sync Status Management Routes (added for comprehensive sync_status support)
 // IMPORTANT: These routes must come before the catch-all 404 route

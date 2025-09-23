@@ -46,7 +46,7 @@ class AdminAuth {
         const headers = { 'Accept': 'application/json' };
         
         if (key) {
-            headers['api_key'] = key;
+            headers['X-API-Key'] = key;
             headers['X-API-Key'] = key;
         }
         

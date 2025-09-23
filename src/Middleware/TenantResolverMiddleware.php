@@ -5,6 +5,7 @@ namespace App\Middleware;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Psr\Http\Message\ResponseInterface as Response;
+use App\Utils\HeaderUtils;
 
 /**
  * TenantResolverMiddleware resolves tenant_id from route args or headers and
@@ -21,14 +22,24 @@ class TenantResolverMiddleware
     {
         $route = $request->getAttribute('route');
         $tenantFromRoute = null;
-        if ($route && method_exists($route, 'getArgument')) {
-            try { $tenantFromRoute = $route->getArgument('tenantId'); } catch (\Throwable $e) { $tenantFromRoute = null; }
+        if ($route && method_exists($route, 'getArgument'))
+        {
+            try
+            {
+                $tenantFromRoute = $route->getArgument('tenantId');
+            }
+            catch (\Throwable $e)
+            {
+                $tenantFromRoute = null;
+            }
         }
 
-        $header = $request->getHeaderLine('X-Tenant-Id') ?: $request->getHeaderLine('x-tenant-id');
-        $tenantId = $tenantFromRoute ?: ($header ?: null);
+        // Use centralized header extraction for FastCGI compatibility
+        $tenantFromHeader = HeaderUtils::getTenantId($request);
+        $tenantId = $tenantFromRoute ?: ($tenantFromHeader ?: null);
 
-        if (!$tenantId) {
+        if (!$tenantId)
+        {
             $tenantId = $_ENV['DEFAULT_TENANT_ID'] ?? 'default';
         }
 

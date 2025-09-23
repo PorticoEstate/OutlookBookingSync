@@ -44,11 +44,5 @@ See `doc/` directory (index at `doc/README.md`) for full architecture, usage, an
 - Consolidated documentation set (single-source files under `doc/`)
 - Ownership-based sync direction enforcement & recreation logic
 
-## Deprecations and Flags
-
-- Legacy webhook mirror endpoints gated by `ENABLE_LEGACY_WEBHOOKS=false` (default)
-- Old fragmented docs removed; do not reintroduce overlap—extend existing canonical docs
-- Future: consider formal versioning for public API once >2 external bridges exist
-
 ---
 Contributions welcome—see CONTRIBUTING.md. Align new features here before implementation.

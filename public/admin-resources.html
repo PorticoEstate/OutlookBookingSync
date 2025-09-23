@@ -336,7 +336,7 @@
                     return;
                 }
 
-                const headers = { 'api_key': key, 'X-API-Key': key };
+                const headers = { 'X-API-Key': key, 'X-API-Key': key };
                 if (currentTenantId) {
                     headers['X-Tenant-Id'] = currentTenantId;
                 }

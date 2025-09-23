@@ -21,7 +21,7 @@ function clearApiKey() {
     adminAuth.setApiKey('');
 }
 
-function promptForApiKey(message = 'Enter API key for the API (header: api_key):') {
+function promptForApiKey(message = 'Enter API key for the API (header: X-API-Key):') {
     return adminAuth.promptForApiKey(message);
 }
 

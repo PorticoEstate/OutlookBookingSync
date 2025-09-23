@@ -11,27 +11,47 @@
 
 ## Outlook
 
-| Variable | Description |
-|----------|-------------|
-| OUTLOOK_CLIENT_ID | Graph app client id |
-| OUTLOOK_CLIENT_SECRET | Client secret |
-| OUTLOOK_TENANT_ID | Azure AD tenant id |
-| OUTLOOK_GROUP_ID | Optional room/group discovery anchor |
+Bridge configuration is stored per-tenant in the database via the Admin API:
+
+```json
+{
+  "client_id": "your-graph-app-client-id",
+  "client_secret": "your-client-secret",
+  "tenant_id": "your-azure-ad-tenant-id",
+  "group_id": "optional-room-group-discovery-anchor",
+  "timezone": "Europe/Oslo"
+}
+```
+
+Use `PUT /admin/tenants/{tenantId}/configs/outlook` to configure.
 
 ## Booking System
 
-| Variable | Description |
-|----------|-------------|
-| BOOKING_SYSTEM_API_URL | Base URL for booking API |
-| BOOKING_SYSTEM_LOGIN / PASSWORD | Optional basic credentials |
-| BOOKING_SYSTEM_DOMAIN | Domain scoping if required |
-| BOOKING_SYSTEM_THROW_ON_FAILURE | Toggle strict error mode |
+Bridge configuration is stored per-tenant in the database via the Admin API:
+
+```json
+{
+  "api_base_url": "http://your-booking-api/",
+  "system_login": "your-login-name",
+  "system_password": "your-password",
+  "system_domain": "your-domain",
+  "system_proxy": "none",
+  "throw_on_api_failure": true,
+  "timezone": "Europe/Oslo",
+  "defaults": {
+    "activity_id": 1,
+    "agegroup_id": 1,
+    "targetaudience_id": 7
+  }
+}
+```
+
+Use `PUT /admin/tenants/{tenantId}/configs/booking_system` to configure.
 
 ## Feature Flags / Behavior
 
 | Variable | Effect | Default |
 |----------|--------|---------|
-| ENABLE_LEGACY_WEBHOOKS | Enables legacy webhook endpoints | false |
 | CLEANUP_DAYS | Log retention days | 30 |
 | ADMIN_IP_ALLOWLIST | Comma list of IP/CIDR for admin | unset |
 
@@ -41,7 +61,35 @@ Add reverse proxy controls: rate limiting, size limits, TLS, IP allowlist for ad
 
 ## Per-Tenant Configuration
 
-Stored in future `bridge_configs` or external secrets manager; move sensitive per-tenant credentials out of environment once scale increases.
+Bridge configurations are stored in the database and managed via the Admin API:
+
+### Managing Tenant Configurations
+
+```bash
+# Create/update bridge configuration for a tenant
+PUT /admin/tenants/{tenantId}/configs/{bridgeName}
+Content-Type: application/json
+
+{
+  "client_id": "...",
+  "client_secret": "...",
+  // ... bridge-specific configuration
+}
+
+# Get bridge configuration for a tenant
+GET /admin/tenants/{tenantId}/configs/{bridgeName}
+```
+
+### Configuration Storage
+
+- Configurations are stored in the `bridge_configs` database table
+- Each tenant can have different configurations for each bridge type
+- Sensitive values (passwords, secrets) are stored encrypted
+- Environment variables are now used only for system-level settings (database, global API key, etc.)
+
+### Migration from Environment Variables
+
+Legacy environment variables like `OUTLOOK_CLIENT_ID` are no longer used. Bridge configurations must be migrated to per-tenant database storage using the Admin API.
 
 ---
 

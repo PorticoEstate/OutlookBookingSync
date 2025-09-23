@@ -36,7 +36,7 @@ A concise guide for developing and maintaining the OutlookBookingSync bridge.
 - Use dependency injection (services/controllers registered in `index.php`)
 - Logging via Monolog; include context (bridge, mapping id, etc.)
 - API responses: JSON; include `success` or `error` and actionable messages
-- Security: all API endpoints protected by `ApiKeyMiddleware` (header `api_key`)
+- Security: all API endpoints protected by `ApiKeyMiddleware` (header `X-API-Key`)
 
 ## Routes and Controllers
 
@@ -63,7 +63,3 @@ A concise guide for developing and maintaining the OutlookBookingSync bridge.
 - Use provided scripts for smoke tests: `test_bridge.sh`, `test_sync_method.sh`, `test_sync_status.sh`
 - Prefer adding quick script-based checks for new endpoints
 
-## Backwards Compatibility
-
-- Legacy webhook endpoints are gated by `ENABLE_LEGACY_WEBHOOKS=false` by default
-- If you re-introduce legacy behavior, document it and update `.env.example`

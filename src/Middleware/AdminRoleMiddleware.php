@@ -5,10 +5,11 @@ namespace App\Middleware;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Psr\Http\Message\ResponseInterface as Response;
+use App\Utils\HeaderUtils;
 
 /**
  * AdminRoleMiddleware ensures admin-only access to /admin endpoints.
- * - Requires valid global API key (header: api_key) for admin routes.
+ * - Requires valid global API key (header: X-API-Key) for admin routes.
  * - Optional IP allowlist via env ADMIN_IP_ALLOWLIST (comma-separated CIDRs).
  */
 class AdminRoleMiddleware
@@ -16,26 +17,38 @@ class AdminRoleMiddleware
     public function __invoke(Request $request, Handler $handler): Response
     {
         $path = $request->getUri()->getPath();
-        if (!str_starts_with($path, '/admin')) {
+        if (!str_starts_with($path, '/admin'))
+        {
             return $handler->handle($request);
         }
 
-        $apiKey = $request->getHeaderLine('api_key');
+        // Use centralized header extraction for FastCGI compatibility
+        $apiKey = HeaderUtils::getApiKey($request);
         $globalKey = $_ENV['API_KEY'] ?? '';
         $hasGlobal = ($globalKey !== '') && hash_equals((string)$globalKey, (string)$apiKey);
 
         // Optional IP allowlist
         $allowlist = trim((string)($_ENV['ADMIN_IP_ALLOWLIST'] ?? ''));
-        if ($allowlist !== '') {
+        if ($allowlist !== '')
+        {
             $ip = $_SERVER['REMOTE_ADDR'] ?? '';
             $ok = false;
-            foreach (array_filter(array_map('trim', explode(',', $allowlist))) as $cidr) {
-                if (self::ipInCidr($ip, $cidr)) { $ok = true; break; }
+            foreach (array_filter(array_map('trim', explode(',', $allowlist))) as $cidr)
+            {
+                if (self::ipInCidr($ip, $cidr))
+                {
+                    $ok = true;
+                    break;
+                }
             }
-            if (!$ok) { $hasGlobal = false; }
+            if (!$ok)
+            {
+                $hasGlobal = false;
+            }
         }
 
-        if (!$hasGlobal) {
+        if (!$hasGlobal)
+        {
             $response = new \Slim\Psr7\Response();
             $response->getBody()->write(json_encode(['error' => 'Admin access required']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
@@ -47,7 +60,8 @@ class AdminRoleMiddleware
     private static function ipInCidr(string $ip, string $cidr): bool
     {
         if ($ip === '' || $cidr === '') return false;
-        if (strpos($cidr, '/') === false) { // exact IP match
+        if (strpos($cidr, '/') === false)
+        { // exact IP match
             return $ip === $cidr;
         }
         [$subnet, $mask] = explode('/', $cidr, 2);

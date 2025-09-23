@@ -4,7 +4,7 @@ Canonical reference of public HTTP endpoints exposed by the Generic Calendar Bri
 
 ## Authentication & Headers
 
-Send the API key in header `api_key: <value>`.
+Send the API key in header `X-API-Key: <value>`.
 
 Multi‑tenant deployments MUST also send `X-Tenant-Id: <tenantId>` (unless relying on a default tenant via `DEFAULT_TENANT_ID`).
 

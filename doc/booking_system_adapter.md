@@ -246,10 +246,10 @@ Implementation tips:
 Webhook-free mode is fully supported and often simpler for internal systems. Recommended cron examples (adjust tenant & key):
 
 ```bash
-*/5 * * * * curl -s -X POST -H "api_key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/booking_system/outlook
-*/10 * * * * curl -s -X POST -H "api_key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/outlook/booking_system
-*/5 * * * * curl -s -X POST -H "api_key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
-*/5 * * * * curl -s -X POST -H "api_key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
+*/5 * * * * curl -s -X POST -H "X-API-Key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/booking_system/outlook
+*/10 * * * * curl -s -X POST -H "X-API-Key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync/outlook/booking_system
+*/5 * * * * curl -s -X POST -H "X-API-Key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/sync-deletions
+*/5 * * * * curl -s -X POST -H "X-API-Key: <key>" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/process-deletion-queue
 ```
 See `operations.md` for complete operational guidance.
 

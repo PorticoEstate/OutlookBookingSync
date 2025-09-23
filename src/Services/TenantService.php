@@ -94,7 +94,7 @@ class TenantService
 
         return [
             'tenant_id' => $tenantId,
-            'api_key' => $plainKey,
+            'X-API-Key' => $plainKey,
             'created_at' => date('c')
         ];
     }

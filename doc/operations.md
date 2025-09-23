@@ -73,7 +73,7 @@ Example (all resources):
 
 ```bash
 curl -X POST \
-  -H "api_key: <KEY>" \
+  -H "X-API-Key: <KEY>" \
   -H "X-Tenant-Id: tenantA" \
   https://bridge.example.com/bridges/outlook/subscriptions
 ```
@@ -82,7 +82,7 @@ Example (specific resource):
 
 ```bash
 curl -X POST \
-  -H "api_key: <KEY>" \
+  -H "X-API-Key: <KEY>" \
   -H "X-Tenant-Id: tenantA" \
   -H "Content-Type: application/json" \
   -d '{"resource_ids":["room1@example.com"]}' \

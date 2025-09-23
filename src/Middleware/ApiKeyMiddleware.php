@@ -5,6 +5,7 @@ namespace App\Middleware;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Psr\Http\Message\ResponseInterface as Response;
+use App\Utils\HeaderUtils;
 
 /**
  * ApiKeyMiddleware authenticates requests using per-tenant or global API keys.
@@ -19,13 +20,17 @@ class ApiKeyMiddleware
 	public function __invoke(Request $request, Handler $handler): Response
 	{
 		// If routing info is available and the matched route is the catch-all 404, bypass auth
-		try {
+		try
+		{
 			$routeContext = \Slim\Routing\RouteContext::fromRequest($request);
 			$route = $routeContext->getRoute();
-			if ($route && $route->getName() === 'catch_all_404') {
+			if ($route && $route->getName() === 'catch_all_404')
+			{
 				return $handler->handle($request);
 			}
-		} catch (\RuntimeException $e) {
+		}
+		catch (\RuntimeException $e)
+		{
 			// Routing has not been completed; continue with path-based checks below
 		}
 
@@ -36,31 +41,50 @@ class ApiKeyMiddleware
 			return $handler->handle($request);
 		}
 
-		$apiKey = $request->getHeaderLine('api_key');
-		$tenantId = $request->getAttribute('tenant_id');
+		// Extract headers using centralized utility
+		$apiKey = HeaderUtils::getApiKey($request);
+		$tenantId = HeaderUtils::getTenantId($request);
+		
+		// Set tenant ID as request attribute if found in headers
+		if ($tenantId !== '')
+		{
+			$request = $request->withAttribute('tenant_id', $tenantId);
+		}
+		else
+		{
+			$tenantId = $request->getAttribute('tenant_id');
+		}
+
 		/** @var \PDO|null $db */
 		$db = $request->getAttribute('db');
 
 		// 1) Per-tenant API key map via env var (JSON: {"tenantA":"key1"})
 		$tenantKeyValid = false;
 		$mapJson = $_ENV['TENANT_API_KEYS_JSON'] ?? '';
-		if ($tenantId && $mapJson) {
+		if ($tenantId && $mapJson)
+		{
 			$map = json_decode($mapJson, true);
-			if (is_array($map) && isset($map[$tenantId])) {
+			if (is_array($map) && isset($map[$tenantId]))
+			{
 				$tenantKeyValid = hash_equals((string)$map[$tenantId], (string)$apiKey);
 			}
 		}
 
 		// 1b) Check DB-stored hashed API key if available (tenant_api_keys)
-		if (!$tenantKeyValid && $tenantId && $db instanceof \PDO && $apiKey !== '') {
-			try {
+		if (!$tenantKeyValid && $tenantId && $db instanceof \PDO && $apiKey !== '')
+		{
+			try
+			{
 				$stmt = $db->prepare('SELECT api_key_hash FROM tenant_api_keys WHERE tenant_id = :id');
 				$stmt->execute([':id' => $tenantId]);
 				$row = $stmt->fetch(\PDO::FETCH_ASSOC);
-				if ($row && isset($row['api_key_hash'])) {
+				if ($row && isset($row['api_key_hash']))
+				{
 					$tenantKeyValid = password_verify((string)$apiKey, (string)$row['api_key_hash']);
 				}
-			} catch (\Throwable $e) {
+			}
+			catch (\Throwable $e)
+			{
 				// On DB error, do not disclose details; fall back to other methods
 			}
 		}
@@ -68,7 +92,8 @@ class ApiKeyMiddleware
 		// 2) Fallback to global API key for backward compatibility
 		$globalValid = false;
 		$validKey = $_ENV['API_KEY'] ?? '';
-		if ($validKey !== '') {
+		if ($validKey !== '')
+		{
 			$globalValid = hash_equals((string)$validKey, (string)$apiKey);
 		}
 

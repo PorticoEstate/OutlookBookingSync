@@ -69,7 +69,7 @@ For the full rationale, prerequisites, creation, renewal and troubleshooting ste
 Add headers:
 
 ```text
-api_key: <tenant-or-global-key>
+X-API-Key: <tenant-or-global-key>
 X-Tenant-Id: <tenant>
 ```
 
@@ -77,7 +77,7 @@ X-Tenant-Id: <tenant>
 
 | Symptom | Likely Cause | Action |
 |---------|--------------|--------|
-| 401 Unauthorized | Missing/invalid key | Verify header `api_key` |
+| 401 Unauthorized | Missing/invalid key | Verify header `X-API-Key` |
 | Events skip updates | Ownership violation | Check mapping `sync_direction` |
 | Stale webhook processing | Subscription expired | Renew via maintenance endpoint |
 | Missing deletion propagation | Deletion queue not processed | Run `/bridges/process-deletion-queue` |

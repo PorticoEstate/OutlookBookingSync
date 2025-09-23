@@ -73,7 +73,7 @@ docker compose up -d
 ```
 5. Smoke test
 ```bash
-curl -H "api_key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
+curl -H "X-API-Key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 ```
 6. Mapping example
 ```http
@@ -89,7 +89,7 @@ POST /mappings/resources
 
 ## 🔐 Authentication (Essentials)
 
-Send `api_key: <key>` header. For multi-tenant usage also send `X-Tenant-Id`. Global admin key manages tenants & configs; per-tenant keys manage scoped sync/mappings. Webhook endpoints skip auth (Graph validation flow).
+Send `X-API-Key: <key>` header. For multi-tenant usage also send `X-Tenant-Id`. Global admin key manages tenants & configs; per-tenant keys manage scoped sync/mappings. Webhook endpoints skip auth (Graph validation flow).
 
 ## 🔄 Ownership Model (Essentials)
 
@@ -156,13 +156,13 @@ This README intentionally stays concise; treat the `doc/` directory as the canon
 
 ```bash
 # Check overall bridge health
-curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
+curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 
 # Test specific bridge
-curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
+curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
 
 # View dashboard data (JSON)
-curl -H "api_key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/dashboard | jq
+curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/dashboard | jq
 ```
 
 ### Common Issues
