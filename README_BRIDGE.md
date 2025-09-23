@@ -59,7 +59,7 @@ curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_key" -H "X-
 # docker-compose.yml
 version: '3.8'
 services:
-  calendar-bridge:
+  portico_outlook:
     build: .
     ports:
       - "8080:80"

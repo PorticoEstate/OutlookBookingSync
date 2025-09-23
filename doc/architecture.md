@@ -8,15 +8,15 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 
 | Component | Responsibility |
 |----------|----------------|
-| BridgeManager | Registers bridges, orchestrates sync operations |
-| AbstractCalendarBridge | Contract for concrete bridges (fetch, create, update, delete, transform) |
-| OutlookBridge | Microsoft Graph implementation |
-| BookingSystemBridge | Generic booking API integration |
-| DeletionSyncService | Reconciles deletions & cancellations (poll + webhook queue) |
-| OutlookEventDetectionService | Translates Graph notifications into internal queue items |
-| SyncLogService | Persists audit trail of sync actions, errors, ownership events |
+| BridgeManager | Registers bridges, orchestrates sync ops, provides per-tenant bridge instances |
+| AbstractCalendarBridge | Contract for bridges (fetch, create, update, delete, transform) |
+| OutlookBridge | Microsoft Graph implementation (calendars, subscriptions, events) |
+| BookingSystemBridge | Generic booking API integration (resources/events) |
+| DeletionSyncService | Reconciles deletions & cancellations (poll + webhook/deletion queue) |
+| SyncLogService | Persists audit trail of sync actions, errors, ownership decisions |
 | AlertService | Evaluates and records alert conditions |
-| Middleware (ApiKey, TenantResolver, AdminRole, Csrf) | Authentication, tenancy scoping, admin protections |
+| Controllers | BridgeController, ResourceMappingController, BridgeResourceController, MaintenanceController, HealthController, AlertController, AdminController, MigrationController |
+| Middleware | ApiKeyMiddleware, TenantResolverMiddleware, AdminRoleMiddleware, CsrfMiddleware |
 
 ## Data Model Highlights
 
@@ -29,6 +29,12 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 | outlook_sync_alerts | Operational alerts | Threshold & anomaly tracking |
 | tenant_api_keys | Hashed per-tenant API keys | Rotated via admin endpoint |
 
+Notes:
+- Exact schema is defined in `database/` migrations; this table lists high-level responsibilities.
+
+ 
+ 
+ 
 ## Ownership & sync_direction
 
 | Value | Owner | Non-Owner Behavior | Deletion Recreation |
@@ -44,6 +50,9 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 3. Pending sync flush (process-pending-syncs) → perform CRUD via bridges
 4. Deletion sweep (sync-deletions / process-deletion-queue) → confirm & propagate removal
 
+ 
+ 
+ 
 ## Error & Retry Model
 
 | Scenario | Strategy |
@@ -55,15 +64,23 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 
 ## Multi-Tenancy
 
-Resolved via `TenantResolverMiddleware` → attaches `tenant_id` attribute. All mutating queries must include tenant scope. Config separation achieved by per-tenant bridge config records (future) or central env mapping during transition.
+Resolved via `TenantResolverMiddleware` → attaches `tenant_id` attribute. All mutating queries must include tenant scope. Config separation is achieved by per-tenant bridge config records and environment defaults. If a client omits `X-Tenant-Id`, the system falls back to `DEFAULT_TENANT_ID` (if set) or `default`.
+
+Headers:
+ 
+- `X-API-Key: <tenant-or-global-key>` (required)
+- `X-Tenant-Id: <tenantId>` (recommended; optional with `DEFAULT_TENANT_ID`)
 
 ## Observability
 
-- Health endpoints (`/health`, `/bridges/health`, `/health/system`)
-- Sync + queue stats endpoints
-- Structured sync log entries (status, tenant, bridge, operation, ownership decision)
-- Dashboard HTML reading JSON endpoints for live UI
+- Health endpoints: `/health`, `/health/system`, `/bridges/health`
+- Sync/queue stats: `/health/sync-status`, `/health/queue-stats`, `/bridges/sync-stats`, `/bridges/cancelled-events`
+- Structured sync logs (status, tenant, bridge, operation, ownership decision)
+- Static dashboard UI (`public/dashboard.html`) consumes JSON endpoints
 
+ 
+ 
+ 
 ## Security Layers
 
 | Layer | Control |
@@ -73,6 +90,14 @@ Resolved via `TenantResolverMiddleware` → attaches `tenant_id` attribute. All 
 | Admin | Global key + CSRF token + optional IP allowlist |
 | Webhooks | Signature / IP filter recommended externally |
 
+Middleware order (Slim LIFO application; these run in reverse of add order):
+
+1. AdminRoleMiddleware (protects admin routes)
+2. CsrfMiddleware (admin mutations)
+3. ApiKeyMiddleware (auth)
+4. TenantResolverMiddleware (tenant scoping)
+5. Routing + Error middleware wrappers
+
 ## Extending
 
 1. Create bridge class implementing abstract methods.
@@ -80,6 +105,32 @@ Resolved via `TenantResolverMiddleware` → attaches `tenant_id` attribute. All 
 3. Map resource IDs (mappings) and perform test sync.
 4. Add adapter-specific transformation logic sparingly; prefer generic canonical event schema.
 
+## Webhooks & Subscriptions
+
+- Webhook endpoint: `POST /bridges/webhook/{bridgeName}` (and `GET` for Microsoft validation token).
+- Subscription management:
+  - Create: `POST /bridges/{bridgeName}/subscriptions`
+  - List: `GET /bridges/{bridgeName}/subscriptions`
+  - Delete: `DELETE /bridges/{bridgeName}/subscriptions/{subscriptionId}`
+- Renewal job: `POST /maintenance/renew-subscriptions`
+
+ 
+ 
+ 
+## Jobs & Maintenance
+
+Container cron (see `docker-entrypoint.sh`) triggers:
+
+- Periodic sync passes (booking_system ↔ outlook)
+- Webhook queue processing: `POST /bridges/process-webhook-queue`
+- Deletion/cancellation sweep: `POST /bridges/sync-deletions`
+- Deletion verification queue: `POST /bridges/process-deletion-queue`
+- Log cleanup: `POST /maintenance/cleanup-logs`
+- Subscription renewal: `POST /maintenance/renew-subscriptions`
+
+ 
+ 
+ 
 ## Future Enhancements
 
 - Conflict resolution policies (priority, timestamp win, merge)
@@ -89,4 +140,8 @@ Resolved via `TenantResolverMiddleware` → attaches `tenant_id` attribute. All 
 
 ---
 
-See `usage.md` for operational flows and `operations.md` for runtime management.
+See also:
+
+- `doc/api_endpoints.md` — complete endpoint reference
+- `doc/booking_system_adapter.md` — booking system contract & patterns
+- `doc/operations.md` — runtime ops and scheduling

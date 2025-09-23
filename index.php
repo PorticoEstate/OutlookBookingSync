@@ -319,7 +319,6 @@ $container->set(\App\Controller\BridgeResourceController::class, function () use
     );
 });
 
-// Removed unused BridgeBookingController registration (no routes reference it)
 
 // Generic Bridge API Routes
 
