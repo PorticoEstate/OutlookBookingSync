@@ -524,7 +524,21 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			throw new \Exception("Failed to create subscription: " . $e->getMessage());
+			$errorMessage = "Failed to create subscription: " . $e->getMessage();
+			
+			// Add more specific error details for Microsoft Graph errors
+			if ($e instanceof \Microsoft\Graph\Generated\Models\ODataErrors\ODataError) {
+				$errorMessage .= " | OData Error: " . $e->getError()->getMessage();
+			}
+			
+			$this->logger->error('Subscription creation failed', [
+				'calendar_id' => $calendarId,
+				'webhook_url' => $webhookUrl,
+				'error' => $e->getMessage(),
+				'error_type' => get_class($e)
+			]);
+			
+			throw new \Exception($errorMessage);
 		}
 	}
 

@@ -22,6 +22,19 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - portico_internal
+#
+#  cloudflared:
+#    image: cloudflare/cloudflared:latest
+#    restart: unless-stopped
+#    command: tunnel --no-autoupdate --protocol http2 --edge-ip-version 4 run
+#    env_file:
+#      - .env.compose
+#    networks:
+#      - portico_internal
+#    depends_on:
+#      - portico_outlook
+#    profiles:
+#      - cloudflare
 
 networks:
   portico_internal:

@@ -18,6 +18,7 @@ RewriteRule ^admin-mappings$ public/admin-mappings.html [L]
 RewriteRule ^admin-resources$ public/admin-resources.html [L]
 RewriteRule ^admin-migrations$ public/admin-migrations.html [L]
 RewriteRule ^admin-events$ public/admin-events.html [L]
+RewriteRule ^admin-webhooks$ public/admin-webhooks.html [L]
 # Favicon - serve empty response to prevent 404s
 RewriteRule ^favicon\.ico$ - [R=204,L]
 

@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhook Management</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <script src="js/auth.js"></script>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1>Webhook Management</h1>
+            </div>
+            <div class="nav-links">
+                <a href="/dashboard">Dashboard</a> ·
+                <a href="/admin-events">Event Management</a> ·
+                <a href="/admin-tenants">Tenant & Key Management</a> ·
+                <a href="/admin-configs">Bridge Configs</a> ·
+                <a href="/admin-mappings">Resource Mappings</a> ·
+                <a href="/admin-resources">Admin Resources</a> ·
+                <a href="/admin-webhooks" class="active">Webhook Management</a> ·
+                <a href="/admin-migrations">DB Migrations</a>
+            </div>
+        </nav>
+
+        <div class="main-content">
+            <div class="content-header">
+                <h2>Webhook Subscriptions</h2>
+            </div>
+
+            <p class="note">Manage webhook subscriptions for real-time calendar synchronization. Use your admin API key.</p>
+
+            <!-- Tenant Selection -->
+            <div class="section">
+                <h3>Tenant Context</h3>
+                <div class="filter-row">
+                    <label>Current Tenant:</label>
+                    <select id="tenantSelect" onchange="changeTenant()">
+                        <option value="">Default</option>
+                    </select>
+                    <span id="currentTenant" class="badge">Loading...</span>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="section">
+                <h3>Quick Actions</h3>
+                <div class="filter-row">
+                    <button class="btn btn-primary" onclick="showCreateModal()">Create Subscription</button>
+                    <button class="btn btn-warning" onclick="renewExpiring()">Renew Expiring</button>
+                    <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="section">
+                <h3>Subscription Statistics</h3>
+                <div id="stats" class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalSubscriptions">-</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="activeSubscriptions">-</div>
+                        <div class="stat-label">Active</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="expiringSubscriptions">-</div>
+                        <div class="stat-label">Expiring (24h)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="expiredSubscriptions">-</div>
+                        <div class="stat-label">Expired</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="section">
+                <h3>Filters</h3>
+                <div class="filter-row">
+                    <input type="text" id="searchCalendar" placeholder="Search calendar ID..." oninput="debounceSearch()">
+                    <select id="bridgeFilter" onchange="loadSubscriptions()">
+                        <option value="">All Bridges</option>
+                        <option value="outlook">Outlook</option>
+                        <option value="booking_system">Booking System</option>
+                    </select>
+                    <select id="statusFilter" onchange="loadSubscriptions()">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="expired">Expired</option>
+                        <option value="expiring">Expiring (24h)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Subscriptions Table -->
+            <div class="section">
+                <h3>Subscriptions</h3>
+                <div id="subscriptionsTable">
+                    <div class="loading">Loading subscriptions...</div>
+                </div>
+                <div id="pagination"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Subscription Modal -->
+    <div id="createModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeCreateModal()">&times;</span>
+            <h3>Create Webhook Subscription</h3>
+            
+            <div class="form-group">
+                <label for="bridgeSelect">Bridge:</label>
+                <select id="bridgeSelect" required onchange="loadMappedCalendars()">
+                    <option value="outlook">Outlook</option>
+                    <option value="booking_system">Booking System</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="webhookUrl">Webhook URL:</label>
+                <input type="url" id="webhookUrl" placeholder="https://yourbridge.com/bridges/webhook/outlook" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="calendarIds">Calendar IDs (optional, comma-separated):</label>
+                <div class="input-with-button">
+                    <textarea id="calendarIds" placeholder="calendar1@example.com, calendar2@example.com" rows="3"></textarea>
+                    <button type="button" onclick="loadMappedCalendars()" class="btn btn-info btn-small">Load Mapped Calendars</button>
+                </div>
+                <small>Leave empty to auto-discover all calendars, or click "Load Mapped Calendars" to preload from resource mappings</small>
+            </div>
+            
+            <div class="form-group">
+                <button type="button" onclick="createSubscription()" class="btn btn-primary">Create Subscription</button>
+                <button type="button" onclick="closeCreateModal()" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Webhook Simulator Modal -->
+    <div id="simulatorModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSimulatorModal()">&times;</span>
+            <h3>Webhook Payload Simulator</h3>
+            
+            <div class="form-group">
+                <label for="simulatorBridge">Bridge Type:</label>
+                <select id="simulatorBridge">
+                    <option value="outlook">Outlook</option>
+                    <option value="booking_system">Booking System</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="rawPayload">Raw Webhook Payload (JSON):</label>
+                <textarea id="rawPayload" rows="10" placeholder='{"value": [{"resource": "..."}, ...]}'></textarea>
+            </div>
+            
+            <div class="form-group">
+                <button type="button" onclick="simulateWebhook()" class="btn btn-primary">Transform & Preview</button>
+                <button type="button" onclick="closeSimulatorModal()" class="btn btn-secondary">Cancel</button>
+            </div>
+            
+            <div id="simulatorResult" class="form-group" style="display: none;">
+                <label>Transformed Result:</label>
+                <pre id="transformedPayload"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 0;
+        let pageSize = 50;
+        let searchTimeout;
+        let currentTenantId = '';
+        let CSRF = '';
+
+        // CSRF token management
+        async function ensureCsrf()
+        {
+            if (!CSRF)
+            {
+                try
+                {
+                    const response = await fetch('/admin/csrf', {
+                        headers: adminAuth.getAuthHeaders()
+                    });
+                    if (response.ok)
+                    {
+                        const data = await response.json();
+                        CSRF = data.csrf_token;
+                    }
+                }
+                catch (e)
+                {
+                    console.warn('Failed to fetch CSRF token:', e);
+                }
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async function()
+        {
+            console.log('Initializing webhook admin page...');
+            
+            // Initialize the tenant display immediately
+            updateCurrentTenantDisplay();
+            
+            // Check if API key is set - if not, prompt with Ctrl+K
+            const apiKey = adminAuth.getApiKey();
+            if (!apiKey)
+            {
+                console.warn('Admin API key not set. Press Ctrl+K to set it.');
+                const badge = document.getElementById('currentTenant');
+                badge.textContent = 'Press Ctrl+K to set API key';
+                badge.className = 'badge badge-warning';
+                return;
+            }
+            
+            await ensureCsrf();
+            await loadTenants();
+            await refreshData();
+        });
+
+        function getHeaders(hasBody = true)
+        {
+            const headers = adminAuth.getAuthHeaders(currentTenantId);
+            if (hasBody)
+            {
+                headers['Content-Type'] = 'application/json';
+                if (CSRF)
+                {
+                    headers['X-CSRF-Token'] = CSRF;
+                }
+            }
+            return headers;
+        }
+
+        async function loadTenants()
+        {
+            const key = adminAuth.getApiKey();
+            if (!key)
+            {
+                console.error('Admin API key not set. Set via Ctrl+K or localStorage.dashboard_api_key');
+                const badge = document.getElementById('currentTenant');
+                badge.textContent = 'API key missing';
+                badge.className = 'badge badge-error';
+                return;
+            }
+
+            try
+            {
+                const headers = adminAuth.getAuthHeaders();
+                const response = await fetch('/admin/tenants', { headers });
+                
+                if (response.ok)
+                {
+                    const data = await response.json();
+                    const select = document.getElementById('tenantSelect');
+                    select.innerHTML = '<option value="">Default</option>';
+                    
+                    // Handle both direct array and wrapped response formats
+                    const tenants = data.tenants || data;
+                    if (Array.isArray(tenants))
+                    {
+                        tenants.forEach(tenant =>
+                        {
+                            const option = document.createElement('option');
+                            option.value = tenant.id;
+                            option.textContent = `${tenant.id} — ${tenant.name || ''}`;
+                            select.appendChild(option);
+                        });
+                    }
+                    
+                    updateCurrentTenantDisplay();
+                }
+                else
+                {
+                    console.error('Failed to load tenants:', response.status, response.statusText);
+                    const badge = document.getElementById('currentTenant');
+                    badge.textContent = 'Error loading tenants';
+                    badge.className = 'badge badge-error';
+                }
+            }
+            catch (error)
+            {
+                console.error('Failed to load tenants:', error);
+                const badge = document.getElementById('currentTenant');
+                badge.textContent = 'Error loading tenants';
+                badge.className = 'badge badge-error';
+            }
+        }
+
+        function changeTenant()
+        {
+            const select = document.getElementById('tenantSelect');
+            currentTenantId = select.value;
+            updateCurrentTenantDisplay();
+            refreshData();
+            
+            // Auto-load mapped calendars for the new tenant if create modal is open
+            if (document.getElementById('createModal').style.display === 'block')
+            {
+                loadMappedCalendars();
+            }
+        }
+
+        function updateCurrentTenantDisplay()
+        {
+            const badge = document.getElementById('currentTenant');
+            badge.textContent = currentTenantId || 'Default';
+            badge.className = currentTenantId ? 'badge badge-info' : 'badge badge-secondary';
+        }
+
+        async function refreshData()
+        {
+            await Promise.all([
+                loadStats(),
+                loadSubscriptions()
+            ]);
+        }
+
+        async function loadStats()
+        {
+            try
+            {
+                const response = await fetch('/bridges/outlook/subscriptions?stats_only=true', {
+                    headers: getHeaders(false)
+                });
+                
+                if (response.ok)
+                {
+                    const data = await response.json();
+                    displayStats(data.stats || {});
+                }
+            }
+            catch (error)
+            {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        function displayStats(stats)
+        {
+            document.getElementById('totalSubscriptions').textContent = stats.total || 0;
+            document.getElementById('activeSubscriptions').textContent = stats.active || 0;
+            document.getElementById('expiringSubscriptions').textContent = stats.expiring_24h || 0;
+            document.getElementById('expiredSubscriptions').textContent = stats.expired || 0;
+        }
+
+        async function loadSubscriptions()
+        {
+            try
+            {
+                const searchTerm = document.getElementById('searchCalendar').value;
+                const bridgeFilter = document.getElementById('bridgeFilter').value;
+                const statusFilter = document.getElementById('statusFilter').value;
+                
+                const params = new URLSearchParams({
+                    limit: pageSize,
+                    offset: currentPage * pageSize
+                });
+                
+                if (searchTerm) params.append('search', searchTerm);
+                if (bridgeFilter) params.append('bridge', bridgeFilter);
+                if (statusFilter) params.append('status', statusFilter);
+                
+                const response = await fetch(`/bridges/outlook/subscriptions?${params}`, {
+                    headers: getHeaders(false)
+                });
+                
+                if (response.ok)
+                {
+                    const data = await response.json();
+                    displaySubscriptions(data.subscriptions || []);
+                    displayPagination(data.pagination || {});
+                }
+                else
+                {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            }
+            catch (error)
+            {
+                console.error('Failed to load subscriptions:', error);
+                document.getElementById('subscriptionsTable').innerHTML = 
+                    `<div class="error">Failed to load subscriptions: ${error.message}</div>`;
+            }
+        }
+
+        function displaySubscriptions(subscriptions)
+        {
+            if (subscriptions.length === 0)
+            {
+                document.getElementById('subscriptionsTable').innerHTML = 
+                    '<div class="no-data">No subscriptions found</div>';
+                return;
+            }
+
+            let html = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Calendar ID</th>
+                            <th>Bridge</th>
+                            <th>Status</th>
+                            <th>Expires At</th>
+                            <th>Last Renewed</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            subscriptions.forEach(sub =>
+            {
+                const status = getSubscriptionStatus(sub);
+                const expiresAt = sub.expires_at ? new Date(sub.expires_at).toLocaleString() : 'Never';
+                const lastRenewed = sub.last_renewed_at ? new Date(sub.last_renewed_at).toLocaleString() : 'Never';
+                
+                html += `
+                    <tr>
+                        <td>${escapeHtml(sub.calendar_id)}</td>
+                        <td>${escapeHtml(sub.bridge_type)}</td>
+                        <td><span class="badge ${status.class}">${status.text}</span></td>
+                        <td>${expiresAt}</td>
+                        <td>${lastRenewed}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning" onclick="renewSubscription('${sub.subscription_id}')">Renew</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteSubscription('${sub.subscription_id}')">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('subscriptionsTable').innerHTML = html;
+        }
+
+        function getSubscriptionStatus(subscription)
+        {
+            if (!subscription.is_active)
+            {
+                return { text: 'Inactive', class: 'badge-secondary' };
+            }
+            
+            if (!subscription.expires_at)
+            {
+                return { text: 'Active', class: 'badge-success' };
+            }
+            
+            const now = new Date();
+            const expires = new Date(subscription.expires_at);
+            const hoursUntilExpiry = (expires - now) / (1000 * 60 * 60);
+            
+            if (expires <= now)
+            {
+                return { text: 'Expired', class: 'badge-danger' };
+            }
+            else if (hoursUntilExpiry <= 24)
+            {
+                return { text: 'Expiring Soon', class: 'badge-warning' };
+            }
+            else
+            {
+                return { text: 'Active', class: 'badge-success' };
+            }
+        }
+
+        function displayPagination(pagination)
+        {
+            const total = pagination.total || 0;
+            const totalPages = Math.ceil(total / pageSize);
+            
+            if (totalPages <= 1)
+            {
+                document.getElementById('pagination').innerHTML = '';
+                return;
+            }
+
+            let html = `<div class="pagination">Page ${currentPage + 1} of ${totalPages} (${total} total)<br>`;
+            
+            if (currentPage > 0)
+            {
+                html += `<button onclick="changePage(0)">First</button> `;
+                html += `<button onclick="changePage(${currentPage - 1})">Previous</button> `;
+            }
+            
+            if (currentPage < totalPages - 1)
+            {
+                html += `<button onclick="changePage(${currentPage + 1})">Next</button> `;
+                html += `<button onclick="changePage(${totalPages - 1})">Last</button>`;
+            }
+            
+            html += '</div>';
+            document.getElementById('pagination').innerHTML = html;
+        }
+
+        function changePage(page)
+        {
+            currentPage = page;
+            loadSubscriptions();
+        }
+
+        function debounceSearch()
+        {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(loadSubscriptions, 500);
+        }
+
+        // Modal functions
+        function showCreateModal()
+        {
+            document.getElementById('createModal').style.display = 'block';
+            
+            // Set default webhook URL
+            const baseUrl = window.location.origin;
+            document.getElementById('webhookUrl').value = `${baseUrl}/bridges/webhook/outlook`;
+            
+            // Auto-load mapped calendars for current tenant
+            loadMappedCalendars();
+        }
+
+        function closeCreateModal()
+        {
+            document.getElementById('createModal').style.display = 'none';
+        }
+
+        function showSimulatorModal()
+        {
+            document.getElementById('simulatorModal').style.display = 'block';
+        }
+
+        function closeSimulatorModal()
+        {
+            document.getElementById('simulatorModal').style.display = 'none';
+            document.getElementById('simulatorResult').style.display = 'none';
+        }
+
+        async function createSubscription()
+        {
+            await ensureCsrf();
+            
+            const bridge = document.getElementById('bridgeSelect').value;
+            const webhookUrl = document.getElementById('webhookUrl').value;
+            const calendarIdsText = document.getElementById('calendarIds').value.trim();
+            
+            if (!webhookUrl)
+            {
+                alert('Please enter a webhook URL');
+                return;
+            }
+            
+            const payload = { webhook_url: webhookUrl };
+            
+            if (calendarIdsText)
+            {
+                payload.calendar_ids = calendarIdsText.split(',').map(id => id.trim()).filter(id => id);
+            }
+            
+            try
+            {
+                const response = await fetch(`/bridges/${bridge}/subscriptions`, {
+                    method: 'POST',
+                    headers: getHeaders(true),
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.ok)
+                {
+                    const result = await response.json();
+                    alert(`Created ${result.created ? result.created.length : 0} subscriptions`);
+                    closeCreateModal();
+                    refreshData();
+                }
+                else
+                {
+                    const error = await response.text();
+                    alert(`Failed to create subscription: ${error}`);
+                }
+            }
+            catch (error)
+            {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function loadMappedCalendars()
+        {
+            if (!currentTenantId)
+            {
+                alert('Please select a tenant first');
+                return;
+            }
+
+            const bridge = document.getElementById('bridgeSelect').value || 'outlook';
+            
+            try
+            {
+                // Step 1: Load resource mappings for the selected bridge and tenant
+                const mappingsResponse = await fetch('/mappings/resources', {
+                    headers: adminAuth.getAuthHeaders(currentTenantId)
+                });
+                
+                if (!mappingsResponse.ok)
+                {
+                    const error = await mappingsResponse.text();
+                    alert(`Failed to load mappings: ${error}`);
+                    return;
+                }
+
+                const mappingsData = await mappingsResponse.json();
+                const mappings = mappingsData.mappings || [];
+                
+                // Extract resource IDs from mappings based on bridge type and direction
+                let resourceIds = new Set();
+                
+                if (bridge === 'outlook')
+                {
+                    // For Outlook bridge webhooks, we need the Outlook calendar identifiers
+                    mappings.forEach(m => {
+                        // If this is a mapping TO outlook, use target_calendar_id
+                        if (m.bridge_to === 'outlook' && m.target_calendar_id) {
+                            resourceIds.add(m.target_calendar_id);
+                        }
+                        // If this is a mapping FROM outlook, use source_calendar_id
+                        if (m.bridge_from === 'outlook' && m.source_calendar_id) {
+                            resourceIds.add(m.source_calendar_id);
+                        }
+                    });
+                }
+                else if (bridge === 'booking_system')
+                {
+                    // For booking system bridge, get the booking system resource IDs
+                    mappings.forEach(m => {
+                        if (m.bridge_to === 'booking_system' && m.target_calendar_id) {
+                            resourceIds.add(m.target_calendar_id);
+                        }
+                        if (m.bridge_from === 'booking_system' && m.source_calendar_id) {
+                            resourceIds.add(m.source_calendar_id);
+                        }
+                    });
+                }
+
+                if (resourceIds.size === 0)
+                {
+                    alert(`No mapped resources found for ${bridge} bridge in tenant ${currentTenantId}`);
+                    console.log('Available mappings:', mappings);
+                    return;
+                }
+
+                console.log(`Found ${resourceIds.size} mapped resource IDs for ${bridge} bridge:`, Array.from(resourceIds));
+
+                // Step 2: Get available resources from the bridge to resolve IDs to emails/names
+                const resourcesResponse = await fetch(`/bridges/${bridge}/available-resources`, {
+                    headers: adminAuth.getAuthHeaders(currentTenantId)
+                });
+
+                if (!resourcesResponse.ok)
+                {
+                    // Fallback: use the resource IDs as-is if we can't fetch resource details
+                    console.warn(`Could not fetch resource details for ${bridge} bridge, using raw IDs`);
+                    document.getElementById('calendarIds').value = Array.from(resourceIds).join(', ');
+                    return;
+                }
+
+                const resourcesData = await resourcesResponse.json();
+                const availableResources = resourcesData.resources || resourcesData.calendars || [];
+
+                // Step 3: Match mapped resource IDs with available resources to get emails/identifiers
+                let resolvedCalendarIds = [];
+
+                if (bridge === 'outlook')
+                {
+                    // For Outlook, look for email addresses in the resource data
+                    const foundResourceIds = new Set();
+                    
+                    availableResources.forEach(resource => {
+                        const resourceId = resource.id;
+                        const resourceEmail = resource.email || resource.userPrincipalName || resource.id;
+                        
+                        // Check if this resource is in our mapped set
+                        if (resourceIds.has(resourceId) || resourceIds.has(resourceEmail))
+                        {
+                            foundResourceIds.add(resourceId);
+                            foundResourceIds.add(resourceEmail);
+                            
+                            // Prefer email format for Outlook webhooks
+                            if (resourceEmail && resourceEmail.includes('@'))
+                            {
+                                resolvedCalendarIds.push(resourceEmail);
+                            }
+                            else
+                            {
+                                resolvedCalendarIds.push(resourceId);
+                            }
+                        }
+                    });
+                    
+                    // Add any mapped resource IDs that weren't found in available resources
+                    // This might work for other bridge types or edge cases
+                    resourceIds.forEach(mappedId => {
+                        if (!foundResourceIds.has(mappedId))
+                        {
+                            resolvedCalendarIds.push(mappedId);
+                        }
+                    });
+                }
+                else
+                {
+                    // For booking system, use the resource IDs directly
+                    const foundResourceIds = new Set();
+                    
+                    availableResources.forEach(resource => {
+                        const resourceId = resource.id;
+                        if (resourceIds.has(resourceId))
+                        {
+                            foundResourceIds.add(resourceId);
+                            resolvedCalendarIds.push(resourceId);
+                        }
+                    });
+                    
+                    // Add any mapped resource IDs that weren't found in available resources
+                    // This ensures all mapped resources are included even if not currently available
+                    resourceIds.forEach(mappedId => {
+                        if (!foundResourceIds.has(mappedId))
+                        {
+                            resolvedCalendarIds.push(mappedId);
+                        }
+                    });
+                }
+
+                // Remove duplicates and populate the textarea
+                const uniqueCalendarIds = [...new Set(resolvedCalendarIds)];
+                document.getElementById('calendarIds').value = uniqueCalendarIds.join(', ');
+                
+                if (uniqueCalendarIds.length === 0)
+                {
+                    alert(`No matching ${bridge === 'outlook' ? 'calendar emails' : 'resource IDs'} found. The mapped resources might not be available or accessible.`);
+                    console.log('Mapped resource IDs:', Array.from(resourceIds));
+                    console.log('Available resources:', availableResources);
+                }
+                else
+                {
+                    console.log(`Successfully resolved ${uniqueCalendarIds.length} ${bridge === 'outlook' ? 'calendar emails' : 'resource IDs'} for ${bridge} bridge:`, uniqueCalendarIds);
+                }
+            }
+            catch (error)
+            {
+                alert(`Error loading mapped calendars: ${error.message}`);
+                console.error('Error details:', error);
+            }
+        }
+
+        async function renewExpiring()
+        {
+            if (!confirm('Renew all subscriptions expiring within 24 hours?'))
+            {
+                return;
+            }
+            
+            try
+            {
+                const response = await fetch('/maintenance/renew-subscriptions?renew_before_minutes=1440', {
+                    method: 'POST',
+                    headers: getHeaders(false)
+                });
+                
+                if (response.ok)
+                {
+                    const result = await response.json();
+                    alert(`Renewed ${result.renewed ? result.renewed.length : 0} subscriptions, ${result.failed ? result.failed.length : 0} failed`);
+                    refreshData();
+                }
+                else
+                {
+                    const error = await response.text();
+                    alert(`Failed to renew subscriptions: ${error}`);
+                }
+            }
+            catch (error)
+            {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function renewSubscription(subscriptionId)
+        {
+            if (!confirm(`Renew subscription ${subscriptionId}?`))
+            {
+                return;
+            }
+            
+            // Use the renewal endpoint with a filter for this specific subscription
+            try
+            {
+                const response = await fetch(`/maintenance/renew-subscriptions?limit=1&subscription_id=${subscriptionId}`, {
+                    method: 'POST',
+                    headers: getHeaders(false)
+                });
+                
+                if (response.ok)
+                {
+                    const result = await response.json();
+                    if (result.renewed && result.renewed.length > 0)
+                    {
+                        alert('Subscription renewed successfully');
+                    }
+                    else
+                    {
+                        alert(`Failed to renew: ${result.failed && result.failed.length > 0 ? result.failed[0].error : 'Unknown error'}`);
+                    }
+                    refreshData();
+                }
+                else
+                {
+                    const error = await response.text();
+                    alert(`Failed to renew subscription: ${error}`);
+                }
+            }
+            catch (error)
+            {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function deleteSubscription(subscriptionId)
+        {
+            if (!confirm(`Delete subscription ${subscriptionId}? This cannot be undone.`))
+            {
+                return;
+            }
+            
+            await ensureCsrf();
+            
+            try
+            {
+                const response = await fetch(`/bridges/outlook/subscriptions/${subscriptionId}`, {
+                    method: 'DELETE',
+                    headers: getHeaders(false)
+                });
+                
+                if (response.ok)
+                {
+                    alert('Subscription deleted successfully');
+                    refreshData();
+                }
+                else
+                {
+                    const error = await response.text();
+                    alert(`Failed to delete subscription: ${error}`);
+                }
+            }
+            catch (error)
+            {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function simulateWebhook()
+        {
+            const bridge = document.getElementById('simulatorBridge').value;
+            const rawPayload = document.getElementById('rawPayload').value.trim();
+            
+            if (!rawPayload)
+            {
+                alert('Please enter a raw webhook payload');
+                return;
+            }
+            
+            try
+            {
+                JSON.parse(rawPayload); // Validate JSON
+                
+                const response = await fetch(`/bridges/webhook/${bridge}/simulate`, {
+                    method: 'POST',
+                    headers: getHeaders(true),
+                    body: rawPayload
+                });
+                
+                if (response.ok)
+                {
+                    const result = await response.json();
+                    document.getElementById('transformedPayload').textContent = JSON.stringify(result, null, 2);
+                    document.getElementById('simulatorResult').style.display = 'block';
+                }
+                else
+                {
+                    const error = await response.text();
+                    alert(`Simulation failed: ${error}`);
+                }
+            }
+            catch (error)
+            {
+                alert(`Invalid JSON or error: ${error.message}`);
+            }
+        }
+
+        function escapeHtml(text)
+        {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event)
+        {
+            const createModal = document.getElementById('createModal');
+            const simulatorModal = document.getElementById('simulatorModal');
+            
+            if (event.target == createModal)
+            {
+                closeCreateModal();
+            }
+            else if (event.target == simulatorModal)
+            {
+                closeSimulatorModal();
+            }
+        };
+    </script>
+</body>
+</html>

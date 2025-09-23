@@ -687,8 +687,240 @@ class BridgeController
         }
         catch (\Exception $e)
         {
-            $this->logger->error('Failed to create subscriptions', [
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * List webhook subscriptions for a bridge.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include bridgeName
+     * @return Response
+     */
+    public function listSubscriptions(Request $request, Response $response, $args)
+    {
+        $bridgeName = $args['bridgeName'];
+        $queryParams = $request->getQueryParams();
+
+        try
+        {
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+            
+            // Build SQL query
+            $sql = "SELECT id, subscription_id, calendar_id, bridge_type, webhook_url, 
+                          is_active, expires_at, last_renewed_at, created_at 
+                   FROM bridge_subscriptions 
+                   WHERE bridge_type = :bridge_type";
+            $params = [':bridge_type' => $bridgeName];
+
+            // Add tenant filter if specified
+            if ($tenantId !== '')
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                $params[':tenant_id'] = $tenantId;
+            }
+
+            // Add search filter
+            if (!empty($queryParams['search']))
+            {
+                $sql .= " AND calendar_id ILIKE :search";
+                $params[':search'] = '%' . $queryParams['search'] . '%';
+            }
+
+            // Add status filter
+            if (!empty($queryParams['status']))
+            {
+                $status = $queryParams['status'];
+                if ($status === 'active')
+                {
+                    $sql .= " AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())";
+                }
+                elseif ($status === 'expired')
+                {
+                    $sql .= " AND expires_at IS NOT NULL AND expires_at <= NOW()";
+                }
+                elseif ($status === 'expiring')
+                {
+                    $sql .= " AND expires_at IS NOT NULL AND expires_at > NOW() AND expires_at <= (NOW() + interval '24 hours')";
+                }
+            }
+
+            // Handle stats_only request
+            if (!empty($queryParams['stats_only']))
+            {
+                $statsSql = "SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN is_active = TRUE THEN 1 END) as active,
+                    COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 1 END) as expired,
+                    COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at > NOW() AND expires_at <= (NOW() + interval '24 hours') THEN 1 END) as expiring_24h
+                FROM bridge_subscriptions 
+                WHERE bridge_type = :bridge_type";
+                
+                if ($tenantId !== '')
+                {
+                    $statsSql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                }
+
+                $stmt = $this->db->prepare($statsSql);
+                $stmt->execute($params);
+                $stats = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'stats' => $stats
+                ]));
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+
+            // Add pagination
+            $limit = max(1, min(200, (int)($queryParams['limit'] ?? 50)));
+            $offset = max(0, (int)($queryParams['offset'] ?? 0));
+            
+            $countSql = str_replace('SELECT id, subscription_id, calendar_id, bridge_type, webhook_url, is_active, expires_at, last_renewed_at, created_at', 'SELECT COUNT(*)', $sql);
+            $stmt = $this->db->prepare($countSql);
+            $stmt->execute($params);
+            $total = (int)$stmt->fetchColumn();
+
+            $sql .= " ORDER BY created_at DESC LIMIT :limit OFFSET :offset";
+            $params[':limit'] = $limit;
+            $params[':offset'] = $offset;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $subscriptions = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'subscriptions' => $subscriptions,
+                'pagination' => [
+                    'total' => $total,
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'page' => floor($offset / $limit),
+                    'pages' => ceil($total / $limit)
+                ]
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to list subscriptions', [
                 'bridge' => $bridgeName,
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Delete a webhook subscription.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include bridgeName and subscriptionId
+     * @return Response
+     */
+    public function deleteSubscription(Request $request, Response $response, $args)
+    {
+        $bridgeName = $args['bridgeName'];
+        $subscriptionId = $args['subscriptionId'];
+
+        try
+        {
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+            
+            // First check if subscription exists and get calendar_id
+            $sql = "SELECT calendar_id FROM bridge_subscriptions 
+                   WHERE subscription_id = :subscription_id AND bridge_type = :bridge_type";
+            $params = [
+                ':subscription_id' => $subscriptionId,
+                ':bridge_type' => $bridgeName
+            ];
+
+            if ($tenantId !== '')
+            {
+                $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                $params[':tenant_id'] = $tenantId;
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $subscription = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$subscription)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Subscription not found'
+                ]));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Try to unsubscribe from the provider (if bridge supports it)
+            try
+            {
+                $bridge = $this->bridgeManager->getBridgeForTenant($tenantId ?: 'default', $bridgeName);
+                if (method_exists($bridge, 'unsubscribeFromChanges'))
+                {
+                    $bridge->unsubscribeFromChanges($subscriptionId);
+                }
+            }
+            catch (\Exception $e)
+            {
+                $this->logger->warning('Failed to unsubscribe from provider', [
+                    'subscription_id' => $subscriptionId,
+                    'error' => $e->getMessage()
+                ]);
+                // Continue with database deletion even if provider unsubscribe fails
+            }
+
+            // Delete from database
+            $deleteSql = "DELETE FROM bridge_subscriptions 
+                         WHERE subscription_id = :subscription_id AND bridge_type = :bridge_type";
+            if ($tenantId !== '')
+            {
+                $deleteSql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            }
+
+            $stmt = $this->db->prepare($deleteSql);
+            $stmt->execute($params);
+
+            if ($stmt->rowCount() > 0)
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Subscription deleted successfully'
+                ]));
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Failed to delete subscription'
+                ]));
+                return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to delete subscription', [
+                'bridge' => $bridgeName,
+                'subscription_id' => $subscriptionId,
                 'error' => $e->getMessage()
             ]);
 

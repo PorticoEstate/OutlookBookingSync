@@ -796,6 +796,18 @@ a:hover {
             background-color: #ffebee;
             color: #c62828;
         }
+        .badge-success {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        .badge-warning {
+            background-color: #fff3e0;
+            color: #f57c00;
+        }
+        .badge-danger {
+            background-color: #ffebee;
+            color: #c62828;
+        }
         .note {
             color: #666;
             font-size: 0.9em;
@@ -820,4 +832,34 @@ a:hover {
     border-radius: 8px;
     border: 1px solid #ddd;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Input with button layout for webhook admin */
+.input-with-button {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.input-with-button textarea {
+    flex: 1;
+}
+
+.input-with-button .btn-small {
+    padding: 8px 12px;
+    font-size: 0.9em;
+    white-space: nowrap;
+    align-self: flex-start;
+    margin-top: 2px;
+}
+
+.btn-info {
+    background-color: #17a2b8;
+    color: white;
+    border: 1px solid #17a2b8;
+}
+
+.btn-info:hover {
+    background-color: #138496;
+    border-color: #117a8b;
 }
