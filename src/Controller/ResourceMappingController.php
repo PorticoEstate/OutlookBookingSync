@@ -67,13 +67,6 @@ class ResourceMappingController
 				$params['source_calendar_id'] = $sourceCalendarId;
 			}
 
-			// New semantic parameters
-			if ($sourceCalendarId)
-			{
-				$sql .= " AND source_calendar_id = :source_calendar_id";
-				$params['source_calendar_id'] = $sourceCalendarId;
-			}
-
 			if ($targetCalendarId)
 			{
 				$sql .= " AND target_calendar_id = :target_calendar_id";
