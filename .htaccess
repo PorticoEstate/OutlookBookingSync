@@ -1,17 +1,12 @@
 RewriteEngine On
 
-# Serve static files directly from public directory
-# CSS files
-RewriteRule ^css/(.+\.css)$ public/css/$1 [L]
+# Consolidated rewrites for static assets under /public
+RewriteRule ^(css|js|images|fonts)/(.*)$ public/$1/$2 [L]
 
-# JavaScript files  
-RewriteRule ^js/(.+\.js)$ public/js/$1 [L]
-
-# HTML files (like dashboard.html)
+# HTML files (explicit mappings)
 RewriteRule ^dashboard$ public/dashboard.html [L]
 
 # Pretty URLs for admin HTML pages
-RewriteRule ^admin-keys$ public/admin-keys.html [L]
 RewriteRule ^admin-configs$ public/admin-configs.html [L]
 RewriteRule ^admin-tenants$ public/admin-tenants.html [L]
 RewriteRule ^admin-mappings$ public/admin-mappings.html [L]
@@ -22,9 +17,7 @@ RewriteRule ^admin-webhooks$ public/admin-webhooks.html [L]
 # Favicon - serve empty response to prevent 404s
 RewriteRule ^favicon\.ico$ - [R=204,L]
 
-# Images and other static assets (if you add them later)
-RewriteRule ^images/(.+\.(png|jpg|jpeg|gif|svg|ico))$ public/images/$1 [L]
-RewriteRule ^fonts/(.+\.(woff|woff2|ttf|eot))$ public/fonts/$1 [L]
+# Images and other static assets are handled by the consolidated rule above
 
 # Route all other requests (API endpoints) to index.php if file/directory doesn't exist
 RewriteCond %{REQUEST_FILENAME} !-f
@@ -33,11 +26,11 @@ RewriteRule ^ index.php [QSA,L]
 
 # Security headers
 <IfModule mod_headers.c>
-   # Security headers
-   Header always append X-Frame-Options SAMEORIGIN
-   Header always append X-Content-Type-Options nosniff
-   Header always append X-XSS-Protection "1; mode=block"
-   Header always append Referrer-Policy "strict-origin-when-cross-origin"
+  # Security headers (use set to avoid duplicates)
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
 # Set proper MIME types for static files
@@ -52,9 +45,9 @@ RewriteRule ^ index.php [QSA,L]
     ExpiresActive On
     <FilesMatch "\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$">
         ExpiresDefault "access plus 1 month"
-        <IfModule mod_headers.c>
-            Header append Cache-Control "public, immutable"
-        </IfModule>
+    <IfModule mod_headers.c>
+      Header set Cache-Control "public, immutable"
+    </IfModule>
     </FilesMatch>
 </IfModule>
 
@@ -66,37 +59,47 @@ RewriteRule ^ index.php [QSA,L]
     AddOutputFilterByType DEFLATE application/json
 </IfModule>
 
-# Suppress .map file 404 errors
+# Suppress .map file requests (deny access)
 <Files ~ "\.map$">
-  Order allow,deny
-  Deny from all
-  Satisfy All
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
 </Files>
 
-# Protect sensitive files
+# Protect dotfiles
 <FilesMatch "^\.">
-  Order allow,deny
-  Deny from all
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
 </FilesMatch>
 
 # Block access to .git directory and all its contents
-RewriteRule ^.git/ - [F,L]
-RewriteRule ^(.*/)?\.git/ - [F,L]
+RewriteRule (^|/)\.git/ - [F,L]
 
 # Protect configuration files and sensitive directories
 <FilesMatch "\.(ini|log|sh|inc|bak|sql|git|svn|htaccess|env)$">
-  Order allow,deny
-  Deny from all
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
 </FilesMatch>
 
 # Additional protection for sensitive files and directories
 RewriteRule ^\.env$ - [F,L]
 RewriteRule ^\.env\.example$ - [F,L]
 RewriteRule ^composer\.(json|lock)$ - [F,L]
-RewriteRule ^vendor/ - [F,L]
-RewriteRule ^src/ - [F,L]
-RewriteRule ^storage/ - [F,L]
-RewriteRule ^database/ - [F,L]
+RewriteRule ^(vendor|src|storage|database)/ - [F,L]
 
 # Disable directory browsing
 Options -Indexes

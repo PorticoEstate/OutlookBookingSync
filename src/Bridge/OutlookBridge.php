@@ -132,10 +132,10 @@ class OutlookBridge extends AbstractCalendarBridge
 		$authProvider = new GraphPhpLeagueAuthenticationProvider($tokenRequestContext);
 
 		// Create HTTP client with proxy support if configured
-		if (!empty($_ENV['httpproxy_server']))
+		if (!empty($_ENV['http_proxy']))
 		{
 			$guzzleConfig = [
-				"proxy" => "{$_ENV['httpproxy_server']}:{$_ENV['httpproxy_port']}"
+				"proxy" => "{$_ENV['http_proxy']}"
 			];
 		}
 		else

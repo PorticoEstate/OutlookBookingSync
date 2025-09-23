@@ -517,7 +517,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /maintenance/renew-subscriptions' => 'Renew expiring webhook subscriptions (query: ?bridge=outlook&renew_before_minutes=int&limit=int)'
             ]
         ],
-        'documentation' => 'See README_BRIDGE.md for complete API documentation'
+        'documentation' => 'See doc/api_endpoints.md for complete API documentation'
     ];
 
     $response->getBody()->write(json_encode($errorResponse, JSON_PRETTY_PRINT));
