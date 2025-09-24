@@ -5,6 +5,13 @@
 
 set -e
 
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+    echo "Loaded configuration from .env file"
+fi
+
+
 # Database connection parameters from environment
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5432}
@@ -22,6 +29,18 @@ if ! command -v psql &> /dev/null; then
     exit 1
 fi
 
+# Function to check if database exists
+database_exists() {
+    PGPASSWORD=$DB_PASS psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1
+}
+
+# Function to create database
+create_database() {
+    echo "Creating database: $DB_NAME..."
+    PGPASSWORD=$DB_PASS psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -c "CREATE DATABASE \"$DB_NAME\";"
+    echo "✅ Database $DB_NAME created successfully"
+}
+
 # Function to execute SQL file
 execute_sql() {
     local sql_file=$1
@@ -37,6 +56,14 @@ execute_sql() {
         exit 1
     fi
 }
+
+# Check if database exists, create if needed
+if ! database_exists; then
+    echo "Database $DB_NAME does not exist, creating it..."
+    create_database
+else
+    echo "Database $DB_NAME already exists, proceeding with schema setup..."
+fi
 
 # Create bridge schema
 execute_sql "database/bridge_schema.sql" "Bridge database schema setup"
