@@ -102,6 +102,18 @@ chmod +x /scripts/multi_tenant_sync.sh 2>/dev/null || true
 # Start cron service
 service cron start
 
+
+# Check if composer dependencies need to be updated (development scenario with mounted volumes)
+if [ -f /var/www/html/composer.json ]; then
+    if [ ! -d /var/www/html/vendor ] || [ ! -f /var/www/html/vendor/autoload.php ] || [ /var/www/html/composer.json -nt /var/www/html/vendor/composer/installed.json ]; then
+        echo "Updating Composer dependencies..."
+        cd /var/www/html && composer install --no-dev --optimize-autoloader
+    else
+        echo "Composer dependencies are up to date"
+    fi
+fi
+
+
 # Start PHP-FPM in background
 php-fpm --daemonize
 

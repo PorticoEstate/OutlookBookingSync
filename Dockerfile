@@ -21,11 +21,21 @@ RUN if [ -n "${http_proxy}" ]; then pear config-set http_proxy ${http_proxy}; fi
     pear config-set php_ini $PHP_INI_DIR/php.ini
 
 
-# Install system dependencies for PostgreSQL, Apache, and FastCGI; optionally install Xdebug
+# Install system dependencies for PostgreSQL, Apache, FastCGI, and PHP extensions
 RUN apt-get update \
-    && apt-get install -y libpq-dev cron curl apache2 libapache2-mod-fcgid \
+    && apt-get install -y \
+        libpq-dev \
+        libzip-dev \
+        cron \
+        curl \
+        apache2 \
+        libapache2-mod-fcgid \
+        git \
+        unzip \
     && if [ "$ENABLE_XDEBUG" = "true" ]; then pecl install xdebug && docker-php-ext-enable xdebug; fi \
-    && docker-php-ext-install pdo pdo_pgsql
+    && docker-php-ext-install pdo pdo_pgsql zip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* 
 
 # Xdebug configuration: copy but only enable when requested
 COPY ./build_config/xdebug.ini /usr/local/etc/php/xdebug.ini
@@ -65,18 +75,32 @@ RUN echo '<VirtualHost *:80>' > /etc/apache2/sites-available/000-default.conf &&
 # Enable mod_proxy_fcgi for PHP-FPM communication
 RUN a2enmod proxy proxy_fcgi
 
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php
+RUN php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+
 # Set working directory
 WORKDIR /var/www/html
 
 # Copy project files
-COPY . /var/www/html
+#COPY . /var/www/html
+
+# Copy composer files first to leverage Docker cache
+COPY composer.json composer.lock* ./
+
+# Install all dependencies during build time
+RUN composer install --no-dev --optimize-autoloader
+
+# Clean up
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Copy and make the entrypoint script executable
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set permissions (optional, for dev)
-RUN chown -R www-data:www-data /var/www/html
+#RUN chown -R www-data:www-data /var/www/html
 
 # Expose port 80 (Apache default)
 EXPOSE 80
