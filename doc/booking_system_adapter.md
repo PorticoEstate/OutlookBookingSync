@@ -197,6 +197,9 @@ Body example:
   "sync_direction": "source_to_target"
 }
 ```
+
+> **Note**: When mapping to Outlook bridge, the `target_calendar_id` must be in email format (e.g., `room@company.com`). Booking system `source_calendar_id` must use integer format (e.g., `123`).
+
 List mappings for a resource:
 
 ```http

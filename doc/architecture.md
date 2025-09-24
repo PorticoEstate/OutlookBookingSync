@@ -10,7 +10,7 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 |----------|----------------|
 | BridgeManager | Registers bridges, orchestrates sync ops, provides per-tenant bridge instances |
 | AbstractCalendarBridge | Contract for bridges (fetch, create, update, delete, transform) |
-| OutlookBridge | Microsoft Graph implementation (calendars, subscriptions, events) |
+| OutlookBridge | Microsoft Graph implementation (calendars, subscriptions, events) - requires email format for calendar_id |
 | BookingSystemBridge | Generic booking API integration (resources/events) |
 | DeletionSyncService | Reconciles deletions & cancellations (poll + webhook/deletion queue) |
 | SyncLogService | Persists audit trail of sync actions, errors, ownership decisions |

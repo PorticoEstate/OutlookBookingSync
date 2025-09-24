@@ -1,6 +1,15 @@
 # OutlookBookingSync - Generic Calendar Bridge
 
-A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calendar systems. Built with PHP/Slim4, this system can synchronize events between Outl#### **Configuration Examples**
+A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calend### Common Issues
+
+- Ensure `.env` file is properly configured (DB, Outlook, X-API-Key)
+- Verify Microsoft Graph API permissions
+- Confirm resource mappings exist before syncing
+- **Outlook calendar ID validation**: Ensure email format (e.g., `room@company.com`) for Outlook bridge
+- Run deletion processor if deletions aren't syncing
+- Verify webhook subscriptions are active (if using webhooks)
+- Check database connectivity and credentials
+- Confirm network access to Microsoft 365s. Built with PHP/Slim4, this system can synchronize events between Outl#### **Configuration Examples**
 
 Configure ownership via the `bridge_resource_mappings` table using the `sync_direction` field:
 
@@ -75,7 +84,7 @@ docker compose up -d
 ```bash
 curl -H "X-API-Key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
 ```
-6. Mapping example
+6. Mapping example (Note: Outlook requires email format for calendar IDs)
 ```http
 POST /mappings/resources
 {

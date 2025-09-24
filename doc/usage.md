@@ -22,9 +22,22 @@ POST `/mappings/resources` with body fields:
 | bridge_from | Source semantic bridge (e.g. booking_system) |
 | bridge_to | Target semantic bridge (e.g. outlook) |
 | source_calendar_id | Resource id from source system |
-| target_calendar_id | Resource id / email / calendar id in target |
+| target_calendar_id | Resource id / email / calendar id in target (Outlook requires email format) |
 | sync_direction | Ownership model (see architecture) |
 | sync_enabled | Toggle without deleting mapping |
+
+## Bridge-Specific Requirements
+
+### Outlook Bridge
+
+- **Calendar ID Format**: Must use email address format (e.g., `conference-room-a@company.com`)
+- **Validation**: Email format is enforced at API level and admin interface
+- **Examples**: `room123@contoso.com`, `boardroom@company.org`
+
+### Booking System Bridge
+
+- **Calendar ID Format**: must use numeric IDs
+- **Examples**: `456`, `789`
 
 ## Running a Sync
 
