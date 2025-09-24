@@ -89,6 +89,22 @@ class OutlookBridge extends AbstractCalendarBridge
 	}
 
 	/**
+	 * Validate that calendar ID is in email format for Outlook bridge.
+	 *
+	 * @param string $calendarId The calendar ID to validate
+	 * @throws \InvalidArgumentException if calendar ID is not a valid email address
+	 */
+	private function validateCalendarId(string $calendarId): void
+	{
+		if (!filter_var($calendarId, FILTER_VALIDATE_EMAIL))
+		{
+			throw new \InvalidArgumentException(
+				"Outlook bridge requires calendar ID to be in email format. Got: {$calendarId}"
+			);
+		}
+	}
+
+	/**
 	 * Create a Graph API filter for event overlap detection with proper date-to-datetime conversion
 	 * Converts date strings to full day ranges and uses proper overlap logic
 	 * 
@@ -181,7 +197,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Fetch events for a calendar within a time window.
 	 *
-	 * @param string $calendarId Outlook user/calendar identifier (UPN or ID)
+	 * @param string $calendarId Outlook user email address (UPN format)
 	 * @param string $startDate Date string (e.g., "2025-09-15") - converted to start of day
 	 * @param string $endDate Date string (e.g., "2025-09-16") - converted to end of day  
 	 * @return array List of generic event arrays (includes overlapping events)
@@ -189,6 +205,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 */
 	public function getEvents($calendarId, $startDate, $endDate): array
 	{
+		$this->validateCalendarId($calendarId);
 		$this->logOperation('get_events', ['calendar_id' => $calendarId]);
 
 		try
@@ -245,12 +262,13 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Create an event in Outlook.
 	 *
-	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $calendarId Outlook user email address (UPN format)
 	 * @param array $event Generic event payload
 	 * @return string Created Outlook event ID
 	 */
 	public function createEvent($calendarId, $event): string
 	{
+		$this->validateCalendarId($calendarId);
 		$this->logOperation('create_event', ['calendar_id' => $calendarId]);
 
 		if (!$this->validateEvent($event))
@@ -312,13 +330,14 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Update an Outlook event.
 	 *
-	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $calendarId Outlook user email address (UPN format)
 	 * @param string $eventId Outlook event ID
 	 * @param array $event Generic event payload
 	 * @return bool True when updated
 	 */
 	public function updateEvent($calendarId, $eventId, $event): bool
 	{
+		$this->validateCalendarId($calendarId);
 		$this->logOperation('update_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
 
 		if (!$this->validateEvent($event))
@@ -368,12 +387,13 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Delete an Outlook event.
 	 *
-	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $calendarId Outlook user email address (UPN format)
 	 * @param string $eventId Outlook event ID
 	 * @return bool True when deleted
 	 */
 	public function deleteEvent($calendarId, $eventId): bool
 	{
+		$this->validateCalendarId($calendarId);
 		$this->logOperation('delete_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
 
 		try
@@ -487,12 +507,13 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Create a Microsoft Graph webhook subscription for a calendar's events.
 	 *
-	 * @param string $calendarId Outlook user/calendar identifier
+	 * @param string $calendarId Outlook user email address (UPN format)
 	 * @param string $webhookUrl Publicly reachable webhook URL
 	 * @return string Subscription ID
 	 */
 	public function subscribeToChanges($calendarId, $webhookUrl): string
 	{
+		$this->validateCalendarId($calendarId);
 		$this->logOperation('subscribe_to_changes', ['calendar_id' => $calendarId, 'webhook_url' => $webhookUrl]);
 
 		try

@@ -145,6 +145,25 @@ class ResourceMappingController
 				}
 			}
 
+			// Validate email format for Outlook bridge calendar IDs
+			if ($data['bridge_from'] === 'outlook' && !filter_var($data['source_calendar_id'], FILTER_VALIDATE_EMAIL))
+			{
+				$response->getBody()->write(json_encode([
+					'success' => false,
+					'error' => "Outlook bridge requires source_calendar_id to be in email format. Got: {$data['source_calendar_id']}"
+				]));
+				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+			}
+
+			if ($data['bridge_to'] === 'outlook' && !filter_var($data['target_calendar_id'], FILTER_VALIDATE_EMAIL))
+			{
+				$response->getBody()->write(json_encode([
+					'success' => false,
+					'error' => "Outlook bridge requires target_calendar_id to be in email format. Got: {$data['target_calendar_id']}"
+				]));
+				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+			}
+
 			// Check if mapping already exists (active or inactive)
 			$checkSql = "SELECT id, is_active FROM bridge_resource_mappings 
                         WHERE bridge_from = :bridge_from 
@@ -300,6 +319,30 @@ class ResourceMappingController
 					$updateFields[] = "{$field} = :{$field}";
 					$params[$field] = $data[$field];
 				}
+			}
+
+			// Validate email format for Outlook bridge calendar IDs being updated
+			$bridgeFrom = $data['bridge_from'] ?? $existing['bridge_from'];
+			$bridgeTo = $data['bridge_to'] ?? $existing['bridge_to'];
+
+			if ($bridgeFrom === 'outlook' && isset($data['source_calendar_id']) && 
+				!filter_var($data['source_calendar_id'], FILTER_VALIDATE_EMAIL))
+			{
+				$response->getBody()->write(json_encode([
+					'success' => false,
+					'error' => "Outlook bridge requires source_calendar_id to be in email format. Got: {$data['source_calendar_id']}"
+				]));
+				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+			}
+
+			if ($bridgeTo === 'outlook' && isset($data['target_calendar_id']) && 
+				!filter_var($data['target_calendar_id'], FILTER_VALIDATE_EMAIL))
+			{
+				$response->getBody()->write(json_encode([
+					'success' => false,
+					'error' => "Outlook bridge requires target_calendar_id to be in email format. Got: {$data['target_calendar_id']}"
+				]));
+				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
 			}
 
 			if (empty($updateFields))

@@ -88,6 +88,9 @@
         </select>
         <button id="create" disabled>Create mapping</button>
       </div>
+      <div id="bridgeNote" class="note" style="margin-top:8px; display:none;">
+        📧 <strong>Note:</strong> Outlook bridge requires email format for calendar IDs (e.g., user@company.com)
+      </div>
     </section>
 
     <section class="panel" style="margin-top:16px">
@@ -130,7 +133,11 @@
       function displayName(r){
         return r.name || r.displayName || r.subject || r.resourceName || r.title || r.emailAddress || r.id || JSON.stringify(r).slice(0,60);
       }
-      function idOf(r){
+      function idOf(r, preferEmail = false){
+        // For Outlook bridge, prioritize email format for calendar IDs
+        if (preferEmail) {
+          return r.email || r.emailAddress || r.userPrincipalName || r.id || r.resourceId || r.calendarId || r.address || r.objectId || String(displayName(r));
+        }
         return r.id || r.email || r.emailAddress || r.resourceId || r.calendarId || r.address || r.objectId || String(displayName(r));
       }
       function renderList(containerId, items, filter, onPick, selectedId){
@@ -138,9 +145,15 @@
         box.innerHTML = '';
         const f = (filter||'').toLowerCase();
         let count = 0;
+        
+        // Determine if we should prefer email format based on bridge type
+        const isSourceOutlook = document.getElementById('sourceBridge').value === 'outlook';
+        const isTargetOutlook = document.getElementById('targetBridge').value === 'outlook';
+        const preferEmail = (containerId === 'srcList' && isSourceOutlook) || (containerId === 'tgtList' && isTargetOutlook);
+        
         items.forEach(r => {
           const name = displayName(r);
-          const id = idOf(r);
+          const id = idOf(r, preferEmail);
           if(f && !(String(name).toLowerCase().includes(f) || String(id).toLowerCase().includes(f))) return;
           count++;
           const div = document.createElement('div');
@@ -172,6 +185,20 @@
         const options = state.bridges.map(b => `<option value="${b}">${b}</option>`).join('');
         document.getElementById('sourceBridge').innerHTML = options;
         document.getElementById('targetBridge').innerHTML = options;
+        updateBridgeNote(); // Update note visibility when bridges are loaded
+      }
+
+      function updateBridgeNote(){
+        const srcBridge = document.getElementById('sourceBridge').value;
+        const tgtBridge = document.getElementById('targetBridge').value;
+        const noteEl = document.getElementById('bridgeNote');
+        
+        // Show note if either bridge is Outlook
+        if (srcBridge === 'outlook' || tgtBridge === 'outlook') {
+          noteEl.style.display = 'block';
+        } else {
+          noteEl.style.display = 'none';
+        }
       }
 
       async function loadResources(){
@@ -248,8 +275,22 @@
         } catch(e){ setMsg('Failed to load mappings: '+ e.message, true); }
       }
 
-      function pickSrc(r){ state.selSrc = r; document.getElementById('selSrc').textContent = displayName(r) + ' ['+ idOf(r) +']'; document.getElementById('create').disabled = !(state.selSrc && state.selTgt); renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, idOf(r)); }
-      function pickTgt(r){ state.selTgt = r; document.getElementById('selTgt').textContent = displayName(r) + ' ['+ idOf(r) +']'; document.getElementById('create').disabled = !(state.selSrc && state.selTgt); renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, idOf(r)); }
+      function pickSrc(r){ 
+        const isOutlook = document.getElementById('sourceBridge').value === 'outlook';
+        const id = idOf(r, isOutlook);
+        state.selSrc = r; 
+        document.getElementById('selSrc').textContent = displayName(r) + ' ['+ id +']'; 
+        document.getElementById('create').disabled = !(state.selSrc && state.selTgt); 
+        renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, id); 
+      }
+      function pickTgt(r){ 
+        const isOutlook = document.getElementById('targetBridge').value === 'outlook';
+        const id = idOf(r, isOutlook);
+        state.selTgt = r; 
+        document.getElementById('selTgt').textContent = displayName(r) + ' ['+ id +']'; 
+        document.getElementById('create').disabled = !(state.selSrc && state.selTgt); 
+        renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, id); 
+      }
 
       async function createMapping(){
         const tenantId = document.getElementById('tenantSelect').value;
@@ -257,11 +298,16 @@
         const tgt = document.getElementById('targetBridge').value;
         const syncDirection = document.getElementById('syncDirection').value;
         if(!(state.selSrc && state.selTgt)){ return; }
+        
+        // Use email format for Outlook bridge calendar IDs
+        const sourceId = idOf(state.selSrc, src === 'outlook');
+        const targetId = idOf(state.selTgt, tgt === 'outlook');
+        
         const body = {
           bridge_from: src,
           bridge_to: tgt,
-          source_calendar_id: idOf(state.selSrc),
-          target_calendar_id: idOf(state.selTgt),
+          source_calendar_id: sourceId,
+          target_calendar_id: targetId,
           source_calendar_name: displayName(state.selSrc),
           target_calendar_name: displayName(state.selTgt),
           sync_direction: syncDirection,
@@ -281,8 +327,18 @@
 
       document.getElementById('load').addEventListener('click', loadResources);
       document.getElementById('create').addEventListener('click', createMapping);
-      document.getElementById('srcFilter').addEventListener('input', ()=> renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, state.selSrc && idOf(state.selSrc)) );
-      document.getElementById('tgtFilter').addEventListener('input', ()=> renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, state.selTgt && idOf(state.selTgt)) );
+      document.getElementById('sourceBridge').addEventListener('change', updateBridgeNote);
+      document.getElementById('targetBridge').addEventListener('change', updateBridgeNote);
+      document.getElementById('srcFilter').addEventListener('input', ()=> {
+        const isOutlook = document.getElementById('sourceBridge').value === 'outlook';
+        const selectedId = state.selSrc ? idOf(state.selSrc, isOutlook) : null;
+        renderList('srcList', state.src, document.getElementById('srcFilter').value, pickSrc, selectedId);
+      });
+      document.getElementById('tgtFilter').addEventListener('input', ()=> {
+        const isOutlook = document.getElementById('targetBridge').value === 'outlook';
+        const selectedId = state.selTgt ? idOf(state.selTgt, isOutlook) : null;
+        renderList('tgtList', state.tgt, document.getElementById('tgtFilter').value, pickTgt, selectedId);
+      });
       document.getElementById('tenantSelect').addEventListener('change', async ()=>{
         // Clear state and reload bridges on tenant change
         setMsg('Tenant changed; loading bridges…');
