@@ -198,9 +198,9 @@ class BridgeController
                 $params[':tenant_id'] = $tenantId;
             }
             $stmt->execute($params);
-            $mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $resourceMappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            if (empty($mappings))
+            if (empty($resourceMappings))
             {
                 $response->getBody()->write(json_encode([
                     'success' => false,
@@ -215,34 +215,34 @@ class BridgeController
             $totalSynced = 0;
             $totalErrors = 0;
 
-            foreach ($mappings as $mapping)
+            foreach ($resourceMappings as $resourceMapping)
             {
                 // Determine the correct source and target calendar IDs based on sync direction
                 // The database columns are semantic: source_calendar_id is always the booking system resource
                 // and target_calendar_id is always the Outlook calendar
 
-                if ($sourceBridge === $mapping['bridge_from'] && $targetBridge === $mapping['bridge_to'])
+                if ($sourceBridge === $resourceMapping['bridge_from'] && $targetBridge === $resourceMapping['bridge_to'])
                 {
                     // Forward direction: booking_system → outlook
-                    $sourceCalendarId = $mapping['source_calendar_id']; // booking system resource
-                    $targetCalendarId = $mapping['target_calendar_id']; // outlook calendar
+                    $sourceCalendarId = $resourceMapping['source_calendar_id']; // booking system resource
+                    $targetCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar
                 }
                 else
                 {
                     // Reverse direction: outlook → booking_system
-                    $sourceCalendarId = $mapping['target_calendar_id']; // outlook calendar (now source)
-                    $targetCalendarId = $mapping['source_calendar_id']; // booking system resource (now target)
+                    $sourceCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar (now source)
+                    $targetCalendarId = $resourceMapping['source_calendar_id']; // booking system resource (now target)
                 }
 
 
                 try
                 {
                     $this->logger->info('Syncing mapping', [
-                        'mapping_id' => $mapping['id'],
+                        'mapping_id' => $resourceMapping['id'],
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
-                        'original_bridge_from' => $mapping['bridge_from'],
-                        'original_bridge_to' => $mapping['bridge_to']
+                        'original_bridge_from' => $resourceMapping['bridge_from'],
+                        'original_bridge_to' => $resourceMapping['bridge_to']
                     ]);
 
                     if ($options['dry_run'])
@@ -256,7 +256,7 @@ class BridgeController
                         
                         // Pass mapping configuration for ownership decisions
                         $options['mapping_config'] = [
-                            'mapping_id' => $mapping['id'],
+                            'mapping_id' => $resourceMapping['id'],
                             'bridge_from' => $sourceBridge, //actual source bridge for this sync call
                             'bridge_to' => $targetBridge, //actual target bridge for this sync call
                         ];
@@ -273,7 +273,7 @@ class BridgeController
                     }
 
                     $allResults[] = [
-                        'mapping_id' => $mapping['id'],
+                        'mapping_id' => $resourceMapping['id'],
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
                         'results' => $results
@@ -290,14 +290,14 @@ class BridgeController
                             if (!$hasSummary || $failedEvents === 0)
                             {
                                 $stmtUpdate = $this->db->prepare("UPDATE bridge_resource_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id");
-                                $stmtUpdate->execute([':id' => (int)$mapping['id']]);
+                                $stmtUpdate->execute([':id' => (int)$resourceMapping['id']]);
                             }
                         }
                         catch (\Throwable $e)
                         {
                             // Log but do not fail the request if timestamp update fails
                             $this->logger->warning('Failed to update resource last_synced_at after HTTP sync', [
-                                'mapping_id' => $mapping['id'],
+                                'mapping_id' => $resourceMapping['id'],
                                 'error' => $e->getMessage()
                             ]);
                         }
@@ -311,14 +311,14 @@ class BridgeController
                 {
                     $totalErrors++;
                     $allResults[] = [
-                        'mapping_id' => $mapping['id'],
+                        'mapping_id' => $resourceMapping['id'],
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
                         'error' => $e->getMessage()
                     ];
 
                     $this->logger->error('Mapping sync failed', [
-                        'mapping_id' => $mapping['id'],
+                        'mapping_id' => $resourceMapping['id'],
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -346,7 +346,7 @@ class BridgeController
 
             $response->getBody()->write(json_encode([
                 'success' => true,
-                'mappings_processed' => count($mappings),
+                'mappings_processed' => count($resourceMappings),
                 'total_synced' => $totalSynced,
                 'total_errors' => $totalErrors,
                 'summary' => [
@@ -1069,12 +1069,12 @@ class BridgeController
     private function determineTargetBridge($sourceBridge)
     {
         // Simple mapping - can be made configurable
-        $mappings = [
+        $bridgeMappings = [
             'outlook' => 'booking_system',
             'booking_system' => 'outlook'
         ];
 
-        return $mappings[$sourceBridge] ?? null;
+        return $bridgeMappings[$sourceBridge] ?? null;
     }
 
     /**
@@ -2517,17 +2517,17 @@ class BridgeController
                 'tenant_id' => $tenantId
             ]);
 
-            $mapping = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if ($mapping)
+            $bridgeMapping = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($bridgeMapping)
             {
                 // Return the appropriate calendar ID based on which bridge we're working with
-                if ($mapping['source_bridge'] === $bridgeName)
+                if ($bridgeMapping['source_bridge'] === $bridgeName)
                 {
-                    return $mapping['source_calendar_id'];
+                    return $bridgeMapping['source_calendar_id'];
                 }
-                elseif ($mapping['target_bridge'] === $bridgeName)
+                elseif ($bridgeMapping['target_bridge'] === $bridgeName)
                 {
-                    return $mapping['target_calendar_id'];
+                    return $bridgeMapping['target_calendar_id'];
                 }
             }
 
