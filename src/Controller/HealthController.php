@@ -3,6 +3,7 @@ namespace App\Controller;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Utils\HeaderUtils;
 use PDO;
 use Exception;
 
@@ -772,13 +773,15 @@ class HealthController
     public function getSyncStatusDetails(Request $request, Response $response, $args)
     {
         try {
+
+            $tenantId = HeaderUtils::getTenantId($request);
             $syncDetails = [
                 'timestamp' => date('Y-m-d H:i:s'),
-                'overall_sync_health' => $this->checkSyncStatus(),
-                'bridge_sync_stats' => $this->getBridgeSyncStats(),
-                'retry_analysis' => $this->getRetryAnalysis(),
-                'cancellation_stats' => $this->getCancellationStats(),
-                'sync_performance' => $this->getSyncPerformanceMetrics()
+                'overall_sync_health' => $this->checkSyncStatus($tenantId),
+                'bridge_sync_stats' => $this->getBridgeSyncStats($tenantId),
+                'retry_analysis' => $this->getRetryAnalysis($tenantId),
+                'cancellation_stats' => $this->getCancellationStats($tenantId),
+                'sync_performance' => $this->getSyncPerformanceMetrics($tenantId)
             ];
 
             $response->getBody()->write(json_encode([
