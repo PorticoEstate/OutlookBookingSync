@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file. This projec
 
 - Replaced scattered webhook, monitoring, cancellation, and composite ID docs with unified sections in consolidated docs.
 - Replaced legacy `README_BRIDGE.md` with slim root README + `doc/` index.
-- Enhanced security model: preference for per-tenant keys over global `API_KEY`.
+- Enhanced security model: preference for per-tenant X-API-Key headers over global `API_KEY`.
 
 ### Removed
 

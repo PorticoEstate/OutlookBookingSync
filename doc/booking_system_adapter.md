@@ -277,7 +277,7 @@ See `operations.md` for complete operational guidance.
 
 | Area | Recommendation |
 |------|---------------|
-| Authentication | Protect booking API with its own auth (token / mTLS) besides bridge API key |
+| Authentication | Protect booking API with its own auth (token / mTLS) besides bridge X-API-Key |
 | Webhooks | Sign payloads or IP restrict (if implemented) |
 | PII | Avoid unnecessary personal data in event payloads |
 | Rate Limiting | Implement server-side throttling for create/update bursts |

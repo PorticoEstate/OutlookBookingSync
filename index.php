@@ -56,7 +56,7 @@ catch (Throwable $e)
                 'DB_NAME',
                 'DB_USER',
                 'DB_PASS',
-                'API_KEY',
+                'API_KEY', // Global fallback, prefer X-API-Key header
                 'APP_BASE_URL',
                 'OUTLOOK_CLIENT_ID',
                 'OUTLOOK_CLIENT_SECRET',

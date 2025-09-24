@@ -167,7 +167,7 @@ curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/he
 
 ### Common Issues
 
-- Ensure `.env` file is properly configured (DB, Outlook, API_KEY)
+- Ensure `.env` file is properly configured (DB, Outlook, X-API-Key)
 - Verify Microsoft Graph API permissions
 - Confirm resource mappings exist before syncing
 - Run deletion processor if deletions aren’t syncing

@@ -86,7 +86,7 @@ Headers:
 | Layer | Control |
 |-------|--------|
 | Transport | HTTPS termination at reverse proxy |
-| Auth | API key (tenant hashed or global fallback) |
+| Auth | X-API-Key (tenant hashed or global fallback) |
 | Admin | Global key + CSRF token + optional IP allowlist |
 | Webhooks | Signature / IP filter recommended externally |
 

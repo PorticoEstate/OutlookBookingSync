@@ -95,7 +95,7 @@ Outbound provider subscriptions (Outlook) must embed tenant context indirectly. 
 
 ### Queue Processing
 
-`/bridges/process-webhook-queue` and `/bridges/process-deletion-queue` accept global invocation; internally they process rows partitioned by tenant. To isolate failure blast radius invoke per tenant with tenant-specific API key.
+`/bridges/process-webhook-queue` and `/bridges/process-deletion-queue` accept global invocation; internally they process rows partitioned by tenant. To isolate failure blast radius invoke per tenant with tenant-specific X-API-Key.
 
 ## Multitenant Testing Matrix
 

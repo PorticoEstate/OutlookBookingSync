@@ -6,7 +6,7 @@
 |----------|---------|-------|
 | DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASS | Database connectivity | PostgreSQL required |
 | APP_BASE_URL | Base URL for callbacks & linking | Include protocol |
-| API_KEY | Global/admin key (fallback) | Prefer per-tenant keys |
+| API_KEY | Global/admin key (fallback) | Prefer per-tenant keys via X-API-Key header |
 | DEFAULT_TENANT_ID | Default scope when header absent | Single-tenant mode convenience |
 
 ## Outlook
@@ -85,7 +85,7 @@ GET /admin/tenants/{tenantId}/configs/{bridgeName}
 - Configurations are stored in the `bridge_configs` database table
 - Each tenant can have different configurations for each bridge type
 - Sensitive values (passwords, secrets) are stored encrypted
-- Environment variables are now used only for system-level settings (database, global API key, etc.)
+- Environment variables are now used only for system-level settings (database, global X-API-Key, etc.)
 
 ### Migration from Environment Variables
 

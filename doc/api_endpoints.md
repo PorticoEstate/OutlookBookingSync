@@ -129,7 +129,7 @@ Standard error shape:
 
 ## Security Notes
 
-1. Prefer per-tenant keys over global `API_KEY`.
+1. Prefer per-tenant keys via `X-API-Key` header over global `API_KEY`.
 2. Restrict webhook endpoints by IP or shared secret at reverse proxy.
 3. Employ HTTPS everywhere in production.
 4. Rotate keys regularly (`/admin/tenants/{id}/keys/rotate`).

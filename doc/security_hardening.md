@@ -15,13 +15,13 @@ This guide provides actionable steps to strengthen the security posture of the G
 | Lateral tenant traversal | Cross data access | Tenant scoping + row-level checks |
 | Subscription expiry | Missed changes | Renewal cron + alerting on subscription age |
 
-## API Key Management
+## X-API-Key Management
 
 1. Prefer DB-backed, hashed per-tenant keys (`tenant_api_keys`).
 2. Rotate regularly: `POST /admin/tenants/{id}/keys/rotate` and distribute securely.
 3. Never log plaintext keys; store only bcrypt/argon2 hashes.
 4. Maintain issuance audit trail (timestamp, rotated_by). Add if absent.
-5. Expire global `API_KEY` once all tenants migrated.
+5. Expire global `API_KEY` once all tenants migrated to X-API-Key headers.
 
 ### Rotation Playbook
 

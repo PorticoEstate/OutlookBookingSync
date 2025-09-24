@@ -13,7 +13,7 @@ A concise guide for developing and maintaining the OutlookBookingSync bridge.
 
 - Fork/clone the repo
 - Install deps: `composer install`
-- Copy env: `cp .env.example .env` and fill values (API_KEY, DB_*, OUTLOOK_*, APP_BASE_URL)
+- Copy env: `cp .env.example .env` and fill values (X-API-Key, DB_*, OUTLOOK_*, APP_BASE_URL)
 - Start locally via PHP built-in server or Docker (see `doc/DEVELOPMENT.md`)
 
 ## Branching and PRs
