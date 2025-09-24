@@ -4,9 +4,11 @@ FROM php:8.4-fpm
 
 ARG http_proxy
 ARG https_proxy
+ARG ENABLE_XDEBUG=false
 
 ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
+ENV ENABLE_XDEBUG=${ENABLE_XDEBUG}
 
 
 # Download and install the install-php-extensions script
@@ -19,15 +21,15 @@ RUN if [ -n "${http_proxy}" ]; then pear config-set http_proxy ${http_proxy}; fi
     pear config-set php_ini $PHP_INI_DIR/php.ini
 
 
-# Install system dependencies for PostgreSQL, Xdebug, Apache, and FastCGI
+# Install system dependencies for PostgreSQL, Apache, and FastCGI; optionally install Xdebug
 RUN apt-get update \
     && apt-get install -y libpq-dev cron curl apache2 libapache2-mod-fcgid \
-    && pecl install xdebug \
-    && docker-php-ext-enable xdebug \
+    && if [ "$ENABLE_XDEBUG" = "true" ]; then pecl install xdebug && docker-php-ext-enable xdebug; fi \
     && docker-php-ext-install pdo pdo_pgsql
 
-# Xdebug configuration
-COPY ./build_config/xdebug.ini /usr/local/etc/php/conf.d/xdebug.ini
+# Xdebug configuration: copy but only enable when requested
+COPY ./build_config/xdebug.ini /usr/local/etc/php/xdebug.ini
+RUN if [ "$ENABLE_XDEBUG" = "true" ]; then cp /usr/local/etc/php/xdebug.ini /usr/local/etc/php/conf.d/xdebug.ini; fi
 
 # PHP-FPM configuration for better performance
 RUN echo '[www]' > /usr/local/etc/php-fpm.d/zzz-custom.conf && \

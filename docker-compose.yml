@@ -1,3 +1,5 @@
+# Enable Xdebug for a dev build:
+# docker compose build --build-arg ENABLE_XDEBUG=true
 services:
   portico_outlook:
     container_name: portico_outlook
