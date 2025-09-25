@@ -103,7 +103,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 RUN mkdir -p /var/www/html/storage/sessions \
     && chown -R www-data:www-data /var/www/html/storage \
     && chmod -R 755 /var/www/html/storage \
-    && chmod -R 777 /var/www/html/storage/sessions
+    && chmod 750 /var/www/html/storage/sessions
 
 # Expose port 80 (Apache default)
 EXPOSE 80
