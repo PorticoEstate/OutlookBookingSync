@@ -204,9 +204,36 @@
 
             try {
                 const data = await adminAuth.authenticatedFetch(`/bridges/${bridgeName}/available-resources`);
-                
+
                 if (data.success && data.resources) {
-                    allResources = data.resources;
+                    let resources = data.resources;
+
+                    // For Outlook we now use the email (calendar address) as the canonical ID
+                    if (bridgeName === 'outlook') {
+                        const seen = new Set();
+                        resources = resources
+                            .map(r => {
+                                const email = r.email || r.userPrincipalName || null;
+                                if (email && email.includes('@')) {
+                                    return {
+                                        ...r,
+                                        original_id: r.id, // preserve original identifier for potential debugging
+                                        id: email
+                                    };
+                                }
+                                return r; // fallback if no email present
+                            })
+                            .filter(r => {
+                                // Deduplicate on the new id (email) to avoid duplicates when original ids differ
+                                if (seen.has(r.id)) {
+                                    return false;
+                                }
+                                seen.add(r.id);
+                                return true;
+                            });
+                    }
+
+                    allResources = resources;
                 } else {
                     allResources = [];
                 }

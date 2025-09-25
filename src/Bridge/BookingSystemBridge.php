@@ -1114,6 +1114,38 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $genericEvent['attendees'] = $this->extractAttendees($bookingEvent);
         }
 
+        // Embed reference metadata (original/reservation info) into description for traceability
+        try
+        {
+            $originalId = $genericEvent['original_id'] ?? null;
+            $resType = $genericEvent['reservation_type'] ?? null;
+            if ($originalId || $resType)
+            {
+                $refParts = [];
+                if ($resType) { $refParts[] = 'type=' . $resType; }
+                if ($originalId) { $refParts[] = 'id=' . $originalId; }
+                $refLine = 'Ref: ' . implode(', ', $refParts);
+
+                // Avoid duplicating if already present
+                $existingDesc = $genericEvent['description'] ?? '';
+                if (!str_contains($existingDesc, $refLine))
+                {
+                    if ($existingDesc)
+                    {
+                        $genericEvent['description'] = rtrim($existingDesc) . "\n\n---\n" . $refLine;
+                    }
+                    else
+                    {
+                        $genericEvent['description'] = $refLine;
+                    }
+                }
+            }
+        }
+        catch (\Throwable $e)
+        {
+            // Non-fatal; continue without reference embedding
+        }
+
         return $this->createGenericEvent($genericEvent);
     }
 
