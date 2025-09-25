@@ -484,8 +484,7 @@ class BridgeManager
 				'error' => [
 					'event_id' => $sourceEvent['id'] ?? 'unknown',
 					'error' => $e->getMessage(),
-					'error_type' => get_class($e),
-					'trace' => $e->getTraceAsString()
+					'error_type' => get_class($e)
 				]
 			];
 		}
@@ -860,6 +859,9 @@ class BridgeManager
 			// Check sync direction permissions for deletion
 			$syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
 			$mappingConfig = $options['mapping_config'] ?? null;
+			$mappingConfig['api_call_reversed'] = $mapping['normalized_reversed'];
+			$mappingConfig['sync_direction'] = $syncDirection;
+
 			if (!$this->canDeleteInDirection($syncDirection, $mapping['normalized_reversed'] ?? false, $mappingConfig))
 			{
 				$this->logger->debug('Deletion not allowed for this sync direction', [
