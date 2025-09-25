@@ -16,6 +16,12 @@ fi
 touch /var/log/bridge-cron.log
 chmod 666 /var/log/bridge-cron.log
 
+# Ensure storage directories exist and have proper permissions
+mkdir -p /var/www/html/storage/sessions
+chown -R www-data:www-data /var/www/html/storage
+chmod -R 755 /var/www/html/storage
+chmod -R 777 /var/www/html/storage/sessions
+
 # Create the crontab file for www-data user with better logging
 # Ensure API_KEY is available to cron jobs and configure cleanup days (default 30)
 echo "API_KEY=${API_KEY}" > /tmp/crontab

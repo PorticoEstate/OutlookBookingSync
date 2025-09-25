@@ -99,8 +99,11 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Set permissions (optional, for dev)
-#RUN chown -R www-data:www-data /var/www/html
+# Create storage directories and set proper permissions
+RUN mkdir -p /var/www/html/storage/sessions \
+    && chown -R www-data:www-data /var/www/html/storage \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 777 /var/www/html/storage/sessions
 
 # Expose port 80 (Apache default)
 EXPOSE 80
