@@ -53,26 +53,47 @@ curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_key" -H "X-
 
 ## 🚀 Production Deployment
 
-  portico_outlook:
-
 ```yaml
-      - "8082:80"
-version: '3.8'
-      - DB_HOST=postgres
-    build: .
+# Enable Xdebug for a dev build:
+# docker compose build --build-arg ENABLE_XDEBUG=true
+services:
+  portico_outlook:
+    container_name: portico_outlook
+    hostname: portico_outlook
+    build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+           http_proxy: ${http_proxy}
+           https_proxy: ${https_proxy}
     ports:
-      - "8080:80"
+      - "8082:80"
+    volumes:
+      - .:/var/www/html
     environment:
-      - DB_HOST=postgres
-      - OUTLOOK_CLIENT_ID=${OUTLOOK_CLIENT_ID}
-    depends_on:
-      - postgres
-      
-  postgres:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: outlook_sync
+      - APACHE_RUN_USER=www-data
+      - APACHE_RUN_GROUP=www-data
+    env_file:
+      - .env.compose
+    depends_on: []
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - portico_internal
+
+networks:
+  portico_internal:
+    external: true  # Reference the existing external network
 ```
+
+**Key Configuration Notes:**
+
+- **Port**: Service runs on `8082:80` (not 8080)
+- **Environment**: Uses `.env.compose` file for configuration
+- **Network**: Uses external `portico_internal` network
+- **Volumes**: Development setup with live code mounting
+- **Proxy Support**: HTTP/HTTPS proxy args for corporate environments
+- **No Database**: Uses external database (configured in .env.compose)
 
 ### Scaling Considerations
 

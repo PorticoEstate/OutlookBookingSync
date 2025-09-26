@@ -58,9 +58,7 @@ catch (Throwable $e)
                 'DB_PASS',
                 'API_KEY', // Global fallback, prefer X-API-Key header
                 'APP_BASE_URL',
-                'OUTLOOK_CLIENT_ID',
-                'OUTLOOK_CLIENT_SECRET',
-                'OUTLOOK_TENANT_ID'
+                'WEBHOOK_CLIENT_SECRET'
             ]
         ];
 

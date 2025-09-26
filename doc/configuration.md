@@ -19,7 +19,8 @@ Bridge configuration is stored per-tenant in the database via the Admin API:
   "client_secret": "your-client-secret",
   "tenant_id": "your-azure-ad-tenant-id",
   "group_id": "optional-room-group-discovery-anchor",
-  "timezone": "Europe/Oslo"
+  "timezone": "Europe/Oslo",
+  "webhook_client_secret": "a-strong-secret-for-webhook-validation"
 }
 ```
 
@@ -86,10 +87,6 @@ GET /admin/tenants/{tenantId}/configs/{bridgeName}
 - Each tenant can have different configurations for each bridge type
 - Sensitive values (passwords, secrets) are stored encrypted
 - Environment variables are now used only for system-level settings (database, global X-API-Key, etc.)
-
-### Migration from Environment Variables
-
-Legacy environment variables like `OUTLOOK_CLIENT_ID` are no longer used. Bridge configurations must be migrated to per-tenant database storage using the Admin API.
 
 ---
 

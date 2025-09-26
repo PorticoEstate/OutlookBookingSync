@@ -20,7 +20,14 @@ use PDO;
  * - CRUD operations on Outlook events
  * - Listing calendars/resources/groups
  * - Webhook subscription lifecycle (create, renew, delete)
+ * - Secure webhook notification processing with per-tenant authentication
  * - Utility helpers to map Outlook SDK models to the bridge's generic event shape
+ * 
+ * Required Configuration:
+ * - client_id: Microsoft Graph application client ID
+ * - client_secret: Microsoft Graph application client secret  
+ * - tenant_id: Azure AD tenant ID
+ * - webhook_client_secret: Per-tenant secret for webhook validation
  */
 class OutlookBridge extends AbstractCalendarBridge
 {
@@ -74,7 +81,7 @@ class OutlookBridge extends AbstractCalendarBridge
 
 	protected function validateConfig()
 	{
-		$required = ['client_id', 'client_secret', 'tenant_id'];
+		$required = ['client_id', 'client_secret', 'tenant_id', 'webhook_client_secret'];
 
 		foreach ($required as $key)
 		{
@@ -523,7 +530,7 @@ class OutlookBridge extends AbstractCalendarBridge
 			$subscription->setNotificationUrl($webhookUrl);
 			$subscription->setResource("users/{$calendarId}/calendar/events");
 			$subscription->setExpirationDateTime(new \DateTime('+1 day'));
-			$subscription->setClientState('outlook-bridge-' . uniqid());
+			$subscription->setClientState($this->generateClientState());
 
 			$createdSubscription = $this->graphServiceClient->subscriptions()->post($subscription)->wait();
 
@@ -1916,6 +1923,129 @@ class OutlookBridge extends AbstractCalendarBridge
 				'error' => $e->getMessage()
 			]);
 			return null;
+		}
+	}
+
+	/**
+	 * Generate a secure client state for webhook subscriptions.
+	 * 
+	 * Combines the configured webhook client secret with tenant ID and timestamp
+	 * to create a verifiable client state for incoming webhook notifications.
+	 * 
+	 * @return string Secure client state for webhook validation
+	 */
+	private function generateClientState(): string
+	{
+		$tenantId = $this->config['context_tenant_id'] ?? 'default';
+		$secret = $this->config['webhook_client_secret'] ?? $_ENV['WEBHOOK_CLIENT_SECRET'] ?? null;
+		$timestamp = time();
+		
+		// Create a secure hash using webhook secret, tenant ID, and timestamp
+		$payload = sprintf('outlook-bridge-%s-%s-%d', $tenantId, $secret, $timestamp);
+		return hash('sha256', $payload);
+	}
+
+	/**
+	 * Validate incoming webhook notification authenticity.
+	 * 
+	 * Verifies that the clientState in the webhook notification matches
+	 * what we expect based on our configured webhook client secret.
+	 * 
+	 * @param string $clientState The clientState from the webhook notification
+	 * @return bool True if the webhook is authentic, false otherwise
+	 */
+	public function validateWebhookNotification(string $clientState): bool
+	{
+		$tenantId = $this->config['context_tenant_id'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? 'default';
+		$secret = $this->config['webhook_client_secret'] ?? $_ENV['WEBHOOK_CLIENT_SECRET'] ?? null;
+		
+		// Check against client states from the last 24 hours (86400 seconds)
+		$currentTime = time();
+		$maxAge = 86400; // 24 hours
+		
+		for ($i = 0; $i < $maxAge; $i += 60) // Check every minute in the last 24h
+		{
+			$testTimestamp = $currentTime - $i;
+			$expectedPayload = sprintf('outlook-bridge-%s-%s-%d', $tenantId, $secret, $testTimestamp);
+			$expectedClientState = hash('sha256', $expectedPayload);
+			
+			if (hash_equals($expectedClientState, $clientState))
+			{
+				return true;
+			}
+		}
+		
+		return false;
+	}
+
+	/**
+	 * Process and validate incoming Microsoft Graph webhook notifications.
+	 * 
+	 * Handles the complete webhook processing workflow including validation,
+	 * parsing, and logging of incoming change notifications from Microsoft Graph.
+	 * 
+	 * @param array $notification The webhook notification payload
+	 * @return array Processing result with status and details
+	 */
+	public function processWebhookNotification(array $notification): array
+	{
+		try
+		{
+			// Validate required fields
+			if (!isset($notification['clientState']))
+			{
+				return [
+					'status' => 'error',
+					'message' => 'Missing clientState in webhook notification'
+				];
+			}
+
+			// Validate webhook authenticity
+			if (!$this->validateWebhookNotification($notification['clientState']))
+			{
+				$this->logger->warning('Invalid webhook notification received', [
+					'bridge' => 'outlook',
+					'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+					'client_state' => $notification['clientState'],
+					'notification_id' => $notification['id'] ?? 'unknown'
+				]);
+				
+				return [
+					'status' => 'error',
+					'message' => 'Invalid clientState - webhook authentication failed'
+				];
+			}
+
+			// Log successful webhook reception
+			$this->logger->info('Valid webhook notification received', [
+				'bridge' => 'outlook',
+				'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+				'notification_id' => $notification['id'] ?? 'unknown',
+				'change_type' => $notification['changeType'] ?? 'unknown',
+				'resource' => $notification['resource'] ?? 'unknown'
+			]);
+
+			return [
+				'status' => 'success',
+				'message' => 'Webhook notification processed successfully',
+				'notification_id' => $notification['id'] ?? null,
+				'change_type' => $notification['changeType'] ?? null,
+				'resource' => $notification['resource'] ?? null
+			];
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->error('Error processing webhook notification', [
+				'bridge' => 'outlook',
+				'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+				'error' => $e->getMessage(),
+				'notification' => $notification
+			]);
+
+			return [
+				'status' => 'error',
+				'message' => 'Internal error processing webhook: ' . $e->getMessage()
+			];
 		}
 	}
 }
