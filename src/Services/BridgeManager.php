@@ -529,7 +529,7 @@ class BridgeManager
 					'success' => true,
 					'action' => 'skipped',
 					'source_event_id' => $sourceEvent['id'],
-					'target_event_id' => $mapping['target_event_id'] ?? null,
+					'target_event_id' => $isReversed ? $mapping['source_event_id'] : $mapping['target_event_id'],
 					'reason' => 'ownership_policy_violation',
 					'sync_direction' => $syncDirection,
 					'is_reversed' => $isReversed

@@ -92,6 +92,20 @@ catch (Throwable $e)
     exit(1);
 }
 
+if (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'development')
+{
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+}
+else
+{
+
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+    ini_set('error_log', 'php://stderr');
+}
+
 // Set up DI container
 $container = new Container();
 
@@ -250,15 +264,23 @@ $app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceContr
 $app->get('/maintenance/download-logs', [\App\Controller\MaintenanceController::class, 'downloadLogs']);
 
 // CSRF token endpoint (GET only) - creates/returns token in session
-$app->get('/admin/csrf', function (Request $request, Response $response) {
-    if (session_status() === PHP_SESSION_NONE) { @session_start(); }
-    if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+$app->get('/admin/csrf', function (Request $request, Response $response)
+{
+    if (session_status() === PHP_SESSION_NONE)
+    {
+        @session_start();
+    }
+    if (empty($_SESSION['csrf_token']))
+    {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
     $response->getBody()->write(json_encode(['csrf_token' => $_SESSION['csrf_token']], JSON_PRETTY_PRINT));
     return $response->withHeader('Content-Type', 'application/json');
 });
 
 // Admin API routes (CRUD tenants, rotate keys, manage configs)
-$app->group('/admin', function ($group) {
+$app->group('/admin', function ($group)
+{
     $group->get('/tenants', [\App\Controller\AdminController::class, 'listTenants']);
     $group->post('/tenants', [\App\Controller\AdminController::class, 'createTenant']);
     $group->get('/tenants/{tenantId}', [\App\Controller\AdminController::class, 'getTenant']);
@@ -271,7 +293,8 @@ $app->group('/admin', function ($group) {
 });
 
 // Migration management API routes (admin access required)
-$app->group('/api/migrations', function ($group) {
+$app->group('/api/migrations', function ($group)
+{
     $group->get('/status', [\App\Controller\MigrationController::class, 'getStatus']);
     $group->post('/run', [\App\Controller\MigrationController::class, 'runMigration']);
     $group->post('/run-all', [\App\Controller\MigrationController::class, 'runAllMigrations']);
@@ -287,8 +310,7 @@ $container->set('bridgeManager', function () use ($container)
     $manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'), $container->get('syncLog'));
 
     // Register Outlook bridge
-    $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, [
-    ]);
+    $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, []);
 
     // Register Booking System bridge
     $manager->registerBridge('booking_system', \App\Bridge\BookingSystemBridge::class, [
@@ -390,7 +412,8 @@ $app->post('/mappings/resources/{id}/sync', [\App\Controller\ResourceMappingCont
 $app->delete('/mappings/resources/by-key/{bridge_from}/{source_calendar_id}/{target_calendar_id}', [\App\Controller\ResourceMappingController::class, 'deleteResourceMappingByKey']);
 
 // Bridge Resources API Routes (Admin)
-$app->group('/admin/resources', function ($group) {
+$app->group('/admin/resources', function ($group)
+{
     $group->get('', [\App\Controller\BridgeResourceController::class, 'listResources']);
     $group->post('', [\App\Controller\BridgeResourceController::class, 'createResource']);
     $group->put('/{id}', [\App\Controller\BridgeResourceController::class, 'updateResource']);
