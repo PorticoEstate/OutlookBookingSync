@@ -23,6 +23,7 @@ api_call() {
     local description=$2
     local expected_time=${3:-30}  # Expected max time in seconds
     local tenant_header=${4:-}    # Optional: "-H X-Tenant-Id: <id>"
+    local body_data=${5:-'{"batch_size":25}'}  # Optional: JSON body data
 
     log "🔄 Starting: $description"
 
@@ -30,6 +31,7 @@ api_call() {
     response=$(timeout "$expected_time" curl -s -X POST "$BRIDGE_URL$endpoint" \
         -H "Content-Type: application/json" \
         -H "User-Agent: BridgeDeletionProcessor/1.0" \
+        -d "$body_data" \
         $API_KEY_HEADER $tenant_header) || {
         log "❌ TIMEOUT: $description (exceeded ${expected_time}s)"
         return 1
@@ -102,22 +104,19 @@ process_single_tenant_deletions() {
     local errors=0
     
     # Step 1: Process deletion queue (from webhooks) - High priority
-    api_call "/bridges/process-deletion-queue" "Processing webhook deletion queue" 60 || ((errors++))
+    api_call "/bridges/process-deletion-queue" "Processing webhook deletion queue" 60 "" '{"batch_size":25}' || ((errors++))
     
     # Step 2: Detect cancellations (inactive events) - Medium priority  
-    api_call "/bridges/sync-deletions" "Detecting event cancellations" 120 || ((errors++))
+    api_call "/bridges/sync-deletions" "Detecting event cancellations" 120 "" '{}' || ((errors++))
     
-    # Step 3: Manual deletion sync check - Lower priority
-    api_call "/bridges/sync-deletions" "Manual deletion sync check" 180 || ((errors++))
+    # Step 3: Process pending syncs that may have deletion status
+    api_call "/bridges/process-pending-syncs" "Processing pending syncs with deletions" 180 "" '{"batch_size":50}' || ((errors++))
 
-    # Step 4: Cleanup orphaned deletions - Global operation
-    api_call "/bridges/process-deletion-queue" "Processing webhook deletion queue" 60 || ((errors++))
-
-    # Use your existing sync endpoint and pass deletion flag + window
+    # Step 4: Use existing sync endpoint and pass deletion flag + window
     START=$(date +%F)
     END=$(date -d "+30 days" +%F)
-    api_call "/bridges/sync/outlook/booking_system?handle_deletions=1&start_date=$START&end_date=$END" \
-        "Detecting deletions in window $START..$END" 180 || ((errors++))
+    api_call "/bridges/sync/outlook/booking_system?handle_deletions=1&start_date=$START&end_date=$END&sync_method=deletion_processor" \
+        "Detecting deletions in window $START..$END" 180 "" '{}' || ((errors++))
     
     return $errors
 }
@@ -131,9 +130,9 @@ process_tenant_deletions() {
 
     local TENANT_HEADER="-H X-Tenant-Id: $tenant_id"
     # Tenant-specific deletion processing using header-based scoping
-    api_call "/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 "$TENANT_HEADER" || ((errors++))
-    api_call "/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 "$TENANT_HEADER" || ((errors++))
-    api_call "/bridges/sync-deletions" "Manual $tenant_id deletion sync" 180 "$TENANT_HEADER" || ((errors++))
+    api_call "/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 "$TENANT_HEADER" '{"batch_size":25}' || ((errors++))
+    api_call "/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 "$TENANT_HEADER" '{}' || ((errors++))
+    api_call "/bridges/process-pending-syncs" "Processing $tenant_id pending syncs" 180 "$TENANT_HEADER" '{"batch_size":50}' || ((errors++))
     
     return $errors
 }
@@ -162,7 +161,7 @@ process_all_tenants() {
     
     # Also run global cleanup operations
     log "🌍 Running global cleanup operations"
-    api_call "/bridges/cleanup-orphaned-deletions" "Global orphaned deletion cleanup" 300 || ((errors++))
+    api_call "/bridges/process-deletion-queue" "Global deletion queue cleanup" 300 "" '{"batch_size":50}' || ((errors++))
     
     return $errors
 }

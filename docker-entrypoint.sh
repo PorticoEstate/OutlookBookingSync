@@ -47,7 +47,7 @@ cat >> /tmp/crontab << 'EOF'
 
 # 2. DELETION & CANCELLATION HANDLING (COORDINATED)
 # Use centralized deletion processor instead of individual API calls (supports TENANT_MODE=single|multi)
-*/5 * * * * if [ -f /scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
+*/5 * * * * if [ -f /var/www/html/scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /var/www/html/scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /var/www/html/scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
 
 # 2b. OPTIONAL: Multi-tenant periodic sync (both directions per tenant with active mappings)
 # Enable by setting ENABLE_MULTI_TENANT_SYNC=true (default off)
@@ -102,7 +102,7 @@ crontab -u www-data /tmp/crontab
 rm /tmp/crontab
 
 # Ensure helper scripts are executable
-chmod +x /scripts/enhanced_process_deletions.sh 2>/dev/null || true
+chmod +x /var/www/html/scripts/enhanced_process_deletions.sh 2>/dev/null || true
 chmod +x /scripts/multi_tenant_sync.sh 2>/dev/null || true
 
 # Start cron service
