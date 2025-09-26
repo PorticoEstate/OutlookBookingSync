@@ -627,11 +627,12 @@ class OutlookBridge extends AbstractCalendarBridge
 			// Persist new expiration
 			$stmt = $this->db->prepare("UPDATE bridge_subscriptions 
                 SET expires_at = :expires_at, last_renewed_at = CURRENT_TIMESTAMP, is_active = TRUE 
-                WHERE subscription_id = :id AND bridge_type = :bridge");
+                WHERE subscription_id = :id AND bridge_type = :bridge AND (tenant_id IS NOT DISTINCT FROM :tenant_id)");
 			$stmt->execute([
 				':expires_at' => $effectiveExpiration->format('Y-m-d H:i:s'),
 				':id' => $subscriptionId,
-				':bridge' => $this->getBridgeType()
+				':bridge' => $this->getBridgeType(),
+				':tenant_id' => (string)($this->config['context_tenant_id'] ?? 'default')
 			]);
 
 			$this->logger->info('Subscription renewed', [
@@ -858,15 +859,16 @@ class OutlookBridge extends AbstractCalendarBridge
 		$sql = "
             INSERT INTO bridge_subscriptions (
                 bridge_type, subscription_id, calendar_id, webhook_url, 
-                subscription_data, expires_at, created_at
+                subscription_data, expires_at, tenant_id, created_at
             ) VALUES (
                 :bridge_type, :subscription_id, :calendar_id, :webhook_url,
-                :subscription_data, :expires_at, CURRENT_TIMESTAMP
+                :subscription_data, :expires_at, :tenant_id, CURRENT_TIMESTAMP
             )
             ON CONFLICT (subscription_id) DO UPDATE SET
                 webhook_url = EXCLUDED.webhook_url,
                 subscription_data = EXCLUDED.subscription_data,
-                expires_at = EXCLUDED.expires_at
+                expires_at = EXCLUDED.expires_at,
+                tenant_id = EXCLUDED.tenant_id
         ";
 
 		$stmt = $this->db->prepare($sql);
@@ -895,7 +897,8 @@ class OutlookBridge extends AbstractCalendarBridge
 			':calendar_id' => $calendarId,
 			':webhook_url' => $webhookUrl,
 			':subscription_data' => json_encode($subscriptionData),
-			':expires_at' => $expiresValue
+			':expires_at' => $expiresValue,
+			':tenant_id' => (string)($this->config['context_tenant_id'] ?? 'default')
 		]);
 	}
 
@@ -908,9 +911,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	 */
 	private function removeSubscription($subscriptionId)
 	{
-		$sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id";
+		$sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
 		$stmt = $this->db->prepare($sql);
-		$stmt->execute([':subscription_id' => $subscriptionId]);
+		$stmt->execute([
+			':subscription_id' => $subscriptionId,
+			':tenant_id' => (string)($this->config['context_tenant_id'] ?? 'default')
+		]);
 	}
 
 
