@@ -101,6 +101,8 @@
       }
       document.getElementById('load').addEventListener('click', loadConfig);
       document.getElementById('save').addEventListener('click', saveConfig);
+      document.getElementById('bridgeName').addEventListener('change', loadConfig);
+      document.getElementById('tenantSelect').addEventListener('change', loadConfig);
     ensureCsrf().then(loadTenants).then(loadConfig).catch(err => setMsg('Failed to load tenants: ' + err.message, true));
     </script>
   </body>
