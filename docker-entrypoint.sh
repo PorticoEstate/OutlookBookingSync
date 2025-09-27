@@ -45,18 +45,15 @@ cat >> /tmp/crontab << 'EOF'
 # Sync from Outlook to booking system every 10 minutes with deletion handling
 */10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
 
-# 2. DELETION & CANCELLATION HANDLING (COORDINATED)
-# Use centralized deletion processor instead of individual API calls (supports TENANT_MODE=single|multi)
-*/5 * * * * if [ -f /var/www/html/scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /var/www/html/scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /var/www/html/scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
-
-
-
-
+# 2. DELETION & CANCELLATION HANDLING
+# 2a
+*/5 * * * * curl -s -X POST "http://localhost/bridges/bridges/sync-deletions" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{}' | sed 's/^/[Detecting event cancellations] /' >> /var/log/bridge-cron.log 2>&1
+# 2b
+*/5 * * * * curl -s -X POST "http://localhost/bridges/bridges/process-pending-syncs" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[Processing pending syncs with deletions] /' >> /var/log/bridge-cron.log 2>&1
 
 # 2c. WEBHOOK QUEUE PROCESSING (Safety net for FastCGI immediate processing)
 # Process webhook queue items (from bridge_queue table) every minute as backup
 * * * * * curl -s -X POST "http://localhost/bridges/process-webhook-queue" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[webhook-queue] /' >> /var/log/bridge-cron.log 2>&1
-
 
 # Process deletion check queue every 5 minutes
 */5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":25}' | sed 's/^/[deletion-queue] /' >> /var/log/bridge-cron.log 2>&1
@@ -99,9 +96,6 @@ crontab -u www-data /tmp/crontab
 # Remove the temporary file
 rm /tmp/crontab
 
-# Ensure helper scripts are executable
-chmod +x /var/www/html/scripts/enhanced_process_deletions.sh 2>/dev/null || true
-chmod +x /scripts/multi_tenant_sync.sh 2>/dev/null || true
 
 # Start cron service
 service cron start
