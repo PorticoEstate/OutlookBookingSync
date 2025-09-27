@@ -49,9 +49,6 @@ cat >> /tmp/crontab << 'EOF'
 # Use centralized deletion processor instead of individual API calls (supports TENANT_MODE=single|multi)
 */5 * * * * if [ -f /var/www/html/scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /var/www/html/scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /var/www/html/scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
 
-# 2b. OPTIONAL: Multi-tenant periodic sync (both directions per tenant with active mappings)
-# Enable by setting ENABLE_MULTI_TENANT_SYNC=true (default off)
-*/10 * * * * if [ "$TENANT_MODE" = "multi" ] && [ "${ENABLE_MULTI_TENANT_SYNC}" = "true" ] && [ -f /scripts/multi_tenant_sync.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" /scripts/multi_tenant_sync.sh >> /var/log/bridge-cron.log 2>&1; fi
 
 # 2c. WEBHOOK QUEUE PROCESSING (Safety net for FastCGI immediate processing)
 # Process webhook queue items (from bridge_queue table) every minute as backup
