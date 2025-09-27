@@ -330,6 +330,7 @@ class BridgeManager
 			'updated' => 0,
 			'deleted' => 0,
 			'skipped' => 0,
+			'recreated' => 0,
 			'errors' => [],
 			'processed_events' => []
 		];
