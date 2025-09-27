@@ -37,10 +37,10 @@ cat >> /tmp/crontab << 'EOF'
 
 # 1. BIDIRECTIONAL SYNC OPERATIONS (Updated with sync_method=cron)
 # Sync from booking system to Outlook every 5 minutes
-*/5 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook?sync_method=cron&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
+*/5 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+30 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/booking_system/outlook?sync_method=cron&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
 
 # Sync from Outlook to booking system every 10 minutes with deletion handling
-*/10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+7 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
+*/10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+30 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
 
 # 2. DELETION & CANCELLATION HANDLING
 # 2a
