@@ -175,6 +175,7 @@ class BridgeController
             $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
             $tenantClause = $tenantId !== '' ? " AND (tenant_id = :tenant_id OR tenant_id IS NULL)" : "";
             $sql = "SELECT 
+                        tenant_id,
                         source_calendar_id,
                         target_calendar_id,
                         sync_direction, 
@@ -217,6 +218,9 @@ class BridgeController
 
             foreach ($resourceMappings as $resourceMapping)
             {
+                // Use tenant_id from the resource mapping record for proper isolation
+                $mappingTenantId = $resourceMapping['tenant_id'];
+
                 // Determine the correct source and target calendar IDs based on sync direction
                 // The database columns are semantic: source_calendar_id is always the booking system resource
                 // and target_calendar_id is always the Outlook calendar
@@ -239,6 +243,8 @@ class BridgeController
                 {
                     $this->logger->info('Syncing mapping', [
                         'mapping_id' => $resourceMapping['id'],
+                        'mapping_tenant_id' => $mappingTenantId,
+                        'request_tenant_id' => $tenantId,
                         'source_calendar' => $sourceCalendarId,
                         'target_calendar' => $targetCalendarId,
                         'original_bridge_from' => $resourceMapping['bridge_from'],
@@ -247,13 +253,13 @@ class BridgeController
 
                     if ($options['dry_run'])
                     {
-                        $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
-                        $results = $this->performDryRun($tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                        $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
                     }
                     else
                     {
-                        $options['tenant_id'] = (string)($request->getAttribute('tenant_id') ?? null);
-                        
+                        // Use tenant_id from the resource mapping record
+                        $options['tenant_id'] = $mappingTenantId;
+
                         // Pass mapping configuration for ownership decisions
                         $options['mapping_config'] = [
                             'mapping_id' => $resourceMapping['id'],
