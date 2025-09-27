@@ -31,9 +31,6 @@ RENEW_MINUTES=${RENEW_MINUTES:-1440}
 echo "RENEW_MINUTES=${RENEW_MINUTES}" >> /tmp/crontab
 BRIDGE_URL=${BRIDGE_URL:-http://localhost}
 echo "BRIDGE_URL=${BRIDGE_URL}" >> /tmp/crontab
-# Set TENANT_MODE to 'multi' to process all tenants (uses admin /admin/tenants endpoint)
-TENANT_MODE=${TENANT_MODE:-single}
-echo "TENANT_MODE=${TENANT_MODE}" >> /tmp/crontab
 
 cat >> /tmp/crontab << 'EOF'
 # Generic Calendar Bridge Cron Jobs - Production Ready with sync_method tracking
