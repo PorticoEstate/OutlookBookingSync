@@ -50,12 +50,13 @@ cat >> /tmp/crontab << 'EOF'
 */5 * * * * if [ -f /var/www/html/scripts/enhanced_process_deletions.sh ]; then API_KEY="$API_KEY" BRIDGE_URL="$BRIDGE_URL" TENANT_MODE="$TENANT_MODE" /var/www/html/scripts/enhanced_process_deletions.sh >> /var/log/bridge-cron.log 2>&1; else echo "$(date): Script not found: /var/www/html/scripts/enhanced_process_deletions.sh" >> /var/log/bridge-cron.log; fi
 
 
+
+
+
 # 2c. WEBHOOK QUEUE PROCESSING (Safety net for FastCGI immediate processing)
 # Process webhook queue items (from bridge_queue table) every minute as backup
 * * * * * curl -s -X POST "http://localhost/bridges/process-webhook-queue" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[webhook-queue] /' >> /var/log/bridge-cron.log 2>&1
 
-# Process pending sync operations (from bridge_mappings table) every 5 minutes  
-*/5 * * * * curl -s -X POST "http://localhost/bridges/process-pending-syncs" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[pending-syncs] /' >> /var/log/bridge-cron.log 2>&1
 
 # Process deletion check queue every 5 minutes
 */5 * * * * curl -s -X POST "http://localhost/bridges/process-deletion-queue" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":25}' | sed 's/^/[deletion-queue] /' >> /var/log/bridge-cron.log 2>&1

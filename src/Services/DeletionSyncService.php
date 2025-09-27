@@ -55,8 +55,9 @@ class DeletionSyncService
 				try
 				{
 					$checkData = json_decode($check['payload'], true);
+					$mappingTenantId = $check['tenant_id'];
 
-					if ($this->processOutlookDeletionCheck($checkData, $tenantId))
+					if ($this->processOutlookDeletionCheck($checkData, $mappingTenantId))
 					{
 						$results['deletions_found']++;
 					}
@@ -393,13 +394,16 @@ class DeletionSyncService
 		];
 
 		// Get all recent Outlook to booking system mappings
-	$sql = "SELECT DISTINCT source_calendar_id, source_event_id 
+	$sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
                 FROM bridge_mappings 
                 WHERE source_bridge = 'outlook' 
 		AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
 	$stmt = $this->db->prepare($sql);
 	$params = [];
-	if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
+	if ($tenantId !== null)
+	{
+		$params[':tenant_id'] = (string)$tenantId;
+	}
 	$stmt->execute($params);
 	$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -407,12 +411,13 @@ class DeletionSyncService
 		{
 			try
 			{
+				$mappingTenantId = $mapping['tenant_id'];
 				$checkData = [
 					'calendar_id' => $mapping['source_calendar_id'],
 					'event_id' => $mapping['source_event_id']
 				];
 
-				if ($this->processOutlookDeletionCheck($checkData, $tenantId))
+				if ($this->processOutlookDeletionCheck($checkData, $mappingTenantId))
 				{
 					$results['deleted']++;
 				}

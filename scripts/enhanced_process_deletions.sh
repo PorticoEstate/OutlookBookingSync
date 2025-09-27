@@ -111,7 +111,7 @@ process_single_tenant_deletions() {
     
     # Step 3: Process pending syncs that may have deletion status
     api_call "/bridges/process-pending-syncs" "Processing pending syncs with deletions" 180 "" '{"batch_size":50}' || ((errors++))
-    
+   
     return $errors
 }
 
@@ -124,9 +124,9 @@ process_tenant_deletions() {
 
     local TENANT_HEADER="-H X-Tenant-Id: $tenant_id"
     # Tenant-specific deletion processing using header-based scoping
-    api_call "/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 "$TENANT_HEADER" '{"batch_size":25}' || ((errors++))
-    api_call "/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 "$TENANT_HEADER" '{}' || ((errors++))
-    api_call "/bridges/process-pending-syncs" "Processing $tenant_id pending syncs" 180 "$TENANT_HEADER" '{"batch_size":50}' || ((errors++))
+ #   api_call "/bridges/process-deletion-queue" "Processing $tenant_id webhook deletions" 60 "$TENANT_HEADER" '{"batch_size":25}' || ((errors++))
+ #   api_call "/bridges/sync-deletions" "Detecting $tenant_id cancellations" 120 "$TENANT_HEADER" '{}' || ((errors++))
+ #   api_call "/bridges/process-pending-syncs" "Processing $tenant_id pending syncs" 180 "$TENANT_HEADER" '{"batch_size":50}' || ((errors++))
     
     return $errors
 }
