@@ -111,12 +111,6 @@ process_single_tenant_deletions() {
     
     # Step 3: Process pending syncs that may have deletion status
     api_call "/bridges/process-pending-syncs" "Processing pending syncs with deletions" 180 "" '{"batch_size":50}' || ((errors++))
-
-    # Step 4: Use existing sync endpoint and pass deletion flag + window
-    START=$(date +%F)
-    END=$(date -d "+30 days" +%F)
-    api_call "/bridges/sync/outlook/booking_system?handle_deletions=1&start_date=$START&end_date=$END&sync_method=deletion_processor" \
-        "Detecting deletions in window $START..$END" 180 "" '{}' || ((errors++))
     
     return $errors
 }
