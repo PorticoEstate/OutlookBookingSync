@@ -37,12 +37,12 @@ class TenantResolverMiddleware
         // Use centralized header extraction for FastCGI compatibility
         $tenantFromHeader = HeaderUtils::getTenantId($request);
         $tenantId = $tenantFromRoute ?: ($tenantFromHeader ?: null);
-
+/*
         if (!$tenantId)
         {
             $tenantId = $_ENV['DEFAULT_TENANT_ID'] ?? 'default';
         }
-
+*/
         return $handler->handle($request->withAttribute('tenant_id', $tenantId));
     }
 }
