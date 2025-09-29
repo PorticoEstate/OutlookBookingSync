@@ -121,7 +121,7 @@ class MaintenanceController
 			$tenantId = (string)($request->getAttribute('tenant_id') ?? '');
 
 			// Select active subscriptions expiring before the threshold
-		  $sql = "SELECT subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
+		  $sql = "SELECT tenant_id, subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
 			  WHERE bridge_type = :bridge AND is_active = TRUE AND expires_at IS NOT NULL 
 			  AND expires_at < (NOW() + (:minutes || ' minutes')::interval)";
 		  
@@ -135,7 +135,7 @@ class MaintenanceController
 			  $sql .= " AND subscription_id = :subscription_id";
 		  }
 		  
-		  $sql .= " ORDER BY expires_at ASC LIMIT :limit";
+		  $sql .= " ORDER BY tenant_id, expires_at ASC LIMIT :limit";
 		  
 		  $stmt = $this->db->prepare($sql);
 		  $stmt->bindValue(':bridge', $bridge, \PDO::PARAM_STR);
@@ -159,10 +159,19 @@ class MaintenanceController
 				{
 					throw new Exception('BridgeManager not available');
 				}
-				$bridgeInstance = $tenantId !== '' ? $this->bridgeManager->getBridgeForTenant($tenantId, $bridge) : $this->bridgeManager->getBridge($bridge);
+				// Get bridge instance (optionally scoped to tenant)
+				$bridgeInstance = $tenantId !== '' ? $this->bridgeManager->getBridgeForTenant($tenantId, $bridge) : null;
 
+				$prevSubscriptionTenantId = null;
 				foreach ($rows as $row)
 				{
+					$subscriptionTenantId = $row['tenant_id'];
+					if(!$tenantId && $subscriptionTenantId !== $prevSubscriptionTenantId)
+					{
+						$bridgeInstance = $this->bridgeManager->getBridgeForTenant($subscriptionTenantId, $bridge);
+					}
+					$prevSubscriptionTenantId = $row['tenant_id'];
+					
 					if (method_exists($bridgeInstance, 'renewSubscription'))
 					{
 						$result = $bridgeInstance->renewSubscription($row['subscription_id']);
