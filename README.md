@@ -1,254 +1,174 @@
 # OutlookBookingSync - Generic Calendar Bridge
 
-A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calend### Common Issues
-
-- Ensure `.env` file is properly configured (DB, Outlook, X-API-Key)
-- Verify Microsoft Graph API permissions
-- Confirm resource mappings exist before syncing
-- **Outlook calendar ID validation**: Ensure email format (e.g., `room@company.com`) for Outlook bridge
-- Run deletion processor if deletions aren't syncing
-- Verify webhook subscriptions are active (if using webhooks)
-- Check database connectivity and credentials
-- Confirm network access to Microsoft 365s. Built with PHP/Slim4, this system can synchronize events between Outl#### **Configuration Examples**
-
-Configure ownership via the `bridge_resource_mappings` table using the `sync_direction` field:
-
-**Example 1: Booking System Owns Events**
-```json
-{
-  "bridge_from": "booking_system",
-  "bridge_to": "outlook", 
-  "source_calendar_id": "room_123",
-  "target_calendar_id": "conference-room-a@company.com",
-  "sync_direction": "source_to_target"
-}
-```
-# Generic Calendar Bridge (OutlookBookingSync)
-
-A production-ready, extensible synchronization platform connecting Outlook (Microsoft 365) and booking / other calendar systems via a pluggable bridge architecture.
-
-This README is intentionally slim. Deep technical details live under `doc/`.
+A **production-ready, extensible calendar synchronization platform** that acts as a universal bridge between any calendar systems. Built with PHP/Slim4, this system can synchronize events between Outlook (Microsoft 365) and booking/other calendar systems via a pluggable bridge architecture.
 
 ## 🎯 Overview
 
-Core highlights:
-- Extensible bridge pattern (add new calendar systems quickly)
-- Ownership-based synchronization with conflict-safe policies
-- Works with or without webhooks (polling friendly)
-- Multi-tenant: per-tenant API keys & per-bridge configuration
-- Operational observability (health, queue stats, sync logs, alerts)
+**Core Features:**
+
+- **Extensible Bridge Pattern**: Add new calendar systems quickly by extending `AbstractCalendarBridge`
+- **Ownership-Based Sync**: Conflict-safe policies with `sync_direction` control
+- **Multi-Tenant Architecture**: Per-tenant API keys & per-bridge configuration
+- **Webhook & Polling Support**: Real-time updates or scheduled synchronization
+- **Production Ready**: Comprehensive monitoring, health checks, and error handling
+- **Operational Observability**: Health endpoints, queue stats, sync logs, and alerts
 
 ## 🚀 Feature Summary
 
 | Area | Highlights |
 |------|-----------|
-| Sync | Bidirectional or one-way with automatic recreation logic |
-| Ownership | `sync_direction` enforces authoritative side |
-| Deletions & Cancellations | Queue + verification + recreation safeguards |
-| Multi-Tenancy | API key hierarchy, scoped configs, tenant admin UI |
-| Monitoring | Health, queue stats, sync stats, cancelled events, alerts |
-| Extensibility | Implement `AbstractCalendarBridge` for new systems |
-| Security | Key-based auth, CSRF for admin, optional IP allowlist |
-| Deployment | Docker / bare metal, cron-friendly endpoints |
+| **Sync Types** | Bidirectional or one-way with automatic recreation logic |
+| **Ownership Control** | `sync_direction` enforces authoritative side per mapping |
+| **Deletion Handling** | Queue + verification + recreation safeguards |
+| **Multi-Tenancy** | API key hierarchy, scoped configs, tenant admin UI |
+| **Monitoring** | Health endpoints, queue stats, sync logs, alerts |
+| **Extensibility** | Implement `AbstractCalendarBridge` for new systems |
+| **Security** | Key-based auth, CSRF protection, optional IP allowlist |
+| **Deployment** | Docker / bare metal, cron-friendly endpoints |
 
-## 🏗️ Architecture (Snapshot)
+## 🏗️ Architecture
 
-Bridges implement a common contract (fetch/create/update/delete/transform). The `BridgeManager` orchestrates sync passes, honoring ownership rules and writing audit entries to `bridge_sync_logs`. See `doc/architecture.md` for a diagram and deeper explanation.
+Bridges implement a common contract (`AbstractCalendarBridge`): fetch/create/update/delete/transform events. The `BridgeManager` orchestrates sync passes, honoring ownership rules and writing audit entries to `bridge_sync_logs`. See `doc/architecture.md` for detailed diagrams and explanations.
 
 ## 🏁 Quick Start
 
-1. Clone
+1. **Clone and setup**
+
+   ```bash
+   git clone <repository-url>
+   cd OutlookBookingSync
+   cp .env.example .env
+   # Edit .env with your database and Outlook credentials
+   ```
+
+2. **Initialize database**
+
+   ```bash
+   scripts/setup_bridge_database.sh
+   ```
+
+3. **Run the service**
+
+   ```bash
+   # Docker (recommended)
+   docker compose up -d
+   
+   # Or local PHP server
+   php -S localhost:8082 index.php
+   ```
+
+4. **Verify health**
+
+   ```bash
+   curl -H "X-API-Key: change-me-strong-random" -H "X-Tenant-Id: tenantA" \
+        http://localhost:8082/bridges/health
+   ```
+
+5. **Create a resource mapping**
+
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+        -H "X-API-Key: change-me-strong-random" -H "X-Tenant-Id: tenantA" \
+        http://localhost:8082/mappings/resources \
+        -d '{
+          "bridge_from": "booking_system",
+          "bridge_to": "outlook",
+          "source_calendar_id": "room_123",
+          "target_calendar_id": "conference-room-a@company.com",
+          "sync_direction": "source_to_target"
+        }'
+   ```
+
+## 🔐 Authentication
+
+- **API Key**: Send `X-API-Key: <your-key>` header
+- **Multi-Tenant**: Add `X-Tenant-Id: <tenant>` header  
+- **Permissions**: Global admin keys manage tenants; per-tenant keys manage scoped operations
+- **Webhooks**: Skip auth (Microsoft Graph validation flow)
+
+## 🔄 Ownership Model
+
+Control sync behavior with `sync_direction`:
+
+- `source_to_target`: Source system owns events, target modifications are skipped
+- `target_to_source`: Target system owns events, source modifications are skipped  
+- `bidirectional`: Both systems can modify events
+
+Non-owner modifications are logged and skipped. Deleted events are recreated by the owner unless deletion respect is explicitly enabled.
+
+## 📚 Documentation
+
+| Topic | Location | Purpose |
+|-------|----------|---------|
+| **Architecture & Concepts** | `doc/architecture.md` | Core components, data model, ownership rules |
+| **Usage & Examples** | `doc/usage.md` | Creating mappings, running syncs, troubleshooting |
+| **Configuration** | `doc/configuration.md` | Environment variables, tenant configs |
+| **Operations** | `doc/operations.md` | Cron setup, monitoring, webhooks |
+| **Development** | `doc/development.md` | Local setup, extending bridges, testing |
+| **Multi-Tenancy** | `doc/multi_tenancy.md` | Tenant management, API key hierarchy |
+| **Security** | `doc/security_hardening.md` | Security best practices, hardening |
+| **API Reference** | `doc/api_endpoints.md` | Complete endpoint documentation |
+| **Booking Systems** | `doc/booking_system_adapter.md` | Integration requirements |
+
+## 🧱 Extending with New Bridges
+
+1. Extend `AbstractCalendarBridge` class
+2. Implement required methods: `getEvents`, `createEvent`, `updateEvent`, `deleteEvent`  
+3. Register with `BridgeManager` in DI container
+4. Add configuration support
+
+See `doc/development.md` for detailed extension guide.
+
+## 🛠️ Operations & Monitoring
+
+- **Health Endpoints**: `/health/system`, `/health/database`, `/health/dashboard`
+- **Cron Jobs**: Sync passes, deletion processing, subscription renewal
+- **Monitoring**: Queue statistics, sync logs, error tracking
+- **Webhooks**: Real-time Microsoft Graph notifications
+
+Full operational guide: `doc/operations.md`
+
+## ✅ Status
+
+**Production Ready** - Core platform is stable with comprehensive monitoring and error handling.
+
+**Upcoming Features** (see `ROADMAP.md`):
+
+- Google Calendar bridge
+- CalDAV support  
+- Enhanced conflict resolution
+- Advanced metrics and tracing
+
+## 🚨 Troubleshooting
+
+**Common Issues:**
+
+- Ensure `.env` file is properly configured (DB, Outlook credentials, API key)
+- Verify Microsoft Graph API permissions and app registration
+- Confirm resource mappings exist before attempting sync
+- Check webhook subscriptions are active for real-time updates
+- Verify network access to Microsoft 365 and target booking systems
+
+**Health Checks:**
 
 ```bash
-git clone <repository-url>
-cd OutlookBookingSync
+# System health
+curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" \
+     http://localhost:8082/bridges/health
+
+# Bridge-specific test  
+curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" \
+     http://localhost:8082/bridges/outlook/calendars
 ```
-
-2. Configure env
-
-```bash
-cp .env.example .env; cp .env.compose.example .env.compose
-# edit DB + Outlook creds
-```
-
-3. Init DB
-```bash
-scripts/setup_bridge_database.sh
-```
-4. Run (Docker recommended)
-```bash
-docker compose up -d
-# or: php -S localhost:8082 index.php
-```
-5. Smoke test
-```bash
-curl -H "X-API-Key: change-me-strong-random" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
-```
-6. Mapping example (Note: Outlook requires email format for calendar IDs)
-```http
-POST /mappings/resources
-{
-  "bridge_from": "booking_system",
-  "bridge_to": "outlook",
-  "source_calendar_id": "room_123",
-  "target_calendar_id": "conference-room-a@company.com",
-  "sync_direction": "source_to_target"
-}
-```
-
-## 🔐 Authentication (Essentials)
-
-Send `X-API-Key: <key>` header. For multi-tenant usage also send `X-Tenant-Id`. Global admin key manages tenants & configs; per-tenant keys manage scoped sync/mappings. Webhook endpoints skip auth (Graph validation flow).
-
-## 🔄 Ownership Model (Essentials)
-
-`sync_direction` values: `source_to_target`, `target_to_source`, `bidirectional`.
-Non-owner modifications are skipped and logged. Deleted non-owner events are recreated by the owner unless respecting deletions is explicitly enabled. Details & rationale: `doc/architecture.md` and examples in `doc/usage.md`.
-
-## 📊 Endpoint Reference
-
-Complete, regularly updated list: `doc/api_endpoints.md`.
-
-## 📚 Documentation Index
-
-| Area | Doc |
-|------|-----|
-| Architecture & Concepts | `doc/architecture.md` |
-| Usage Flows | `doc/usage.md` |
-| Configuration | `doc/configuration.md` |
-| Operations & Monitoring | `doc/operations.md` |
-| Development Guide | `doc/development.md` |
-| Booking System Adapter | `doc/booking_system_adapter.md` |
-| Multi-Tenancy | `doc/multi_tenancy.md` |
-| Security Hardening | `doc/security_hardening.md` |
-| API Endpoints | `doc/api_endpoints.md` |
-| Changelog | `CHANGELOG.md` |
-
-Legacy fragmented docs were consolidated (see 2025-09-22 changelog entry).
-
-## 🧱 Extending
-
-Implement a new bridge by extending `AbstractCalendarBridge` (fetch resources, list events, CRUD). Wire it into the container and register it with `BridgeManager`. See extension notes in `doc/development.md`.
-
-## 🛠 Operations
-
-Cron-friendly endpoints: sync passes, deletion sync, subscription renewal, log cleanup. See schedules & guidance in `doc/operations.md` (including detailed "Outlook Webhook Subscriptions" section for real-time updates rationale & setup).
-
-## 🧪 Local Dev
-
-Hot reload-friendly: run PHP built-in server, use seeded test data, inspect logs via dashboard or `/health/*` endpoints. Full setup & contribution workflow: `doc/development.md`.
-
-## 🔐 Security Snapshot
-
-API key auth + tenant scoping, CSRF tokens for admin mutations, optional IP allowlist, minimal exposed surface. Hardening recommendations: `doc/security_hardening.md`.
-
-## 📦 Booking System Adapter
-
-Expected endpoints & payload conventions plus optional webhook payload contract: `doc/booking_system_adapter.md`.
-
-## ✅ Status & Roadmap
-
-Core platform stable; upcoming focus (see `ROADMAP.md`): additional bridges (Google / CalDAV), richer conflict policies, tracing/metrics enhancements.
 
 ## 🤝 Contributing
 
-Issues & PRs welcome. Please read `doc/development.md` for coding style & extension notes before submitting.
-
-## 📄 License
-
-See `LICENSE`.
-
----
-This README intentionally stays concise; treat the `doc/` directory as the canonical single source of deeper truth.
-
-### Bridge Health Check
-
-```bash
-# Check overall bridge health
-curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/health
-
-# Test specific bridge
-curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/bridges/outlook/calendars
-
-# View dashboard data (JSON)
-curl -H "X-API-Key: your_key" -H "X-Tenant-Id: tenantA" http://localhost:8082/health/dashboard | jq
-```
-
-### Common Issues
-
-- Ensure `.env` file is properly configured (DB, Outlook, X-API-Key)
-- Verify Microsoft Graph API permissions
-- Confirm resource mappings exist before syncing
-- Run deletion processor if deletions aren’t syncing
-- Verify webhook subscriptions are active (if using webhooks)
-- Check database connectivity and credentials
-- Confirm network access to Microsoft 365
-
-## 📝 Production Readiness
-
-✅ **Verified Production Features:**
-
-- Transaction safety with rollback support
-- Zero error rate in sync operations
-- Loop prevention mechanisms
-- Comprehensive audit logging
-- Real-time statistics and monitoring
-- Graceful error handling and recovery
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Issues and pull requests welcome! Please read `doc/development.md` for coding standards and extension patterns before contributing.
 
 ## 📄 License
 
 See [LICENSE](LICENSE) file for details.
 
-## ✅ Implementation Status
-
-### 🎉 Transformation complete — ready for production
-
-OutlookBookingSync has been successfully transformed into a **Generic Calendar Bridge** platform:
-
-### **✅ Architecture Transformation (COMPLETED)**
-
-- **Bridge Pattern**: Full migration to extensible bridge architecture
-- **Generic Interface**: AbstractCalendarBridge base class implemented
-- **REST API**: Pure REST communication for all calendar systems
-- **Database Schema**: Complete bridge schema for mappings and configurations
-
-### **✅ Working Bridges (COMPLETED)**
-
-- **OutlookBridge**: Microsoft Graph API with webhook support and resource discovery
-- **BookingSystemBridge**: Generic booking system with REST API + DB fallback and configurable endpoints
-- **BridgeManager**: Central orchestration service managing all bridges
-- **Resource Discovery**: All bridges support available-resources, available-groups, and user calendar queries
-
-### **✅ Production Features (COMPLETED)**
-
-- **Bidirectional Sync**: Events sync seamlessly between any bridge types
-- **Deletion Handling**: Robust deletion detection and synchronization
-- **Real-time Webhooks**: Instant updates via webhook notifications
-- **Resource Mapping**: Calendar resource management system
-- **Health Monitoring**: Comprehensive system monitoring and logging
-- **API Security**: Authentication and secure endpoint access
-
-### **✅ Code Organization (COMPLETED)**
-
-- **Modern API**: RESTful endpoints replacing legacy interfaces
-- **Documentation**: Complete guides and API documentation
-- **Production Scripts**: Setup, testing, and automation tools
-
-### **🚀 Ready for Extension**
-
-The bridge platform is now ready to support additional calendar systems:
-
-- Google Calendar (implement GoogleCalendarBridge)
-- CalDAV systems (implement CalDAVBridge)  
-- Exchange Server (implement ExchangeBridge)
-- Any custom calendar system (extend AbstractCalendarBridge)
-
 ---
+
+*This README stays concise by design. For detailed technical information, see the `doc/` directory.*

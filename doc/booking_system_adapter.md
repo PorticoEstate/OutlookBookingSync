@@ -1,6 +1,6 @@
 # Booking System Adapter Integration Guide
 
-This guide is for teams adapting an existing (or new) booking / reservation system to work with the Generic Calendar Bridge. It consolidates the booking-system–specific parts that were formerly embedded in `README_BRIDGE.md`.
+This guide is for teams adapting an existing (or new) booking / reservation system to work with the Generic Calendar Bridge.
 
 Contents
 

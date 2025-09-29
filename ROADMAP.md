@@ -10,7 +10,7 @@ A concise plan for the bridge’s current scope and what’s next.
 - Health, alerts, and monitoring endpoints (+ dashboard JSON)
 - Scripts and cron-friendly operations
 
-See `doc/` directory (index at `doc/README.md`) for full architecture, usage, and ops documentation.
+See `doc/` directory for full architecture, usage, and ops documentation. The main `README.md` provides a complete documentation index.
 
 ## Near-term (0–1 quarter)
 
