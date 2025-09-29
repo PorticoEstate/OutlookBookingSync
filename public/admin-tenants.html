@@ -79,7 +79,14 @@
     <div class="section-divider"></div>
     <section class="key-management">
       <h2>🔑 API Key Management</h2>
-      <p class="note">Select a tenant from the table above to manage their API key. The plaintext key is only shown once immediately after rotation.</p>
+      <p class="note">Select a tenant from the dropdown below or click "Manage Keys" in the table above. The plaintext key is only shown once immediately after rotation.</p>
+      
+      <div class="key-controls">
+        <label for="tenantSelector">Select Tenant:</label>
+        <select id="tenantSelector">
+          <option value="">-- Choose a tenant --</option>
+        </select>
+      </div>
       
       <div id="selectedTenantInfo" class="selected-tenant-info" style="display: none;">
         <strong>Selected Tenant:</strong> <span id="selectedTenantName"></span>
@@ -141,10 +148,27 @@
                 <button onclick="delTenant('${t.id}')">Delete</button>
               </td>
             </tr>`).join('');
+          
+          // Populate tenant dropdown
+          populateTenantDropdown(data.tenants);
         } catch (error) {
           console.error('Error loading tenants:', error);
           document.getElementById('tenants').innerHTML = '<tr><td colspan="5">Error loading tenants: ' + error.message + '</td></tr>';
         }
+      }
+
+      function populateTenantDropdown(tenants) {
+        const selector = document.getElementById('tenantSelector');
+        // Clear existing options except the first placeholder
+        selector.innerHTML = '<option value="">-- Choose a tenant --</option>';
+        
+        // Add tenant options
+        tenants.forEach(tenant => {
+          const option = document.createElement('option');
+          option.value = tenant.id;
+          option.textContent = `${tenant.id} — ${tenant.name}${tenant.active ? '' : ' (Inactive)'}`;
+          selector.appendChild(option);
+        });
       }
 
       async function createTenant(formData) {
@@ -177,7 +201,7 @@
       async function rotateTenantKey(id){
         try {
           const res = await fetchJSON(`/admin/tenants/${id}/keys/rotate`, { method: 'POST' });
-          alert('New API key for ' + id + ' (copy now):\n' + res.X-API-Key);
+          alert('New API key for ' + id + ' (copy now):\n' + res['X-API-Key']);
           // Refresh metadata if this tenant is currently selected
           if (selectedTenantId === id) {
             refreshKeyMetadata();
@@ -203,6 +227,9 @@
         selectedTenantId = tenantId;
         selectedTenantName = tenantName;
         
+        // Sync dropdown selection
+        document.getElementById('tenantSelector').value = tenantId;
+        
         // Update UI
         document.getElementById('selectedTenantName').textContent = `${tenantId} — ${tenantName}`;
         document.getElementById('selectedTenantInfo').style.display = 'block';
@@ -213,16 +240,33 @@
         refreshKeyMetadata();
       }
 
+      function selectTenantFromDropdown() {
+        const selector = document.getElementById('tenantSelector');
+        const tenantId = selector.value;
+        
+        if (!tenantId) {
+          clearTenantSelection();
+          return;
+        }
+        
+        // Find tenant name from the table
+        const tenantRow = document.querySelector(`[data-tenant-id="${tenantId}"]`);
+        const tenantName = tenantRow ? tenantRow.getAttribute('data-tenant-name') : tenantId;
+        
+        selectTenant(tenantId, tenantName);
+      }
+
       function clearTenantSelection() {
         selectedTenantId = '';
         selectedTenantName = '';
         document.querySelectorAll('.tenant-row').forEach(row => {
           row.classList.remove('selected');
         });
+        document.getElementById('tenantSelector').value = '';
         document.getElementById('selectedTenantInfo').style.display = 'none';
         document.getElementById('refreshMeta').disabled = true;
         document.getElementById('rotateKey').disabled = true;
-        document.getElementById('keyMetadata').textContent = 'Select a tenant above to view key information...';
+        document.getElementById('keyMetadata').textContent = 'Select a tenant to view key information...';
       }
 
       async function refreshKeyMetadata(){
@@ -245,7 +289,7 @@
           const data = await fetchJSON(`/admin/tenants/${encodeURIComponent(selectedTenantId)}/keys/rotate`, { 
             method: 'POST' 
           });
-          alert('New API key for ' + selectedTenantId + ' (copy now):\n' + data.X-API-Key);
+          alert('New API key for ' + selectedTenantId + ' (copy now):\n' + data['X-API-Key']);
           refreshKeyMetadata();
         } catch (error) {
           alert('Error rotating key: ' + error.message);
@@ -263,6 +307,7 @@
         }
       });
 
+      document.getElementById('tenantSelector').addEventListener('change', selectTenantFromDropdown);
       document.getElementById('refreshMeta').addEventListener('click', refreshKeyMetadata);
       document.getElementById('rotateKey').addEventListener('click', rotateSelectedKey);
 
