@@ -11,6 +11,7 @@ use Microsoft\Graph\Core\GraphClientFactory;
 use Microsoft\Graph\Generated\Models\ODataErrors\ODataError;
 use Microsoft\Kiota\Abstractions\RequestInformation;
 use Microsoft\Kiota\Abstractions\HttpMethod;
+use Psr\Http\Message\ResponseInterface;
 use PDO;
 
 /**
@@ -233,7 +234,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			throw new \Exception("Failed to get events: " . $e->getMessage());
+			throw new \Exception("Failed to get events: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -262,7 +263,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			throw new \Exception("Failed to get event: " . $e->getMessage());
+			throw new \Exception("Failed to get event: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -327,10 +328,10 @@ class OutlookBridge extends AbstractCalendarBridge
 					$calendarId,
 					$event['source_event_id'],
 					'error',
-					$e->getMessage()
+					$this->exceptionSummary($e)
 				);
 			}
-			throw new \Exception("Failed to create event: " . $e->getMessage());
+			throw new \Exception("Failed to create event: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -384,10 +385,10 @@ class OutlookBridge extends AbstractCalendarBridge
 					$calendarId,
 					$event['source_event_id'],
 					'error',
-					$e->getMessage()
+					$this->exceptionSummary($e)
 				);
 			}
-			throw new \Exception("Failed to update event: " . $e->getMessage());
+			throw new \Exception("Failed to update event: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -426,7 +427,7 @@ class OutlookBridge extends AbstractCalendarBridge
 			{
 				$this->logger->error('Failed to update mapping status for deleted Outlook event', [
 					'event_id' => $eventId,
-					'error' => $e->getMessage()
+					'error' => $this->exceptionSummary($e)
 				]);
 			}
 
@@ -437,9 +438,9 @@ class OutlookBridge extends AbstractCalendarBridge
 			$this->logger->error('Failed to delete Outlook event', [
 				'calendar_id' => $calendarId,
 				'event_id' => $eventId,
-				'error' => $e->getMessage()
+				'error' => $this->exceptionSummary($e)
 			]);
-			throw new \Exception("Failed to delete event: " . $e->getMessage());
+			throw new \Exception("Failed to delete event: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -504,7 +505,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			throw new \Exception("Failed to get calendars: " . $e->getMessage());
+			throw new \Exception("Failed to get calendars: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -552,21 +553,14 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			$errorMessage = "Failed to create subscription: " . $e->getMessage();
-			
-			// Add more specific error details for Microsoft Graph errors
-			if ($e instanceof \Microsoft\Graph\Generated\Models\ODataErrors\ODataError) {
-				$errorMessage .= " | OData Error: " . $e->getError()->getMessage();
-			}
-			
+			$summary = $this->exceptionSummary($e);
 			$this->logger->error('Subscription creation failed', [
 				'calendar_id' => $calendarId,
 				'webhook_url' => $webhookUrl,
-				'error' => $e->getMessage(),
+				'error' => $summary,
 				'error_type' => get_class($e)
 			]);
-			
-			throw new \Exception($errorMessage);
+			throw new \Exception("Failed to create subscription: " . $summary);
 		}
 	}
 
@@ -591,7 +585,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 		catch (\Exception $e)
 		{
-			throw new \Exception("Failed to delete subscription: " . $e->getMessage());
+			throw new \Exception("Failed to delete subscription: " . $this->exceptionSummary($e));
 		}
 	}
 
@@ -659,12 +653,12 @@ class OutlookBridge extends AbstractCalendarBridge
 			$this->logger->error('Failed to renew subscription', [
 				'bridge' => $this->getBridgeType(),
 				'subscription_id' => $subscriptionId,
-				'error' => $e->getMessage()
+				'error' => $this->exceptionSummary($e)
 			]);
 			return [
 				'success' => false,
 				'subscription_id' => $subscriptionId,
-				'error' => $e->getMessage()
+				'error' => $this->exceptionSummary($e)
 			];
 		}
 	}
@@ -1609,7 +1603,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		catch (\Exception $e)
 		{
 			return [
-				'error' => $e->getMessage(),
+				'error' => $this->exceptionSummary($e),
 				'group_id' => $targetGroupId
 			];
 		}
@@ -1700,7 +1694,7 @@ class OutlookBridge extends AbstractCalendarBridge
 		catch (\Exception $e)
 		{
 			$this->logger->error('Failed to get available resources from Outlook Places API', [
-				'error' => $e->getMessage(),
+				'error' => $this->exceptionSummary($e),
 				'bridge' => 'outlook'
 			]);
 			throw $e;
@@ -2038,14 +2032,120 @@ class OutlookBridge extends AbstractCalendarBridge
 			$this->logger->error('Error processing webhook notification', [
 				'bridge' => 'outlook',
 				'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
-				'error' => $e->getMessage(),
+				'error' => $this->exceptionSummary($e),
 				'notification' => $notification
 			]);
 
 			return [
 				'status' => 'error',
-				'message' => 'Internal error processing webhook: ' . $e->getMessage()
+				'message' => 'Internal error processing webhook: ' . $this->exceptionSummary($e)
 			];
 		}
+	}
+
+	/**
+	 * Build a concise, information-rich error summary from Graph/Kiota/HTTP exceptions.
+	 * Includes HTTP status, OData error code/message when available, and falls back gracefully.
+	 */
+	private function exceptionSummary(\Throwable $e): string
+	{
+		$parts = [];
+		$message = trim((string)$e->getMessage());
+		if ($message !== '')
+		{
+			$parts[] = $message;
+		}
+
+		// Include HTTP response details if present
+		$response = null;
+		if ($e instanceof \GuzzleHttp\Exception\RequestException)
+		{
+			$response = $e->getResponse();
+		}
+		elseif (property_exists($e, 'response'))
+		{
+			$response = $e->response;
+		}
+
+		if ($response instanceof ResponseInterface)
+		{
+			$status = $response->getStatusCode();
+			$reason = $response->getReasonPhrase();
+			$parts[] = "http={$status} {$reason}";
+			$body = (string)$response->getBody();
+			if (!empty($body))
+			{
+				if ($odata = $this->extractODataErrorFromBody($body))
+				{
+					$parts[] = $odata;
+				}
+				else
+				{
+					$parts[] = 'body=' . $this->truncate($body, 400);
+				}
+			}
+		}
+
+		// Include exception class for context
+		$parts[] = 'type=' . get_class($e);
+
+		// Previous exception summary (short)
+		if ($e->getPrevious())
+		{
+			$parts[] = 'prev=' . $this->truncate($e->getPrevious()->getMessage() ?: get_class($e->getPrevious()), 200);
+		}
+
+		return $this->truncate(implode(' | ', $parts), 1000);
+	}
+
+	/**
+	 * Extract Microsoft Graph OData error details from an HTTP body if present.
+	 * Returns a compact string like: odata=ErrorCode: message
+	 */
+	private function extractODataErrorFromBody(string $body): ?string
+	{
+		try
+		{
+			$data = json_decode($body, true);
+			if (!is_array($data))
+			{
+				return null;
+			}
+			if (isset($data['error']))
+			{
+				$err = $data['error'];
+				$code = is_array($err) && isset($err['code']) ? (string)$err['code'] : null;
+				$msg = null;
+				if (is_array($err) && isset($err['message']))
+				{
+					// message can be string or object with 'value'
+					$msg = is_array($err['message']) ? ($err['message']['value'] ?? null) : (string)$err['message'];
+				}
+				if ($code || $msg)
+				{
+					$parts = [];
+					if ($code) { $parts[] = $code; }
+					if ($msg) { $parts[] = $msg; }
+					return 'odata=' . $this->truncate(implode(': ', $parts), 400);
+				}
+			}
+		}
+		catch (\Throwable $ignored)
+		{
+			// ignore parse errors
+		}
+		return null;
+	}
+
+	/**
+	 * Truncate a string to a maximum length, appending an ellipsis if needed.
+	 */
+	private function truncate(string $s, int $max = 1000): string
+	{
+		if (strlen($s) <= $max)
+		{
+			return $s;
+		}
+		return substr($s, 0, max(0, $max - 1)) . '…';
 	}
 }

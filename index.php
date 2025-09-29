@@ -92,7 +92,7 @@ catch (Throwable $e)
 
 if (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'development')
 {
-    error_reporting(E_ALL);
+    error_reporting(E_ALL & ~E_DEPRECATED);
     ini_set('display_errors', '1');
 }
 else

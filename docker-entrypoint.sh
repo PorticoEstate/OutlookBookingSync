@@ -44,9 +44,9 @@ cat >> /tmp/crontab << 'EOF'
 
 # 2. DELETION & CANCELLATION HANDLING
 # 2a
-*/5 * * * * curl -s -X POST "http://localhost/bridges/bridges/sync-deletions" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{}' | sed 's/^/[Detecting event cancellations] /' >> /var/log/bridge-cron.log 2>&1
+*/5 * * * * curl -s -X POST "http://localhost/bridges/sync-deletions" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{}' | sed 's/^/[Detecting event cancellations] /' >> /var/log/bridge-cron.log 2>&1
 # 2b
-*/5 * * * * curl -s -X POST "http://localhost/bridges/bridges/process-pending-syncs" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[Processing pending syncs with deletions] /' >> /var/log/bridge-cron.log 2>&1
+*/5 * * * * curl -s -X POST "http://localhost/bridges/process-pending-syncs" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/^/[Processing pending syncs with deletions] /' >> /var/log/bridge-cron.log 2>&1
 
 # 2c. WEBHOOK QUEUE PROCESSING (Safety net for FastCGI immediate processing)
 # Process webhook queue items (from bridge_queue table) every minute as backup
@@ -64,10 +64,6 @@ cat >> /tmp/crontab << 'EOF'
 
 # Run alert checks every 15 minutes (this will now detect cron activity properly)
 */15 * * * * curl -s -X POST "http://localhost/alerts/check" -H "X-API-Key: $API_KEY" >> /var/log/bridge-cron.log 2>&1
-
-# 4. MAINTENANCE OPERATIONS
-# Log bridge statistics daily at 8 AM
-0 8 * * * curl -s -X GET "http://localhost/bridges/health" -H "X-API-Key: $API_KEY" >> /var/log/bridge-stats.log 2>&1
 
 # Log cancellation statistics daily at 8:30 AM  
 30 8 * * * curl -s -X GET "http://localhost/bridges/sync-stats" -H "X-API-Key: $API_KEY" >> /var/log/bridge-stats.log 2>&1
