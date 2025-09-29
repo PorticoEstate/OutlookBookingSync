@@ -319,7 +319,7 @@ class BridgeManager
 		$sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
 		// Get existing mappings (bounded by sync window) and build an index by source_event_id for O(1) lookups
-		$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+		$mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options);
 		$mappingIndex = $this->indexMappingsBySourceId($mappings);
 
 		$results = [
@@ -785,7 +785,7 @@ class BridgeManager
 				$targetEventId = $target->createEvent($targetCalendarId, $sourceEvent);
 
 				// Find the newly created mapping and update it with source timing
-				$newMappings = $this->getBridgeMappings($source->getBridgeType(), $target->getBridgeType(), $sourceCalendarId, $targetCalendarId, $options['startDate'] ?? null, $options['endDate'] ?? null);
+				$newMappings = $this->getBridgeMappings($source->getBridgeType(), $target->getBridgeType(), $sourceCalendarId, $targetCalendarId, $options['startDate'] ?? null, $options['endDate'] ?? null, $options);
 				$newIndex = $this->indexMappingsBySourceId($newMappings);
 				$newMapping = $newIndex[$sourceEvent['id']] ?? null;
 
@@ -1026,11 +1026,11 @@ class BridgeManager
 	 * - Events are included if they overlap the window (event_start < window_end AND event_end > window_start)
 	 * - Also includes events created during the window period
 	 */
-	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, ?string $windowStart = null, ?string $windowEnd = null): array
+	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, ?string $windowStart = null, ?string $windowEnd = null, array $options = []): array
 	{
 		// Build a UNION query to get mappings in either orientation for the pair,
 		// then normalize so that source_* refers to the provided source/target.
-		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+		$tenantId = $options['tenant_id'] ?? $_SERVER['HTTP_X_TENANT_ID'] ?? null;
 
 		$baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
 		$reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
@@ -1823,8 +1823,8 @@ class BridgeManager
 		if (strlen($eventDate) > 10) {
 			$eventDate = substr($eventDate, 0, 10); // Extract YYYY-MM-DD
 		}
-		
-		$rawMappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $eventDate, $eventDate);
+
+		$rawMappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $eventDate, $eventDate, $options);
 		$mappings = $this->indexMappingsBySourceId($rawMappings);			// Set sync method to webhook if not specified
 			$options['sync_method'] = $options['sync_method'] ?? 'webhook';
 
@@ -1903,6 +1903,30 @@ class BridgeManager
 	}
 
 	/**
+	 * Get all configured bridges organized per tenant with their active configurations.
+	 */
+	public function get_configured_bridges()
+	{
+		$stmt = $this->db->prepare("SELECT tenant_id, bridge_name, config_data
+         FROM bridge_configs WHERE is_active = TRUE
+         ORDER BY tenant_id, bridge_name");
+		$stmt->execute();
+		$row = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+		$result = [];
+		foreach ($row as $entry)
+		{
+			$tenantId = $entry['tenant_id'];
+			if (!isset($result[$tenantId]))
+			{
+				$result[$tenantId] = [];
+			}
+			$result[$tenantId][$entry['bridge_name']] = json_decode($entry['config_data'], true) ?? [];
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Process pending syncs across all bridges
 	 */
 	public function processPendingSyncs($bridgeName = null, $batchSize = 50): array
@@ -1924,32 +1948,38 @@ class BridgeManager
 		}
 		else
 		{
+
+			$configuredBridges = $this->get_configured_bridges();
 			// Process pending syncs for all bridges
-			foreach (array_keys($this->bridges) as $name)
+
+			foreach ($configuredBridges as $tenantId => $Bridges)
 			{
-				try
+				foreach (array_keys($Bridges) as $bridgeName)
 				{
-					$bridge = $tenantId !== null
-						? $this->getBridgeForTenant((string)$tenantId, $name)
-						: $this->getBridge($name);
-
-					if (method_exists($bridge, 'processPendingSyncs'))
+					try
 					{
-						$results[$name] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
-					}
-				}
-				catch (\Exception $e)
-				{
-					$results[$name] = [
-						'processed' => 0,
-						'errors' => 1,
-						'error_details' => [['error' => $e->getMessage()]]
-					];
+						$bridge = $tenantId !== null
+							? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
+							: $this->getBridge($bridgeName);
 
-					$this->logger->error('Failed to process pending syncs for bridge', [
-						'bridge' => $name,
-						'error' => $e->getMessage()
-					]);
+						if (method_exists($bridge, 'processPendingSyncs'))
+						{
+							$results[$bridgeName] = call_user_func([$bridge, 'processPendingSyncs'], $batchSize);
+						}
+					}
+					catch (\Exception $e)
+					{
+						$results[$bridgeName] = [
+							'processed' => 0,
+							'errors' => 1,
+							'error_details' => [['error' => $e->getMessage()]]
+						];
+
+						$this->logger->error('Failed to process pending syncs for bridge', [
+							'bridge' => $bridgeName,
+							'error' => $e->getMessage()
+						]);
+					}
 				}
 			}
 		}
