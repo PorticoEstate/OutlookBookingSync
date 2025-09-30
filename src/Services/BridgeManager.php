@@ -57,29 +57,6 @@ class BridgeManager
 		]);
 	}
 
-	/**
-	 * Get a bridge instance.
-	 *
-	 * @param string $name Bridge name
-	 * @return AbstractCalendarBridge
-	 */
-	public function getBridge($name): AbstractCalendarBridge
-	{
-		if (!isset($this->bridges[$name]))
-		{
-			throw new \Exception("Bridge '{$name}' not found");
-		}
-
-		if (!$this->bridges[$name]['instance'])
-		{
-			$class = $this->bridges[$name]['class'];
-			$config = $this->bridges[$name]['config'];
-
-			$this->bridges[$name]['instance'] = new $class($config, $this->logger, $this->db);
-		}
-
-		return $this->bridges[$name]['instance'];
-	}
 
 	/**
 	 * Get a bridge instance configured for a specific tenant.
@@ -158,7 +135,8 @@ class BridgeManager
 		}
 		else
 		{
-			$bridge = $this->getBridge($name);
+			// return error: need the tenant id
+			throw new \Exception("Tenant ID is required to access bridge '{$name}'");
 		}
 
 		return [
@@ -283,17 +261,8 @@ class BridgeManager
 		// Get sync direction from options or determine from resource mapping
 		
 		$tenantId = $options['tenant_id'] ?? null;
-		if ($tenantId !== null)
-		{
-			$source = $this->getBridgeForTenant((string)$tenantId, $sourceBridge);
-			$target = $this->getBridgeForTenant((string)$tenantId, $targetBridge);
-		}
-		else
-		{
-			$source = $this->getBridge($sourceBridge);
-			$target = $this->getBridge($targetBridge);
-		}
-
+		$source = $this->getBridgeForTenant((string)$tenantId, $sourceBridge);
+		$target = $this->getBridgeForTenant((string)$tenantId, $targetBridge);
 
 		$this->logger->info('Starting bridge sync', [
 			'source_bridge' => $sourceBridge,
@@ -1811,12 +1780,8 @@ class BridgeManager
 		try {
 			// Get bridge instances
 			$tenantId = $options['tenant_id'] ?? null;
-			$source = $tenantId 
-				? $this->getBridgeForTenant($tenantId, $sourceBridge)
-				: $this->getBridge($sourceBridge);
-			$target = $tenantId
-				? $this->getBridgeForTenant($tenantId, $targetBridge)
-				: $this->getBridge($targetBridge);
+			$source = $this->getBridgeForTenant($tenantId, $sourceBridge);
+			$target = $this->getBridgeForTenant($tenantId, $targetBridge);
 
 		// Get any existing mappings for ownership tracking
 		$eventDate = $sourceEvent['start'] ?? date('Y-m-d');
@@ -1931,15 +1896,14 @@ class BridgeManager
 	 */
 	public function processPendingSyncs($bridgeName = null, $batchSize = 50): array
 	{
+
 		$results = [];
-		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
+		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? null;
 		// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
-		if ($bridgeName)
+		if ($bridgeName && $tenantId)
 		{
 			// Process pending syncs for specific bridge
-			$bridge = $tenantId !== null
-				? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
-				: $this->getBridge($bridgeName);
+			$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
 
 			if (method_exists($bridge, 'processPendingSyncs'))
 			{
@@ -1958,9 +1922,7 @@ class BridgeManager
 				{
 					try
 					{
-						$bridge = $tenantId !== null
-							? $this->getBridgeForTenant((string)$tenantId, $bridgeName)
-							: $this->getBridge($bridgeName);
+						$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
 
 						if (method_exists($bridge, 'processPendingSyncs'))
 						{
@@ -1992,36 +1954,35 @@ class BridgeManager
 	 */
 	public function reEnableFailedEvents($bridgeName = null, $eventIds = []): array
 	{
-		$results = [];
 
-		if ($bridgeName)
+		$results = [];
+		
+		// Re-enable for all bridges
+		$configuredBridges = $this->get_configured_bridges();
+
+		foreach ($configuredBridges as $tenantId => $Bridges)
 		{
-			// Re-enable for specific bridge
-			$bridge = $this->getBridge($bridgeName);
-			if (method_exists($bridge, 'reEnableFailedEvents'))
-			{
-				$results[$bridgeName] = $bridge->reEnableFailedEvents($eventIds);
-			}
-		}
-		else
-		{
-			// Re-enable for all bridges
-			foreach (array_keys($this->bridges) as $name)
+			foreach (array_keys($Bridges) as $_bridgeName)
 			{
 				try
 				{
-					$bridge = $this->getBridge($name);
+					if ($bridgeName && $_bridgeName !== $bridgeName)
+					{
+						continue;
+					}
+					$bridge = $this->getBridgeForTenant((string)$tenantId, $_bridgeName);
 					if (method_exists($bridge, 'reEnableFailedEvents'))
 					{
-						$results[$name] = $bridge->reEnableFailedEvents($eventIds);
+						$results[$_bridgeName] = $bridge->reEnableFailedEvents($eventIds);
 					}
+
 				}
 				catch (\Exception $e)
 				{
-					$results[$name] = 0;
+					$results[$_bridgeName] = 0;
 
 					$this->logger->error('Failed to re-enable failed events for bridge', [
-						'bridge' => $name,
+						'bridge' => $_bridgeName,
 						'error' => $e->getMessage()
 					]);
 				}
@@ -2037,41 +1998,42 @@ class BridgeManager
 	public function getAllSyncStats(): array
 	{
 		$allStats = [];
-		// Prefer tenant-aware instances if a tenant id is available (header or DEFAULT_TENANT_ID)
-		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
 
-		foreach (array_keys($this->bridges) as $name)
+		$configuredBridges = $this->get_configured_bridges();
+		foreach ($configuredBridges as $tenantId => $Bridges)
 		{
-			try
+			foreach (array_keys($Bridges) as $bridgeName)
 			{
-				$bridge = $tenantId !== null
-					? $this->getBridgeForTenant((string)$tenantId, $name)
-					: $this->getBridge($name);
-				if (method_exists($bridge, 'getSyncStats'))
+				try
 				{
-					$allStats[$name] = $bridge->getSyncStats();
-				}
-				else
-				{
-					// Fallback to basic stats
-					$allStats[$name] = [
-						'bridge_name' => $name,
-						'bridge_type' => $bridge->getBridgeType(),
-						'sync_stats_available' => false
-					];
-				}
-			}
-			catch (\Exception $e)
-			{
-				$allStats[$name] = [
-					'bridge_name' => $name,
-					'error' => $e->getMessage()
-				];
+					$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
 
-				$this->logger->error('Failed to get sync stats for bridge', [
-					'bridge' => $name,
-					'error' => $e->getMessage()
-				]);
+					if (method_exists($bridge, 'getSyncStats'))
+					{
+						$allStats[$bridgeName] = $bridge->getSyncStats();
+					}
+					else
+					{
+						// Fallback to basic stats
+						$allStats[$bridgeName] = [
+							'bridge_name' => $bridgeName,
+							'bridge_type' => $bridge->getBridgeType(),
+							'sync_stats_available' => false
+						];
+					}
+				}
+				catch (\Exception $e)
+				{
+					$allStats[$bridgeName] = [
+						'bridge_name' => $bridgeName,
+						'error' => $e->getMessage()
+					];
+
+					$this->logger->error('Failed to get sync stats for bridge', [
+						'bridge' => $bridgeName,
+						'error' => $e->getMessage()
+					]);
+				}
 			}
 		}
 
@@ -2085,26 +2047,32 @@ class BridgeManager
 	{
 		$allCancelled = [];
 
-		foreach (array_keys($this->bridges) as $name)
+		$configuredBridges = $this->get_configured_bridges();
+		// Process pending syncs for all bridges
+
+		foreach ($configuredBridges as $tenantId => $Bridges)
 		{
-			try
+			foreach (array_keys($Bridges) as $bridgeName)
 			{
-				$bridge = $this->getBridge($name);
-				if (method_exists($bridge, 'getCancelledEvents'))
+				try
 				{
-					$cancelled = $bridge->getCancelledEvents($name, null); // Get for this bridge
-					if (!empty($cancelled))
+					$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
+					if (method_exists($bridge, 'getCancelledEvents'))
 					{
-						$allCancelled[$name] = $cancelled;
+						$cancelled = $bridge->getCancelledEvents($bridgeName, null); // Get for this bridge
+						if (!empty($cancelled))
+						{
+							$allCancelled[$bridgeName] = $cancelled;
+						}
 					}
 				}
-			}
-			catch (\Exception $e)
-			{
-				$this->logger->error('Failed to get cancelled events for bridge', [
-					'bridge' => $name,
-					'error' => $e->getMessage()
-				]);
+				catch (\Exception $e)
+				{
+					$this->logger->error('Failed to get cancelled events for bridge', [
+						'bridge' => $bridgeName,
+						'error' => $e->getMessage()
+					]);
+				}
 			}
 		}
 

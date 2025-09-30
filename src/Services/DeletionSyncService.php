@@ -108,7 +108,7 @@ class DeletionSyncService
 		]);
 
 		// Try to fetch the event from Outlook to see if it still exists
-	$outlookBridge = $tenantId ? $this->bridgeManager->getBridgeForTenant($tenantId, 'outlook') : $this->bridgeManager->getBridge('outlook');
+		$outlookBridge = $this->bridgeManager->getBridgeForTenant($tenantId, 'outlook');
 
 		try
 		{
@@ -199,7 +199,7 @@ class DeletionSyncService
 			try
 			{
 				// Get the target bridge (booking system)
-				$targetBridge = $tenantId ? $this->bridgeManager->getBridgeForTenant($tenantId, $mapping['target_bridge']) : $this->bridgeManager->getBridge($mapping['target_bridge']);
+				$targetBridge = $this->bridgeManager->getBridgeForTenant($tenantId, $mapping['target_bridge']);
 
 				// Delete the event in the booking system
 				$success = $targetBridge->deleteEvent(
@@ -394,18 +394,18 @@ class DeletionSyncService
 		];
 
 		// Get all recent Outlook to booking system mappings
-	$sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
-                FROM bridge_mappings 
-                WHERE source_bridge = 'outlook' 
-		AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-	$stmt = $this->db->prepare($sql);
-	$params = [];
-	if ($tenantId !== null)
-	{
-		$params[':tenant_id'] = (string)$tenantId;
-	}
-	$stmt->execute($params);
-	$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+		$sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
+					FROM bridge_mappings 
+					WHERE source_bridge = 'outlook' 
+			AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
+		$stmt = $this->db->prepare($sql);
+		$params = [];
+		if ($tenantId !== null)
+		{
+			$params[':tenant_id'] = (string)$tenantId;
+		}
+		$stmt->execute($params);
+		$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 		foreach ($mappings as $mapping)
 		{

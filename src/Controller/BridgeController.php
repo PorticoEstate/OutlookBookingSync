@@ -1323,7 +1323,7 @@ class BridgeController
 
             // Get pending webhook queue items
             $sql = "
-                SELECT id, source_bridge, target_bridge, payload, attempts, created_at
+                SELECT id, tenant_id, source_bridge, target_bridge, payload, attempts, created_at
                 FROM bridge_queue 
                 WHERE queue_type = 'bridge_sync' 
                 AND status = 'pending'
@@ -1357,6 +1357,7 @@ class BridgeController
                     $payload = json_decode($item['payload'], true);
                     $sourceBridge = $item['source_bridge'];
                     $targetBridge = $item['target_bridge'];
+                    $tenantId = $item['tenant_id'];
 
                     // Process sync operation based on payload
                     if ($payload && isset($payload['resource_id'])) {
@@ -1573,7 +1574,7 @@ class BridgeController
             // For webhook events, we need to use the resource mapping to find target calendar
             // First, check if there's an existing resource mapping
             $mappingSql = "
-                SELECT target_calendar_id, id as mapping_id
+                SELECT tenant_id, target_calendar_id, id as mapping_id
                 FROM bridge_resource_mappings 
                 WHERE bridge_from = ? 
                 AND bridge_to = ?
@@ -1597,11 +1598,10 @@ class BridgeController
 
             $targetCalendarId = $resourceMapping['target_calendar_id'];
             $resourceMappingId = $resourceMapping['mapping_id'];
+            $tenantId = $resourceMapping['tenant_id'];
 
             // Get the source bridge instance and fetch the specific event directly
-            $sourceBridgeInstance = $tenantId 
-                ? $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge)
-                : $this->bridgeManager->getBridge($sourceBridge);
+            $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
 
             // Get the specific event directly using getEvent method
             $sourceEvent = $sourceBridgeInstance->getEvent($resourceId, $eventId);
