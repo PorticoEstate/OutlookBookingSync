@@ -100,7 +100,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Create storage directories and set proper permissions
-RUN mkdir -p /var/www/html/storage/sessions \
+RUN mkdir -p /var/www/html/storage/sessions /var/www/html/storage/logs \
     && chown -R www-data:www-data /var/www/html/storage \
     && chmod -R 755 /var/www/html/storage \
     && chmod 750 /var/www/html/storage/sessions

@@ -145,8 +145,31 @@ $container->set('db', function ()
 $container->set('logger', function ()
 {
     $logger = new \Monolog\Logger('outlook_sync');
-    $handler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
-    $logger->pushHandler($handler);
+    
+    // Keep existing stdout handler for Docker logs
+    $stdoutHandler = new \Monolog\Handler\StreamHandler('php://stdout', \Monolog\Level::Info);
+    $logger->pushHandler($stdoutHandler);
+    
+    // Add file handler for web UI access
+    $logDir = __DIR__ . '/storage/logs';
+    if (!is_dir($logDir)) {
+        mkdir($logDir, 0755, true);
+    }
+    
+    $fileHandler = new \Monolog\Handler\RotatingFileHandler(
+        $logDir . '/application.log',
+        3, // Keep 3 days of logs
+        \Monolog\Level::Info
+    );
+    
+    // Add formatted output for file logs
+    $formatter = new \Monolog\Formatter\LineFormatter(
+        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+        'Y-m-d H:i:s'
+    );
+    $fileHandler->setFormatter($formatter);
+    $logger->pushHandler($fileHandler);
+    
     return $logger;
 });
 
@@ -258,8 +281,6 @@ $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAl
 $app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::class, 'cleanupLogs']);
 // Renew expiring webhook subscriptions
 $app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceController::class, 'renewSubscriptions']);
-// Download log files
-$app->get('/maintenance/download-logs', [\App\Controller\MaintenanceController::class, 'downloadLogs']);
 
 // CSRF token endpoint (GET only) - creates/returns token in session
 $app->get('/admin/csrf', function (Request $request, Response $response)
@@ -288,6 +309,7 @@ $app->group('/admin', function ($group)
     $group->get('/tenants/{tenantId}/keys/metadata', [\App\Controller\AdminController::class, 'getKeyMetadata']);
     $group->put('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'upsertBridgeConfig']);
     $group->get('/tenants/{tenantId}/configs/{bridgeName}', [\App\Controller\AdminController::class, 'getBridgeConfig']);
+    $group->get('/logs', [\App\Controller\AdminController::class, 'getLogs']);
 });
 
 // Migration management API routes (admin access required)
@@ -469,7 +491,8 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /admin/tenants/{tenantId}/keys/rotate' => 'Rotate per-tenant API key (plaintext returned once)',
                 'GET /admin/tenants/{tenantId}/keys/metadata' => 'Get key metadata (created_at)',
                 'PUT /admin/tenants/{tenantId}/configs/{bridgeName}' => 'Upsert per-tenant bridge config JSON',
-                'GET /admin/tenants/{tenantId}/configs/{bridgeName}' => 'Get per-tenant bridge config JSON'
+                'GET /admin/tenants/{tenantId}/configs/{bridgeName}' => 'Get per-tenant bridge config JSON',
+                'GET /admin/logs' => 'Get application logs (query: ?type=application|bridge-cron|bridge-stats|cron&lines=int&date=YYYY-MM-DD) - date parameter only for application logs'
             ],
             'bridge_operations' => [
                 'GET /bridges' => 'List all available bridges',

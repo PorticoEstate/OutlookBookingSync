@@ -1,0 +1,285 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Admin • Log Viewer</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <script src="js/auth.js"></script>
+    <style>
+        body { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+        .log-viewer {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 5px;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid #333;
+        }
+        .log-controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .log-controls label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .log-controls select, .log-controls button {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .log-level-info { color: #4fc3f7; }
+        .log-level-warning { color: #ffb74d; }
+        .log-level-error { color: #f44336; }
+        .log-level-debug { color: #81c784; }
+        .log-level-critical { color: #e91e63; }
+        .auto-refresh-on {
+            background-color: #4caf50 !important;
+            color: white;
+        }
+        .log-stats {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .note { color: #666; font-size: 0.9em; margin: 8px 0; }
+    </style>
+</head>
+<body>
+    <h1>Log Viewer</h1>
+    <nav>
+        <a href="/dashboard">Dashboard</a> ·
+        <a href="/admin-events">Event Management</a> ·
+        <a href="/admin-tenants">Tenant & Key Management</a> ·
+        <a href="/admin-configs">Bridge Configs</a> ·
+        <a href="/admin-mappings">Resource Mappings</a> ·
+        <a href="/admin-resources">Admin Resources</a> ·
+        <a href="/admin-webhooks">Webhook Management</a> ·
+        <a href="/admin-migrations">DB Migrations</a> ·
+        <a href="/admin-logs" class="active">Log Viewer</a>
+    </nav>
+
+    <p class="note">View application logs in real-time. Use a global admin API key in your browser: <code>localStorage.dashboard_api_key</code> must be set.</p>
+
+    <div class="log-controls">
+        <label>Log Type: 
+            <select id="logTypeSelect">
+                <option value="application">Application Logs</option>
+                <option value="bridge-cron" selected>Bridge Cron Logs</option>
+                <option value="bridge-stats">Bridge Stats Logs</option>
+                <option value="cron">System Cron Logs</option>
+            </select>
+        </label>
+        
+        <label id="dateLabel" style="display: none;">Date: 
+            <input type="date" id="logDateSelect" />
+            <small id="availableDates" style="color: #666; font-size: 0.8em;"></small>
+        </label>
+        
+        <label>Lines to show: 
+            <select id="linesSelect">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+            </select>
+        </label>
+        
+        <button id="refreshLogs">🔄 Refresh Logs</button>
+        <button id="autoRefresh">🔄 Auto Refresh: OFF</button>
+        <button id="clearDisplay">🗑️ Clear Display</button>
+    </div>
+
+    <div id="logStats" class="log-stats" style="display: none;">
+        <strong>Log Statistics:</strong> <span id="statsText">Loading...</span>
+    </div>
+
+    <div id="logViewer" class="log-viewer">
+        Loading logs...
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+        let isAutoRefresh = false;
+
+        async function loadLogs() {
+            try {
+                const logType = document.getElementById('logTypeSelect').value;
+                const lines = document.getElementById('linesSelect').value;
+                const logDate = document.getElementById('logDateSelect').value;
+                const headers = adminAuth.getAuthHeaders();
+                
+                let url = `/admin/logs?type=${logType}&lines=${lines}`;
+                if (logType === 'application' && logDate) {
+                    url += `&date=${logDate}`;
+                }
+                
+                const response = await fetch(url, { headers });
+                const data = await response.json();
+                
+                if (data.error) {
+                    let errorMessage = `<div style="color: #f44336;">Error: ${data.error}</div>`;
+                    
+                    // Show available dates for application logs
+                    if (data.available_dates && data.available_dates.length > 0) {
+                        errorMessage += `<div style="color: #999; margin-top: 10px;">Available dates: ${data.available_dates.join(', ')}</div>`;
+                        updateAvailableDates(data.available_dates);
+                    }
+                    
+                    document.getElementById('logViewer').innerHTML = errorMessage;
+                    document.getElementById('logStats').style.display = 'none';
+                    return;
+                }
+                
+                if (data.logs && Array.isArray(data.logs)) {
+                    const logViewer = document.getElementById('logViewer');
+                    const formattedLogs = data.logs.map(formatLogLine).join('');
+                    logViewer.innerHTML = formattedLogs || '<div style="color: #999;">No logs available</div>';
+                    logViewer.scrollTop = logViewer.scrollHeight; // Scroll to bottom
+                    
+                    // Update stats
+                    const sizeText = data.file_size ? ` (${formatFileSize(data.file_size)})` : '';
+                    const modifiedText = data.last_modified ? ` - Modified: ${new Date(data.last_modified).toLocaleString()}` : '';
+                    document.getElementById('statsText').textContent = 
+                        `${data.total_lines} lines from ${data.log_file}${sizeText}${modifiedText}`;
+                    document.getElementById('logStats').style.display = 'block';
+                    
+                    // Update available dates for application logs
+                    if (data.available_dates) {
+                        updateAvailableDates(data.available_dates);
+                    }
+                } else {
+                    document.getElementById('logViewer').innerHTML = '<div style="color: #999;">No logs available</div>';
+                    document.getElementById('logStats').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('logViewer').innerHTML = `<div style="color: #f44336;">Error loading logs: ${error.message}</div>`;
+                document.getElementById('logStats').style.display = 'none';
+            }
+        }
+
+        function formatLogLine(line) {
+            if (!line || !line.trim()) return '';
+            
+            // Simple log level detection and styling
+            let className = '';
+            if (line.includes('.ERROR') || line.includes('ERROR') || line.includes('Failed')) {
+                className = 'log-level-error';
+            } else if (line.includes('.WARNING') || line.includes('WARNING') || line.includes('Warning')) {
+                className = 'log-level-warning';
+            } else if (line.includes('.INFO') || line.includes('INFO')) {
+                className = 'log-level-info';
+            } else if (line.includes('.DEBUG') || line.includes('DEBUG')) {
+                className = 'log-level-debug';
+            } else if (line.includes('.CRITICAL') || line.includes('CRITICAL')) {
+                className = 'log-level-critical';
+            }
+            
+            return `<div class="${className}">${escapeHtml(line)}</div>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleAutoRefresh() {
+            const button = document.getElementById('autoRefresh');
+            
+            if (isAutoRefresh) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                isAutoRefresh = false;
+                button.textContent = '🔄 Auto Refresh: OFF';
+                button.classList.remove('auto-refresh-on');
+            } else {
+                autoRefreshInterval = setInterval(loadLogs, 5000); // Refresh every 5 seconds
+                isAutoRefresh = true;
+                button.textContent = '🔄 Auto Refresh: ON';
+                button.classList.add('auto-refresh-on');
+            }
+        }
+
+        function clearDisplay() {
+            document.getElementById('logViewer').innerHTML = '<div style="color: #999;">Display cleared. Click refresh to reload logs.</div>';
+            document.getElementById('logStats').style.display = 'none';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function updateAvailableDates(dates) {
+            const availableDatesEl = document.getElementById('availableDates');
+            if (dates && dates.length > 0) {
+                availableDatesEl.textContent = `Available: ${dates.slice(0, 5).join(', ')}${dates.length > 5 ? '...' : ''}`;
+            } else {
+                availableDatesEl.textContent = '';
+            }
+        }
+
+        function toggleDateInput() {
+            const logType = document.getElementById('logTypeSelect').value;
+            const dateLabel = document.getElementById('dateLabel');
+            const logDateSelect = document.getElementById('logDateSelect');
+            
+            if (logType === 'application') {
+                dateLabel.style.display = 'inline-block';
+                if (!logDateSelect.value) {
+                    logDateSelect.value = new Date().toISOString().split('T')[0]; // Today's date
+                }
+            } else {
+                dateLabel.style.display = 'none';
+                logDateSelect.value = '';
+            }
+        }
+
+        // Event listeners
+        document.getElementById('refreshLogs').addEventListener('click', loadLogs);
+        document.getElementById('autoRefresh').addEventListener('click', toggleAutoRefresh);
+        document.getElementById('clearDisplay').addEventListener('click', clearDisplay);
+        document.getElementById('logTypeSelect').addEventListener('change', () => {
+            toggleDateInput();
+            loadLogs();
+        });
+        document.getElementById('linesSelect').addEventListener('change', loadLogs);
+        document.getElementById('logDateSelect').addEventListener('change', loadLogs);
+
+        // Load logs on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if auth is available
+            if (typeof adminAuth === 'undefined') {
+                document.getElementById('logViewer').innerHTML = '<div style="color: #f44336;">Error: Admin authentication not available. Please make sure you have the admin API key set.</div>';
+                return;
+            }
+            
+            toggleDateInput(); // Set up date input visibility
+            loadLogs();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

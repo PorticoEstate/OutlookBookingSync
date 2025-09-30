@@ -4,3 +4,9 @@
 .env.compose
 composer.lock
 copilot-instructions.md
+
+# Storage directory - exclude logs and sessions but keep structure
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/sessions/*
+!/storage/sessions/.gitkeep
