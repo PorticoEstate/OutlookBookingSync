@@ -518,9 +518,16 @@
         {
             document.getElementById('createModal').style.display = 'block';
             
-            // Set default webhook URL
+            // Set default webhook URL with tenant ID
             const baseUrl = window.location.origin;
-            document.getElementById('webhookUrl').value = `${baseUrl}/bridges/webhook/outlook`;
+            let webhookUrl = `${baseUrl}/bridges/webhook/outlook`;
+            
+            // Include tenant ID in webhook URL if a tenant is selected
+            if (currentTenantId) {
+                webhookUrl += `?tenant_id=${encodeURIComponent(currentTenantId)}`;
+            }
+            
+            document.getElementById('webhookUrl').value = webhookUrl;
             
             // Auto-load mapped calendars for current tenant
             loadMappedCalendars();

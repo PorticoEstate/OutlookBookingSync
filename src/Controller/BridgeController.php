@@ -433,7 +433,10 @@ class BridgeController
 
             // Determine the target bridge for sync
             $targetBridge = $this->determineTargetBridge($bridgeName);
-            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+            
+            // Get tenant ID - prefer query parameter from webhook URL, fallback to middleware
+            $queryParams = $request->getQueryParams();
+            $tenantId = (string)($queryParams['tenant_id'] ?? $request->getAttribute('tenant_id') ?? '');
 
             // Process Microsoft Graph notifications and transform them
             if ($bridgeName === 'outlook' && isset($body['value']))
