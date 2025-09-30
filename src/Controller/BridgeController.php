@@ -618,8 +618,9 @@ class BridgeController
             }
 
             // Extract calendar ID from resource URL
-            // Format: users/{calendarId}/calendar/events/{eventId}
-            if (preg_match('/users\/([^\/]+)\/calendar\/events/', $resourceUrl, $matches)) {
+            // Format: Users/{userGuid}/Events/{eventId}
+            if (preg_match('/users\/([^\/]+)\/events/i', $resourceUrl, $matches))
+            {
                 $userGuid = $matches[1];
                 
                 // Resolve GUID to email address
