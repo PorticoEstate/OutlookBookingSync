@@ -100,6 +100,18 @@ abstract class AbstractCalendarBridge
     }
 
     /**
+     * Resolve a user GUID to their email address.
+     * Default implementation returns null - override in specific bridge implementations.
+     * 
+     * @param string $userGuid The user's GUID/identifier
+     * @return string|null The user's email address, or null if not supported/found
+     */
+    public function resolveUserGuidToEmail(string $userGuid): ?string
+    {
+        return null; // Default implementation - override in specific bridges
+    }
+
+    /**
      * @return array{supports_webhooks:bool,supports_recurring:bool,supports_all_day:bool,supports_attendees:bool,supports_attachments:bool,max_events_per_request:int,rate_limit_per_minute:int}
      */
     public function getCapabilities(): array

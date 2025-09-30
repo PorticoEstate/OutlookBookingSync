@@ -2044,6 +2044,68 @@ class OutlookBridge extends AbstractCalendarBridge
 	}
 
 	/**
+	 * Resolve a user GUID to their email address using Microsoft Graph API
+	 * 
+	 * @param string $userGuid The user's GUID from Microsoft Graph
+	 * @return string|null The user's email address, or null if not found
+	 */
+	public function resolveUserGuidToEmail(string $userGuid): ?string
+	{
+		try
+		{
+			$requestConfig = new \Microsoft\Graph\Generated\Users\Item\UserItemRequestBuilderGetRequestConfiguration();
+			$requestConfig->queryParameters = new \Microsoft\Graph\Generated\Users\Item\UserItemRequestBuilderGetQueryParameters();
+			$requestConfig->queryParameters->select = ['mail', 'userPrincipalName'];
+
+			$user = $this->graphServiceClient->users()->byUserId($userGuid)->get($requestConfig)->wait();
+
+			if (empty($user))
+			{
+				$this->logger->warning('No user data returned for GUID resolution', [
+					'bridge' => 'outlook',
+					'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+					'user_guid' => $userGuid
+				]);
+				return null;
+			}
+
+			// Prefer mail field, fallback to userPrincipalName
+			$email = $user->getMail() ?? $user->getUserPrincipalName() ?? null;
+
+			if (empty($email))
+			{
+				$this->logger->warning('User found but no email address available', [
+					'bridge' => 'outlook',
+					'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+					'user_guid' => $userGuid,
+					'user_mail' => $user->getMail(),
+					'user_principal_name' => $user->getUserPrincipalName()
+				]);
+				return null;
+			}
+
+			$this->logger->debug('Successfully resolved user GUID to email', [
+				'bridge' => 'outlook',
+				'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+				'user_guid' => $userGuid,
+				'email' => $email
+			]);
+
+			return $email;
+		}
+		catch (\Exception $e)
+		{
+			$this->logger->error('Failed to resolve user GUID to email', [
+				'bridge' => 'outlook',
+				'tenant_id' => $this->config['context_tenant_id'] ?? 'default',
+				'user_guid' => $userGuid,
+				'error' => $this->exceptionSummary($e)
+			]);
+			return null;
+		}
+	}
+
+	/**
 	 * Build a concise, information-rich error summary from Graph/Kiota/HTTP exceptions.
 	 * Includes HTTP status, OData error code/message when available, and falls back gracefully.
 	 */

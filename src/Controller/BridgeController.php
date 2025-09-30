@@ -620,11 +620,23 @@ class BridgeController
             // Extract calendar ID from resource URL
             // Format: users/{calendarId}/calendar/events/{eventId}
             if (preg_match('/users\/([^\/]+)\/calendar\/events/', $resourceUrl, $matches)) {
-                $calendarId = $matches[1];
+                $userGuid = $matches[1];
+                
+                // Resolve GUID to email address
+                $calendarId = $this->resolveUserGuidToEmail($userGuid, $tenantId);
+                
+                if (!$calendarId) {
+                    $this->logger->warning('Could not resolve user GUID to email address', [
+                        'user_guid' => $userGuid,
+                        'resource_url' => $resourceUrl,
+                        'tenant_id' => $tenantId
+                    ]);
+                    return null;
+                }
                 
                 // Transform to internal format
                 $transformedPayload = [
-                    'resource_id' => $calendarId, // The calendar/resource email
+                    'resource_id' => $calendarId, // Now contains the email address
                     'event_id' => $eventId,       // The Outlook event ID
                     'change_type' => $changeType, // created, updated, deleted
                     'timestamp' => date('c'),     // Current timestamp
@@ -634,7 +646,8 @@ class BridgeController
 
                 $this->logger->info('Transformed Outlook notification', [
                     'original_resource' => $resourceUrl,
-                    'extracted_calendar_id' => $calendarId,
+                    'user_guid' => $userGuid,
+                    'resolved_email' => $calendarId,
                     'event_id' => $eventId,
                     'change_type' => $changeType,
                     'tenant_id' => $tenantId
@@ -655,6 +668,34 @@ class BridgeController
                 'error' => $e->getMessage(),
                 'notification' => $notification,
                 'tenant_id' => $tenantId
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Resolve user GUID to email address using Microsoft Graph API.
+     *
+     * @param string $userGuid User GUID from resource URL
+     * @param string|null $tenantId Tenant identifier
+     * @return string|null Email address or null if resolution fails
+     */
+    private function resolveUserGuidToEmail(string $userGuid, ?string $tenantId = null): ?string
+    {
+        try 
+        {
+            // Get Outlook bridge instance to access Graph API
+            $outlookBridge = $this->bridgeManager->getBridgeForTenant($tenantId ?: 'default', 'outlook');
+            
+            // Use the bridge's Graph API client to resolve the GUID
+            return $outlookBridge->resolveUserGuidToEmail($userGuid);
+        } 
+        catch (\Exception $e) 
+        {
+            $this->logger->error('Failed to resolve user GUID to email', [
+                'user_guid' => $userGuid,
+                'tenant_id' => $tenantId,
+                'error' => $e->getMessage()
             ]);
             return null;
         }
