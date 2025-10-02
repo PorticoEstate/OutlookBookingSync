@@ -1573,17 +1573,29 @@ class BridgeController
     {
         try {
             // For webhook events, we need to use the resource mapping to find target calendar
-            // First, check if there's an existing resource mapping
+            // Check both directions for bidirectional mappings (like syncBridges does)
             $mappingSql = "
-                SELECT tenant_id, target_calendar_id, id as mapping_id
+                SELECT 
+                    tenant_id, 
+                    source_calendar_id,
+                    target_calendar_id, 
+                    id as mapping_id,
+                    bridge_from,
+                    bridge_to,
+                    sync_direction
                 FROM bridge_resource_mappings 
-                WHERE bridge_from = ? 
-                AND bridge_to = ?
-                AND source_calendar_id = ?
+                WHERE (
+                    (bridge_from = ? AND bridge_to = ? AND source_calendar_id = ?) OR
+                    (bridge_from = ? AND bridge_to = ? AND target_calendar_id = ?)
+                )
                 AND is_active = true
             ";
+
             
-            $mappingParams = [$sourceBridge, $targetBridge, $resourceId];
+            $mappingParams = [
+                $sourceBridge, $targetBridge, $resourceId,  // Forward direction
+                $targetBridge, $sourceBridge, $resourceId   // Reverse direction
+            ];
             if ($tenantId) {
                 $mappingSql .= " AND tenant_id = ?";
                 $mappingParams[] = $tenantId;
@@ -1597,7 +1609,17 @@ class BridgeController
                 throw new \Exception("No resource mapping found for {$sourceBridge} resource {$resourceId} to {$targetBridge}");
             }
 
-            $targetCalendarId = $resourceMapping['target_calendar_id'];
+            // Determine the correct source and target calendar IDs based on mapping direction
+            if ($resourceMapping['bridge_from'] === $sourceBridge && $resourceMapping['bridge_to'] === $targetBridge) {
+                // Forward direction: webhook source matches mapping source
+                $sourceCalendarId = $resourceMapping['source_calendar_id'];
+                $targetCalendarId = $resourceMapping['target_calendar_id'];
+            } else {
+                // Reverse direction: webhook source matches mapping target
+                $sourceCalendarId = $resourceMapping['target_calendar_id'];
+                $targetCalendarId = $resourceMapping['source_calendar_id'];
+            }
+
             $resourceMappingId = $resourceMapping['mapping_id'];
             $tenantId = $resourceMapping['tenant_id'];
 
@@ -1605,10 +1627,10 @@ class BridgeController
             $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
 
             // Get the specific event directly using getEvent method
-            $sourceEvent = $sourceBridgeInstance->getEvent($resourceId, $eventId);
+            $sourceEvent = $sourceBridgeInstance->getEvent($sourceCalendarId, $eventId);
             
             if (!$sourceEvent) {
-                throw new \Exception("Event {$eventId} not found in {$sourceBridge} resource {$resourceId}");
+                throw new \Exception("Event {$eventId} not found in {$sourceBridge} calendar {$sourceCalendarId}");
             }
 
             // Perform the actual sync operation to the target bridge
@@ -1628,17 +1650,19 @@ class BridgeController
             $this->logger->info('Performing webhook sync operation', [
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
-                'source_calendar_id' => $resourceId,
+                'source_calendar_id' => $sourceCalendarId,
                 'target_calendar_id' => $targetCalendarId,
                 'source_event_id' => $eventId,
-                'tenant_id' => $tenantId
+                'tenant_id' => $tenantId,
+                'mapping_direction' => $resourceMapping['bridge_from'] . ' -> ' . $resourceMapping['bridge_to'],
+                'webhook_resource_id' => $resourceId
             ]);
 
             // Process the single event directly instead of full date range sync
             $syncResults = $this->bridgeManager->processSingleEventSync(
                 $sourceBridge,
                 $targetBridge,
-                $resourceId,
+                $sourceCalendarId,
                 $targetCalendarId,
                 $sourceEvent,
                 $options
@@ -1676,7 +1700,7 @@ class BridgeController
             $stmt->execute([
                 $sourceBridge,
                 $targetBridge, 
-                $resourceId,
+                $sourceCalendarId,
                 $targetCalendarId,
                 $eventId,
                 $mappingStatus,
@@ -1690,7 +1714,7 @@ class BridgeController
             $this->logger->info('Created bridge mapping after successful sync', [
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
-                'source_calendar_id' => $resourceId,
+                'source_calendar_id' => $sourceCalendarId,
                 'target_calendar_id' => $targetCalendarId,
                 'source_event_id' => $eventId,
                 'target_event_id' => $targetEventId,
@@ -1700,7 +1724,9 @@ class BridgeController
                     'updated' => $totalUpdated,
                     'errors' => $totalErrors
                 ],
-                'tenant_id' => $tenantId
+                'tenant_id' => $tenantId,
+                'webhook_resource_id' => $resourceId,
+                'mapping_direction' => $resourceMapping['bridge_from'] . ' -> ' . $resourceMapping['bridge_to']
             ]);
 
             return $syncResults;
@@ -1710,8 +1736,9 @@ class BridgeController
                 'error' => $e->getMessage(),
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
-                'resource_id' => $resourceId,
-                'event_id' => $eventId
+                'webhook_resource_id' => $resourceId,
+                'event_id' => $eventId,
+                'tenant_id' => $tenantId
             ]);
             throw $e;
         }
