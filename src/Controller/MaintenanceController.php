@@ -114,15 +114,15 @@ class MaintenanceController
 			}
 
 			$query = $request->getQueryParams();
-			$bridge = $query['bridge'] ?? 'outlook';
+			$bridge = $query['bridge'] ?? '';
 			$minutes = isset($query['renew_before_minutes']) ? max(5, (int)$query['renew_before_minutes']) : 1440;
 			$subscriptionId = (string)($query['subscription_id'] ?? '');
 			$limit = isset($query['limit']) ? max(1, (int)$query['limit']) : 50;
 			$tenantId = (string)($request->getAttribute('tenant_id') ?? '');
 
 			// Select active subscriptions expiring before the threshold
-		  $sql = "SELECT tenant_id, subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
-			  WHERE bridge_type = :bridge AND is_active = TRUE AND expires_at IS NOT NULL 
+		  $sql = "SELECT tenant_id, bridge_type, subscription_id, calendar_id, expires_at FROM bridge_subscriptions 
+			  WHERE is_active = TRUE AND expires_at IS NOT NULL 
 			  AND expires_at < (NOW() + (:minutes || ' minutes')::interval)";
 		  
 		  // Add tenant filter if specified
@@ -134,11 +134,17 @@ class MaintenanceController
 		  if ($subscriptionId !== '') {
 			  $sql .= " AND subscription_id = :subscription_id";
 		  }
+
+		  if ($bridge !== '') {
+			  $sql .= " AND bridge_type = :bridge";
+		  } 
 		  
 		  $sql .= " ORDER BY tenant_id, expires_at ASC LIMIT :limit";
 		  
 		  $stmt = $this->db->prepare($sql);
-		  $stmt->bindValue(':bridge', $bridge, \PDO::PARAM_STR);
+		  if ($bridge !== '') {
+			  $stmt->bindValue(':bridge', $bridge, \PDO::PARAM_STR);
+		  }
 		  $stmt->bindValue(':minutes', (string)$minutes, \PDO::PARAM_STR);
 		  $stmt->bindValue(':limit', (int)$limit, \PDO::PARAM_INT);
 		  if ($tenantId !== '') { 
@@ -152,6 +158,7 @@ class MaintenanceController
 
 			$renewed = [];
 			$failed = [];
+			$recreated = [];
 
 			if (!empty($rows))
 			{
@@ -166,30 +173,224 @@ class MaintenanceController
 				foreach ($rows as $row)
 				{
 					$subscriptionTenantId = $row['tenant_id'];
+					$subscriptionBridge = $row['bridge_type'];
 					if(!$tenantId && $subscriptionTenantId !== $prevSubscriptionTenantId)
 					{
-						$bridgeInstance = $this->bridgeManager->getBridgeForTenant($subscriptionTenantId, $bridge);
+						$bridgeInstance = $this->bridgeManager->getBridgeForTenant($subscriptionTenantId, $subscriptionBridge);
 					}
 					$prevSubscriptionTenantId = $row['tenant_id'];
 					
-					if (method_exists($bridgeInstance, 'renewSubscription'))
+					// Check if subscription is already expired
+					$expiresAt = $row['expires_at'];
+					$isExpired = strtotime($expiresAt) < time();
+					
+					if ($isExpired)
 					{
-						$result = $bridgeInstance->renewSubscription($row['subscription_id']);
-						if (!empty($result['success']))
+						// Subscription is expired - need to recreate it
+						if ($this->logger)
 						{
-							$renewed[] = $result;
+							$this->logger->info('Subscription expired, recreating', [
+								'subscription_id' => $row['subscription_id'],
+								'calendar_id' => $row['calendar_id'],
+								'expired_at' => $expiresAt,
+								'tenant_id' => $subscriptionTenantId
+							]);
+						}
+						
+						// Mark old subscription as inactive
+						$updateSql = "UPDATE bridge_subscriptions 
+									  SET is_active = FALSE 
+									  WHERE subscription_id = :sub_id 
+									  AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+						$updateStmt = $this->db->prepare($updateSql);
+						$updateStmt->execute([
+							':sub_id' => $row['subscription_id'],
+							':tenant_id' => $subscriptionTenantId
+						]);
+						
+						// Recreate subscription using subscribeToChanges
+						if (method_exists($bridgeInstance, 'subscribeToChanges'))
+						{
+							try
+							{
+								// Get webhook URL from bridge_subscriptions or construct default
+								$webhookUrlSql = "SELECT webhook_url FROM bridge_subscriptions 
+												  WHERE subscription_id = :sub_id 
+												  AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+								$webhookStmt = $this->db->prepare($webhookUrlSql);
+								$webhookStmt->execute([
+									':sub_id' => $row['subscription_id'],
+									':tenant_id' => $subscriptionTenantId
+								]);
+								$webhookRow = $webhookStmt->fetch(PDO::FETCH_ASSOC);
+								$webhookUrl = $webhookRow['webhook_url'] ?? null;
+								
+								if (!$webhookUrl)
+								{
+									$baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
+									$webhookUrl = "{$baseUrl}/bridges/webhook/{$subscriptionBridge}?tenant_id={$subscriptionTenantId}";
+								}
+								
+								$newSubscriptionId = $bridgeInstance->subscribeToChanges(
+									$row['calendar_id'],
+									$webhookUrl
+								);
+								
+								$recreated[] = [
+									'success' => true,
+									'old_subscription_id' => $row['subscription_id'],
+									'new_subscription_id' => $newSubscriptionId,
+									'calendar_id' => $row['calendar_id'],
+									'reason' => 'expired',
+									'expired_at' => $expiresAt
+								];
+								
+								if ($this->logger)
+								{
+									$this->logger->info('Subscription recreated successfully', [
+										'old_subscription_id' => $row['subscription_id'],
+										'new_subscription_id' => $newSubscriptionId,
+										'calendar_id' => $row['calendar_id'],
+										'tenant_id' => $subscriptionTenantId
+									]);
+								}
+							}
+							catch (Exception $e)
+							{
+								$failed[] = [
+									'subscription_id' => $row['subscription_id'],
+									'calendar_id' => $row['calendar_id'],
+									'error' => 'Failed to recreate expired subscription: ' . $e->getMessage(),
+									'reason' => 'expired',
+									'expired_at' => $expiresAt
+								];
+								
+								if ($this->logger)
+								{
+									$this->logger->error('Failed to recreate expired subscription', [
+										'subscription_id' => $row['subscription_id'],
+										'calendar_id' => $row['calendar_id'],
+										'error' => $e->getMessage(),
+										'tenant_id' => $subscriptionTenantId
+									]);
+								}
+							}
 						}
 						else
 						{
-							$failed[] = $result;
+							$failed[] = [
+								'subscription_id' => $row['subscription_id'],
+								'calendar_id' => $row['calendar_id'],
+								'error' => 'Bridge does not support subscription creation',
+								'reason' => 'expired'
+							];
 						}
 					}
 					else
 					{
-						$failed[] = [
-							'subscription_id' => $row['subscription_id'],
-							'error' => 'Bridge does not support renewal'
-						];
+						// Subscription not yet expired - try to renew it
+						if (method_exists($bridgeInstance, 'renewSubscription'))
+						{
+							$result = $bridgeInstance->renewSubscription($row['subscription_id']);
+							if (!empty($result['success']))
+							{
+								$renewed[] = $result;
+							}
+							else
+							{
+								// Renewal failed - check if it failed because subscription is expired
+								$errorMessage = $result['error'] ?? '';
+								if (stripos($errorMessage, '404') !== false || 
+									stripos($errorMessage, 'not found') !== false ||
+									stripos($errorMessage, 'subscription') !== false && stripos($errorMessage, 'does not exist') !== false)
+								{
+									// Subscription was deleted by Microsoft - recreate it
+									if ($this->logger)
+									{
+										$this->logger->info('Subscription not found on Microsoft side, recreating', [
+											'subscription_id' => $row['subscription_id'],
+											'calendar_id' => $row['calendar_id'],
+											'error' => $errorMessage,
+											'tenant_id' => $subscriptionTenantId
+										]);
+									}
+									
+									// Mark old subscription as inactive
+									$updateSql = "UPDATE bridge_subscriptions 
+												  SET is_active = FALSE 
+												  WHERE subscription_id = :sub_id 
+												  AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+									$updateStmt = $this->db->prepare($updateSql);
+									$updateStmt->execute([
+										':sub_id' => $row['subscription_id'],
+										':tenant_id' => $subscriptionTenantId
+									]);
+									
+									// Recreate subscription
+									if (method_exists($bridgeInstance, 'subscribeToChanges'))
+									{
+										try
+										{
+											$webhookUrlSql = "SELECT webhook_url FROM bridge_subscriptions 
+															  WHERE subscription_id = :sub_id 
+															  AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+											$webhookStmt = $this->db->prepare($webhookUrlSql);
+											$webhookStmt->execute([
+												':sub_id' => $row['subscription_id'],
+												':tenant_id' => $subscriptionTenantId
+											]);
+											$webhookRow = $webhookStmt->fetch(PDO::FETCH_ASSOC);
+											$webhookUrl = $webhookRow['webhook_url'] ?? null;
+											
+											if (!$webhookUrl)
+											{
+												$baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
+												$webhookUrl = "{$baseUrl}/bridges/webhook/{$subscriptionBridge}?tenant_id={$subscriptionTenantId}";
+											}
+											
+											$newSubscriptionId = $bridgeInstance->subscribeToChanges(
+												$row['calendar_id'],
+												$webhookUrl
+											);
+											
+											$recreated[] = [
+												'success' => true,
+												'old_subscription_id' => $row['subscription_id'],
+												'new_subscription_id' => $newSubscriptionId,
+												'calendar_id' => $row['calendar_id'],
+												'reason' => 'not_found_on_microsoft',
+												'original_error' => $errorMessage
+											];
+										}
+										catch (Exception $e)
+										{
+											$failed[] = [
+												'subscription_id' => $row['subscription_id'],
+												'calendar_id' => $row['calendar_id'],
+												'error' => 'Failed to recreate missing subscription: ' . $e->getMessage(),
+												'reason' => 'not_found_on_microsoft'
+											];
+										}
+									}
+									else
+									{
+										$failed[] = $result;
+									}
+								}
+								else
+								{
+									// Other renewal error
+									$failed[] = $result;
+								}
+							}
+						}
+						else
+						{
+							$failed[] = [
+								'subscription_id' => $row['subscription_id'],
+								'error' => 'Bridge does not support renewal'
+							];
+						}
 					}
 				}
 			}
@@ -199,7 +400,15 @@ class MaintenanceController
 				'bridge' => $bridge,
 				'checked' => count($rows),
 				'renewed' => $renewed,
+				'recreated' => $recreated,
 				'failed' => $failed,
+				'summary' => [
+					'total_checked' => count($rows),
+					'renewed_count' => count($renewed),
+					'recreated_count' => count($recreated),
+					'failed_count' => count($failed),
+					'success_count' => count($renewed) + count($recreated)
+				],
 				'timestamp' => date('c')
 			];
 
@@ -209,6 +418,7 @@ class MaintenanceController
 					'bridge' => $bridge,
 					'checked' => count($rows),
 					'renewed_count' => count($renewed),
+					'recreated_count' => count($recreated),
 					'failed_count' => count($failed),
 				]);
 			}
