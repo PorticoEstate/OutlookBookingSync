@@ -486,6 +486,9 @@ class BridgeManager
 			// Check if this sync direction is allowed by ownership model
 			if (!$this->canSyncInDirection($syncDirection, $isReversed, $mappingConfig))
 			{
+
+				$this->updateMappingSyncStatus($mapping['id'], 'cancelled');
+
 				$ownershipReason = $this->getOwnershipExplanation($syncDirection, $isReversed, $mappingConfig);
 				$this->logger->debug('Skipping sync due to ownership policy', [
 					'source_event_id' => $sourceEvent['id'],
@@ -807,6 +810,13 @@ class BridgeManager
 	/**
 	 * Handle events that were deleted from source with sync_status tracking
 	 * Only considers events that originated within the specified timeframe
+	 * 
+	 * This method handles deletions during cron-triggered syncs when:
+	 * - The event exists in bridge_mappings but not in the source bridge
+	 * - The source bridge owns the event (sync_direction = 'source_to_target')
+	 * - The sync is coming from the owning bridge
+	 * 
+	 * This mirrors the webhook-triggered deletion handling in BridgeController::handleEventDeletion()
 	 */
 	private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options = [])
 	{
@@ -827,6 +837,9 @@ class BridgeManager
 			}
 
 			// Check sync direction permissions for deletion
+			// For sync_direction = 'source_to_target': Only allows deletion when source bridge initiates sync
+			// For sync_direction = 'target_to_source': Only allows deletion when target bridge initiates sync
+			// For sync_direction = 'bidirectional': Allows deletion from either bridge
 			$syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
 			$mappingConfig = $options['mapping_config'] ?? null;
 			$mappingConfig['api_call_reversed'] = $mapping['normalized_reversed'];
@@ -834,11 +847,13 @@ class BridgeManager
 
 			if (!$this->canDeleteInDirection($syncDirection, $mapping['normalized_reversed'] ?? false, $mappingConfig))
 			{
-				$this->logger->debug('Deletion not allowed for this sync direction', [
+				$this->logger->debug('Deletion not allowed for this sync direction - bridge does not own the event', [
 					'source_event_id' => $mapping['source_event_id'],
 					'sync_direction' => $syncDirection,
 					'normalized_reversed' => $mapping['normalized_reversed'] ?? false,
-					'mapping_config' => $mappingConfig
+					'mapping_config' => $mappingConfig,
+					'reason' => $syncDirection === 'source_to_target' ? 'Only source bridge can delete (source owns event)' : 
+					           ($syncDirection === 'target_to_source' ? 'Only target bridge can delete (target owns event)' : 'Unknown ownership')
 				]);
 				continue;
 			}
@@ -862,9 +877,11 @@ class BridgeManager
 					$this->updateMappingSyncStatus($mapping['id'], 'deleting');
 
 					// Event was deleted from source, delete from target
+					// This mirrors the webhook-triggered deletion in BridgeController::handleEventDeletion()
 					$target->deleteEvent($targetCalendarId, $mapping['target_event_id']);
 
 					// Mark as cancelled/deleted in our mapping
+					// Same behavior as webhook deletion handler
 					$this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
 					// Record sync method for deletion tracking
@@ -879,10 +896,15 @@ class BridgeManager
 
 					$results['deleted']++;
 
-					$this->logger->info('Deleted event from target due to source deletion', [
+					$this->logger->info('Deleted event from target due to source deletion (cron-triggered)', [
 						'source_event_id' => $mapping['source_event_id'],
 						'target_event_id' => $mapping['target_event_id'],
-						'event_created_at' => $mapping['created_at'] ?? 'unknown'
+						'event_created_at' => $mapping['created_at'] ?? 'unknown',
+						'sync_direction' => $syncDirection,
+						'sync_method' => $options['sync_method'] ?? 'automated',
+						'ownership_enforced' => $syncDirection === 'source_to_target' ? 'source bridge owns event' : 
+						                       ($syncDirection === 'target_to_source' ? 'target bridge owns event' : 'bidirectional'),
+						'deletion_source' => 'cron_sync'
 					]);
 				}
 				catch (\Exception $e)

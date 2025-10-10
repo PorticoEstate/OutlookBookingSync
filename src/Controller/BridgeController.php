@@ -146,14 +146,14 @@ class BridgeController
         // Auto-detect automated sync methods based on other parameters
         if ($syncMethod === 'manual')
         {
-            if ($toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? false))
+            if ($toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? true))
             {
                 $syncMethod = 'automated'; // Deletion handling usually indicates automated sync
             }
         }
 
         $options = [
-            'handle_deletions' => $toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? false),
+            'handle_deletions' => $toBool($params['handle_deletions'] ?? $params['handleDeletions'] ?? true),
             'skip_updates'     => $toBool($params['skip_updates']     ?? $params['skipUpdates']     ?? false),
             'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
             'sync_method'      => $syncMethod,
