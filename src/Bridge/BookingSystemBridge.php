@@ -1629,7 +1629,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     public function getSessionDiagnostics(): array
     {
         $sessionStats = $this->getSessionStats();
-    $currentSession = $this->getSession($this->getAuthSessionKey(), []);
+        $currentSession = $this->getSession($this->getAuthSessionKey(), []);
         $sessionDebug = $this->debugSession();
 
         return [
@@ -1642,6 +1642,56 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'session_timeout' => $this->sessionTimeout,
             'last_refresh_attempt' => $this->lastRefreshAttempt ?? 'never'
         ];
+    }
+
+    /**
+     * Get health status including webhook subscriptions
+     */
+    public function healthCheck(): array
+    {
+        $health = parent::healthCheck();
+
+        // Add subscription health
+        try
+        {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN is_active = TRUE THEN 1 END) as active,
+                    COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 1 END) as expired,
+                    COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at > NOW() AND expires_at <= (NOW() + INTERVAL '24 hours') THEN 1 END) as expiring_24h
+                FROM bridge_subscriptions 
+                WHERE bridge_type = :bridge_type
+            ");
+            $stmt->execute([':bridge_type' => $this->getBridgeType()]);
+            $subscriptionStats = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+            $health['subscriptions'] = [
+                'total' => (int)($subscriptionStats['total'] ?? 0),
+                'active' => (int)($subscriptionStats['active'] ?? 0),
+                'expired' => (int)($subscriptionStats['expired'] ?? 0),
+                'expiring_within_24h' => (int)($subscriptionStats['expiring_24h'] ?? 0),
+                'webhook_support' => isset($this->apiEndpoints['subscribe_webhook'])
+            ];
+
+            // Check if there are expired subscriptions
+            if ((int)($subscriptionStats['expired'] ?? 0) > 0)
+            {
+                $health['warnings'][] = 'Some webhook subscriptions have expired and need renewal';
+            }
+
+            // Check if subscriptions are expiring soon
+            if ((int)($subscriptionStats['expiring_24h'] ?? 0) > 0)
+            {
+                $health['warnings'][] = 'Some webhook subscriptions will expire within 24 hours';
+            }
+        }
+        catch (\Exception $e)
+        {
+            $health['warnings'][] = 'Failed to check subscription health: ' . $e->getMessage();
+        }
+
+        return $health;
     }
 
     /**
@@ -1884,6 +1934,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     /**
      * Subscribe to changes in booking system (webhook support)
+     * Creates webhook subscription in booking system API and persists it in bridge_subscriptions table
      */
     public function subscribeToChanges($calendarId, $webhookUrl): string
     {
@@ -1908,7 +1959,31 @@ class BookingSystemBridge extends AbstractCalendarBridge
             try
             {
                 $response = $this->makeApiRequest($endpoint['method'], $url, [], $subscriptionData);
-                return $response['subscription_id'] ?? uniqid('booking_webhook_');
+                $subscriptionId = $response['subscription_id'] ?? uniqid('booking_webhook_');
+                
+                // Get tenant ID from config
+                $tenantId = $this->config['context_tenant_id'] ?? null;
+                
+                // Determine expiration time (default 30 days if not specified)
+                $expiresAt = null;
+                if (isset($response['expires_at'])) {
+                    $expiresAt = $response['expires_at'];
+                } elseif (isset($response['expires_in_seconds'])) {
+                    $expiresAt = date('Y-m-d H:i:s', time() + (int)$response['expires_in_seconds']);
+                } else {
+                    // Default: 30 days
+                    $expiresAt = date('Y-m-d H:i:s', time() + (30 * 24 * 60 * 60));
+                }
+                
+                // Store subscription in database
+                $this->storeSubscription($subscriptionId, $calendarId, $webhookUrl, $expiresAt, $response, $tenantId);
+                
+                if ($this->debug)
+                {
+                    error_log("BookingSystemBridge: Webhook subscription created and stored: {$subscriptionId}");
+                }
+                
+                return $subscriptionId;
             }
             catch (\Exception $e)
             {
@@ -1935,6 +2010,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
     /**
      * Unsubscribe from changes in booking system
+     * Removes webhook subscription from booking system API and deletes from bridge_subscriptions table
      */
     public function unsubscribeFromChanges($subscriptionId): bool
     {
@@ -1962,7 +2038,17 @@ class BookingSystemBridge extends AbstractCalendarBridge
             try
             {
                 $response = $this->makeApiRequest($endpoint['method'], $url);
-                return $response['success'] ?? true;
+                $success = $response['success'] ?? true;
+                
+                // Remove from database regardless of API result (for cleanup)
+                $this->removeSubscription($subscriptionId);
+                
+                if ($this->debug)
+                {
+                    error_log("BookingSystemBridge: Webhook subscription removed from API and database: {$subscriptionId}");
+                }
+                
+                return $success;
             }
             catch (\Exception $e)
             {
@@ -1970,6 +2056,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 {
                     error_log("BookingSystemBridge: Webhook unsubscription failed: " . $e->getMessage());
                 }
+                
+                // Still try to remove from database for cleanup
+                $this->removeSubscription($subscriptionId);
+                
                 return false;
             }
         }
@@ -1982,12 +2072,203 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     private function clearBookingSystemSession(): void
     {
-    $this->clearSession($this->getAuthSessionKey());
+        $this->clearSession($this->getAuthSessionKey());
         $this->sessionInfo = [];
 
-    $this->clearSession($this->getAuthSessionKey());
+        if ($this->debug ?? false)
         {
             error_log("BookingSystemBridge: Session cleared from storage");
+        }
+    }
+
+    /**
+     * Store webhook subscription in database
+     */
+    private function storeSubscription(string $subscriptionId, string $calendarId, string $webhookUrl, ?string $expiresAt, array $subscriptionData, ?string $tenantId): void
+    {
+        try
+        {
+            $sql = "INSERT INTO bridge_subscriptions 
+                    (bridge_type, subscription_id, calendar_id, webhook_url, subscription_data, expires_at, is_active, tenant_id, created_at, last_renewed_at)
+                    VALUES (:bridge_type, :subscription_id, :calendar_id, :webhook_url, :subscription_data, :expires_at, TRUE, :tenant_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (subscription_id) 
+                    DO UPDATE SET 
+                        webhook_url = EXCLUDED.webhook_url,
+                        subscription_data = EXCLUDED.subscription_data,
+                        expires_at = EXCLUDED.expires_at,
+                        is_active = TRUE,
+                        last_renewed_at = CURRENT_TIMESTAMP";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':bridge_type' => $this->getBridgeType(),
+                ':subscription_id' => $subscriptionId,
+                ':calendar_id' => $calendarId,
+                ':webhook_url' => $webhookUrl,
+                ':subscription_data' => json_encode($subscriptionData),
+                ':expires_at' => $expiresAt,
+                ':tenant_id' => $tenantId
+            ]);
+
+            if ($this->debug)
+            {
+                error_log("BookingSystemBridge: Subscription stored in database: {$subscriptionId}");
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to store webhook subscription', [
+                'subscription_id' => $subscriptionId,
+                'calendar_id' => $calendarId,
+                'error' => $e->getMessage()
+            ]);
+            // Don't throw - subscription was created in booking system, just not stored locally
+        }
+    }
+
+    /**
+     * Remove webhook subscription from database
+     */
+    private function removeSubscription(string $subscriptionId): void
+    {
+        try
+        {
+            $sql = "DELETE FROM bridge_subscriptions 
+                    WHERE subscription_id = :subscription_id 
+                    AND bridge_type = :bridge_type";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':subscription_id' => $subscriptionId,
+                ':bridge_type' => $this->getBridgeType()
+            ]);
+
+            if ($this->debug)
+            {
+                error_log("BookingSystemBridge: Subscription removed from database: {$subscriptionId}");
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to remove webhook subscription from database', [
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get expiring subscriptions that need renewal
+     */
+    public function getExpiringSubscriptions(int $beforeMinutes = 1440): array
+    {
+        try
+        {
+            $sql = "SELECT * FROM bridge_subscriptions 
+                    WHERE bridge_type = :bridge_type 
+                    AND is_active = TRUE 
+                    AND expires_at IS NOT NULL 
+                    AND expires_at <= (NOW() + INTERVAL '{$beforeMinutes} minutes')
+                    ORDER BY expires_at ASC";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([':bridge_type' => $this->getBridgeType()]);
+
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get expiring subscriptions', [
+                'bridge_type' => $this->getBridgeType(),
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Renew a webhook subscription
+     */
+    public function renewSubscription(string $subscriptionId): bool
+    {
+        if ($this->debug)
+        {
+            error_log("BookingSystemBridge: Attempting to renew subscription {$subscriptionId}");
+        }
+
+        // Check if renewal endpoint is configured
+        if (!isset($this->apiEndpoints['renew_webhook']))
+        {
+            if ($this->debug)
+            {
+                error_log("BookingSystemBridge: No renewal endpoint configured - subscription needs to be recreated");
+            }
+            return false;
+        }
+
+        try
+        {
+            // Get subscription details from database
+            $stmt = $this->db->prepare("SELECT * FROM bridge_subscriptions WHERE subscription_id = :subscription_id");
+            $stmt->execute([':subscription_id' => $subscriptionId]);
+            $subscription = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$subscription)
+            {
+                throw new \Exception("Subscription not found in database: {$subscriptionId}");
+            }
+
+            // Call renewal endpoint
+            $endpoint = $this->apiEndpoints['renew_webhook'];
+            $url = $this->buildUrl($endpoint['url'], ['subscription_id' => $subscriptionId]);
+
+            $response = $this->makeApiRequest($endpoint['method'], $url);
+
+            // Update expiration time
+            $expiresAt = null;
+            if (isset($response['expires_at'])) {
+                $expiresAt = $response['expires_at'];
+            } elseif (isset($response['expires_in_seconds'])) {
+                $expiresAt = date('Y-m-d H:i:s', time() + (int)$response['expires_in_seconds']);
+            } else {
+                // Default: 30 days
+                $expiresAt = date('Y-m-d H:i:s', time() + (30 * 24 * 60 * 60));
+            }
+
+            // Update database
+            $updateSql = "UPDATE bridge_subscriptions 
+                         SET expires_at = :expires_at, 
+                             last_renewed_at = CURRENT_TIMESTAMP,
+                             subscription_data = :subscription_data
+                         WHERE subscription_id = :subscription_id";
+
+            $updateStmt = $this->db->prepare($updateSql);
+            $updateStmt->execute([
+                ':expires_at' => $expiresAt,
+                ':subscription_data' => json_encode($response),
+                ':subscription_id' => $subscriptionId
+            ]);
+
+            if ($this->debug)
+            {
+                error_log("BookingSystemBridge: Subscription renewed successfully: {$subscriptionId}, expires at: {$expiresAt}");
+            }
+
+            return true;
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to renew webhook subscription', [
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage()
+            ]);
+
+            if ($this->debug)
+            {
+                error_log("BookingSystemBridge: Subscription renewal failed: " . $e->getMessage());
+            }
+
+            return false;
         }
     }
 
