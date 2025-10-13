@@ -129,27 +129,41 @@ POST /api/webhooks/{subscriptionId}/renew  (optional - for automatic renewal)
 }
 ```
 
-**Subscribe Response:**
+**Subscribe Response (Option 1 - with expires_at):**
 ```json
 {
   "success": true,
   "subscription_id": "sub_abc123",
   "calendar_id": "123",
   "webhook_url": "https://bridge.example.com/bridges/webhook/booking_system",
-  "expires_at": "2025-07-14T10:00:00Z",  // or use "expires_in_seconds": 2592000
+  "expires_at": "2025-07-14T10:00:00Z",
   "events": ["created", "updated", "deleted"]
 }
 ```
 
-**Renew Response (optional):**
+**Subscribe Response (Option 2 - with expires_in_seconds):**
 ```json
 {
   "success": true,
   "subscription_id": "sub_abc123",
-  "expires_at": "2025-08-14T10:00:00Z",  // or use "expires_in_seconds": 2592000
+  "calendar_id": "123",
+  "webhook_url": "https://bridge.example.com/bridges/webhook/booking_system",
+  "expires_in_seconds": 2592000,
+  "events": ["created", "updated", "deleted"]
+}
+```
+
+**Renew Response (optional endpoint):**
+```json
+{
+  "success": true,
+  "subscription_id": "sub_abc123",
+  "expires_at": "2025-08-14T10:00:00Z",
   "renewed_at": "2025-07-13T10:00:00Z"
 }
 ```
+
+*Note: The bridge accepts either `expires_at` (ISO 8601 timestamp) or `expires_in_seconds` (relative seconds from now). If neither is provided, a default 30-day expiration is assumed.*
 
 ### Minimal Event Fields
 
@@ -225,7 +239,12 @@ The bridge supports subscription renewal if your booking system API provides a r
 }
 ```
 
-Use `POST /maintenance/renew-subscriptions?bridge=booking_system` to renew expiring subscriptions.
+Use `POST /maintenance/renew-subscriptions?bridge=booking_system&renew_before_minutes=1440&limit=50` to renew expiring subscriptions.
+
+**Query Parameters:**
+- `bridge` (optional) - Specific bridge to renew (e.g., "booking_system")
+- `renew_before_minutes` (optional) - Renew subscriptions expiring within this window (default: 1440 = 24 hours)
+- `limit` (optional) - Maximum subscriptions to renew in one call (default: 50)
 
 **4. Health Monitoring**
 The bridge health check (`GET /bridges/health`) includes subscription statistics:
