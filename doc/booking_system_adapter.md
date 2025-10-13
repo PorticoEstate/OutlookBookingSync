@@ -117,6 +117,38 @@ DELETE /api/resources/{resourceId}/events/{eventId}
 ```http
 POST /api/webhooks/subscribe
 DELETE /api/webhooks/{subscriptionId}
+POST /api/webhooks/{subscriptionId}/renew  (optional - for automatic renewal)
+```
+
+**Subscribe Request:**
+```json
+{
+  "calendar_id": "123",
+  "webhook_url": "https://bridge.example.com/bridges/webhook/booking_system",
+  "events": ["created", "updated", "deleted"]
+}
+```
+
+**Subscribe Response:**
+```json
+{
+  "success": true,
+  "subscription_id": "sub_abc123",
+  "calendar_id": "123",
+  "webhook_url": "https://bridge.example.com/bridges/webhook/booking_system",
+  "expires_at": "2025-07-14T10:00:00Z",  // or use "expires_in_seconds": 2592000
+  "events": ["created", "updated", "deleted"]
+}
+```
+
+**Renew Response (optional):**
+```json
+{
+  "success": true,
+  "subscription_id": "sub_abc123",
+  "expires_at": "2025-08-14T10:00:00Z",  // or use "expires_in_seconds": 2592000
+  "renewed_at": "2025-07-13T10:00:00Z"
+}
 ```
 
 ### Minimal Event Fields
@@ -160,6 +192,52 @@ Payload example:
 ```
 Actions: `created`, `updated`, `deleted`.
 
+### Bridge-Side Webhook Management
+
+The BookingSystemBridge now provides full webhook lifecycle management:
+
+**1. Subscription Creation**
+When you call `POST /bridges/booking_system/subscriptions`, the bridge will:
+- Create a subscription in your booking system via the API
+- Store subscription details in the `bridge_subscriptions` database table
+- Track expiration times and renewal status
+- Support tenant-specific subscriptions
+
+**2. Subscription Tracking**
+Subscriptions are stored with:
+- `subscription_id` - Unique identifier from booking system
+- `calendar_id` - Resource ID being monitored
+- `webhook_url` - Callback URL for notifications
+- `expires_at` - When subscription needs renewal
+- `is_active` - Current subscription status
+- `tenant_id` - Multi-tenant support
+
+**3. Automatic Renewal**
+The bridge supports subscription renewal if your booking system API provides a renewal endpoint:
+```json
+{
+  "api_endpoints": {
+    "renew_webhook": {
+      "method": "POST",
+      "url": "/api/webhooks/{subscription_id}/renew"
+    }
+  }
+}
+```
+
+Use `POST /maintenance/renew-subscriptions?bridge=booking_system` to renew expiring subscriptions.
+
+**4. Health Monitoring**
+The bridge health check (`GET /bridges/health`) includes subscription statistics:
+- Total subscriptions
+- Active subscriptions  
+- Expired subscriptions
+- Subscriptions expiring within 24 hours
+
+**5. Cleanup**
+Subscriptions are automatically removed from the database when:
+- Explicitly unsubscribed via `DELETE /bridges/booking_system/subscriptions/{subscriptionId}`
+- The bridge detects the subscription is no longer valid
 
 If you do not supply webhooks, the bridge polling + cron model (see `operations.md`) provides near real‑time sync.
 
