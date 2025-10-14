@@ -167,14 +167,14 @@ class MaintenanceController
 					throw new Exception('BridgeManager not available');
 				}
 				// Get bridge instance (optionally scoped to tenant)
-				$bridgeInstance = $tenantId !== '' ? $this->bridgeManager->getBridgeForTenant($tenantId, $bridge) : null;
+				$bridgeInstance = $tenantId !== '' && $bridge !== '' ? $this->bridgeManager->getBridgeForTenant($tenantId, $bridge) : null;
 
 				$prevSubscriptionTenantId = null;
 				foreach ($rows as $row)
 				{
 					$subscriptionTenantId = $row['tenant_id'];
 					$subscriptionBridge = $row['bridge_type'];
-					if(!$tenantId && $subscriptionTenantId !== $prevSubscriptionTenantId)
+					if(!$tenantId || $subscriptionTenantId !== $prevSubscriptionTenantId)
 					{
 						$bridgeInstance = $this->bridgeManager->getBridgeForTenant($subscriptionTenantId, $subscriptionBridge);
 					}
@@ -233,7 +233,8 @@ class MaintenanceController
 								
 								$newSubscriptionId = $bridgeInstance->subscribeToChanges(
 									$row['calendar_id'],
-									$webhookUrl
+									$webhookUrl,
+									$row['subscription_id']
 								);
 								
 								$recreated[] = [
@@ -350,7 +351,8 @@ class MaintenanceController
 											
 											$newSubscriptionId = $bridgeInstance->subscribeToChanges(
 												$row['calendar_id'],
-												$webhookUrl
+												$webhookUrl,
+												$row['subscription_id']
 											);
 											
 											$recreated[] = [

@@ -115,7 +115,7 @@
             
             <div class="form-group">
                 <label for="bridgeSelect">Bridge:</label>
-                <select id="bridgeSelect" required onchange="loadMappedCalendars()">
+                <select id="bridgeSelect" required onchange="updateWebhookUrl(); loadMappedCalendars();">
                     <option value="outlook">Outlook</option>
                     <option value="booking_system">Booking System</option>
                 </select>
@@ -329,7 +329,8 @@
         {
             try
             {
-                const response = await fetch('/bridges/outlook/subscriptions?stats_only=true', {
+                const bridgeFilter = document.getElementById('bridgeFilter').value || 'outlook';
+                const response = await fetch(`/bridges/${bridgeFilter}/subscriptions?stats_only=true`, {
                     headers: getHeaders(false)
                 });
                 
@@ -370,7 +371,9 @@
                 if (bridgeFilter) params.append('bridge', bridgeFilter);
                 if (statusFilter) params.append('status', statusFilter);
                 
-                const response = await fetch(`/bridges/outlook/subscriptions?${params}`, {
+                // Use the selected bridge filter, default to 'outlook' if none selected
+                const bridge = bridgeFilter || 'outlook';
+                const response = await fetch(`/bridges/${bridge}/subscriptions?${params}`, {
                     headers: getHeaders(false)
                 });
                 
@@ -518,9 +521,18 @@
         {
             document.getElementById('createModal').style.display = 'block';
             
-            // Set default webhook URL with tenant ID
+            // Set default webhook URL based on selected bridge and tenant ID
+            updateWebhookUrl();
+            
+            // Auto-load mapped calendars for current tenant
+            loadMappedCalendars();
+        }
+        
+        function updateWebhookUrl()
+        {
             const baseUrl = window.location.origin;
-            let webhookUrl = `${baseUrl}/bridges/webhook/outlook`;
+            const bridge = document.getElementById('bridgeSelect').value || 'outlook';
+            let webhookUrl = `${baseUrl}/bridges/webhook/${bridge}`;
             
             // Include tenant ID in webhook URL if a tenant is selected
             if (currentTenantId) {
@@ -528,9 +540,6 @@
             }
             
             document.getElementById('webhookUrl').value = webhookUrl;
-            
-            // Auto-load mapped calendars for current tenant
-            loadMappedCalendars();
         }
 
         function closeCreateModal()
@@ -818,9 +827,18 @@
                     {
                         alert('Subscription renewed successfully');
                     }
+                    else if (result.recreated && result.recreated.length > 0)
+                    {
+                        const reason = result.recreated[0].reason || 'unknown';
+                        alert(`Subscription was recreated (reason: ${reason}). Old subscription expired or deleted.`);
+                    }
+                    else if (result.failed && result.failed.length > 0)
+                    {
+                        alert(`Failed to renew: ${result.failed[0].error}`);
+                    }
                     else
                     {
-                        alert(`Failed to renew: ${result.failed && result.failed.length > 0 ? result.failed[0].error : 'Unknown error'}`);
+                        alert('No subscriptions needed renewal (subscription may already be current)');
                     }
                     refreshData();
                 }
@@ -847,7 +865,9 @@
             
             try
             {
-                const response = await fetch(`/bridges/outlook/subscriptions/${subscriptionId}`, {
+                // Use the selected bridge filter, default to 'outlook' if none selected
+                const bridgeFilter = document.getElementById('bridgeFilter').value || 'outlook';
+                const response = await fetch(`/bridges/${bridgeFilter}/subscriptions/${subscriptionId}`, {
                     method: 'DELETE',
                     headers: getHeaders(false)
                 });

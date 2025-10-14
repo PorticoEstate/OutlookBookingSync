@@ -304,11 +304,19 @@ class BookingSystemBridge extends AbstractCalendarBridge
             // Optional webhook endpoints (if booking system supports them)
             'subscribe_webhook' => [
                 'method' => 'POST',
-                'url' => '/booking/webhooks/subscribe'
+                'url' => '/booking/webhooks/subscriptions'
+            ],
+            'renew_webhook' => [
+                'method' => 'PATCH',
+                'url' => '/booking/webhooks/subscriptions/{subscription_id}'
             ],
             'unsubscribe_webhook' => [
                 'method' => 'DELETE',
-                'url' => '/booking/webhooks/{subscription_id}'
+                'url' => '/booking/webhooks/subscriptions/{subscription_id}'
+            ],
+            'validate_webhook' => [
+                'method' => 'GET',
+                'url' => '/booking/webhooks/validate'
             ]
         ];
     }
@@ -385,6 +393,17 @@ class BookingSystemBridge extends AbstractCalendarBridge
     public function getBridgeType(): string
     {
         return 'booking_system';
+    }
+
+    /**
+     * Get the bridge configuration.
+     * Allows access to config values like webhook_client_secret for validation.
+     *
+     * @return array<string,mixed>
+     */
+    public function getConfig(): array
+    {
+        return $this->config;
     }
 
     /**
@@ -1015,7 +1034,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
         if ($httpCode >= 400)
         {
-            throw new \Exception("HTTP request failed with status {$httpCode}: " . $result);
+            // Include HTTP status code prominently for error detection (e.g., 404 for subscription not found)
+            throw new \Exception("HTTP {$httpCode}: " . ($result ?: "Request failed with status {$httpCode}"));
         }
 
         return $result;
@@ -1936,9 +1956,18 @@ class BookingSystemBridge extends AbstractCalendarBridge
      * Subscribe to changes in booking system (webhook support)
      * Creates webhook subscription in booking system API and persists it in bridge_subscriptions table
      */
-    public function subscribeToChanges($calendarId, $webhookUrl): string
+    public function subscribeToChanges($calendarId, $webhookUrl, $subscriptionId = null): string
     {
-        // Most booking systems don't support webhooks, but we can implement if needed
+      
+        if ($subscriptionId)
+        {
+            $result =  $this->renewSubscription($subscriptionId);
+            if ($result['success'] === true)
+            {
+                return $subscriptionId;
+            }
+        }
+
         if ($this->debug)
         {
             error_log("BookingSystemBridge: Webhook subscription requested for calendar {$calendarId} to {$webhookUrl}");
@@ -1950,37 +1979,59 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $endpoint = $this->apiEndpoints['subscribe_webhook'];
             $url = $this->buildUrl($endpoint['url']);
 
+            // Generate client_state for security validation
+            // Priority: 1) config['webhook_client_secret'], 2) env var, 3) random
+            $clientSecret = $this->config['webhook_client_secret'] ?? $_ENV['WEBHOOK_CLIENT_SECRET'] ?? null;
+            if ($clientSecret)
+            {
+                // Use configured secret with tenant ID for reproducible client state
+                $tenantId = $this->config['context_tenant_id'] ?? 'default';
+                $payload = sprintf('booking-bridge-%s-%s', $tenantId, $clientSecret);
+                $clientState = hash('sha256', $payload);
+            }
+            else
+            {
+                // Fallback: generate random client state (less secure, not tenant-specific)
+                $clientState = bin2hex(random_bytes(16));
+            }
+
             $subscriptionData = [
                 'calendar_id' => $calendarId,
+                'resource_type' => 'resource',
                 'webhook_url' => $webhookUrl,
-                'events' => ['created', 'updated', 'deleted']
+                'events' => ['created', 'updated', 'deleted'],
+                'client_state' => $clientState
             ];
 
             try
             {
                 $response = $this->makeApiRequest($endpoint['method'], $url, [], $subscriptionData);
-                $subscriptionId = $response['subscription_id'] ?? uniqid('booking_webhook_');
-                
+                $subscription = $response['subscription'] ?? $response;
+                $subscriptionId = $subscription['subscription_id'] ?? uniqid('booking_webhook_');
+
                 // Get tenant ID from config
                 $tenantId = $this->config['context_tenant_id'] ?? null;
                 
                 // Determine expiration time (default 30 days if not specified)
                 $expiresAt = null;
-                if (isset($response['expires_at'])) {
-                    $expiresAt = $response['expires_at'];
-                } elseif (isset($response['expires_in_seconds'])) {
-                    $expiresAt = date('Y-m-d H:i:s', time() + (int)$response['expires_in_seconds']);
+                if (isset($subscription['expires_at'])) {
+                    $expiresAt = $subscription['expires_at'];
+                } elseif (isset($subscription['expires_in_seconds'])) {
+                    $expiresAt = date('Y-m-d H:i:s', time() + (int)$subscription['expires_in_seconds']);
                 } else {
                     // Default: 30 days
                     $expiresAt = date('Y-m-d H:i:s', time() + (30 * 24 * 60 * 60));
                 }
+
+                // Add client_state to response data for storage
+                $subscription['client_state'] = $clientState;
                 
                 // Store subscription in database
-                $this->storeSubscription($subscriptionId, $calendarId, $webhookUrl, $expiresAt, $response, $tenantId);
-                
+                $this->storeSubscription($subscriptionId, $calendarId, $webhookUrl, $expiresAt, $subscription, $tenantId);
+
                 if ($this->debug)
                 {
-                    error_log("BookingSystemBridge: Webhook subscription created and stored: {$subscriptionId}");
+                    error_log("BookingSystemBridge: Webhook subscription created and stored: {$subscriptionId} with client_state");
                 }
                 
                 return $subscriptionId;
@@ -2189,7 +2240,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Renew a webhook subscription
      */
-    public function renewSubscription(string $subscriptionId): bool
+    public function renewSubscription(string $subscriptionId): array
     {
         if ($this->debug)
         {
@@ -2203,7 +2254,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
             {
                 error_log("BookingSystemBridge: No renewal endpoint configured - subscription needs to be recreated");
             }
-            return false;
+            return [
+                'success' => false,
+                'subscription_id' => $subscriptionId,
+                'error' => 'No renewal endpoint configured for booking_system bridge'
+            ];
         }
 
         try
@@ -2239,6 +2294,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             $updateSql = "UPDATE bridge_subscriptions 
                          SET expires_at = :expires_at, 
                              last_renewed_at = CURRENT_TIMESTAMP,
+                             is_active = TRUE,
                              subscription_data = :subscription_data
                          WHERE subscription_id = :subscription_id";
 
@@ -2254,7 +2310,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 error_log("BookingSystemBridge: Subscription renewed successfully: {$subscriptionId}, expires at: {$expiresAt}");
             }
 
-            return true;
+            return [
+                'success' => true,
+                'subscription_id' => $subscriptionId,
+                'new_expires_at' => $expiresAt
+            ];
         }
         catch (\Exception $e)
         {
@@ -2268,7 +2328,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 error_log("BookingSystemBridge: Subscription renewal failed: " . $e->getMessage());
             }
 
-            return false;
+            return [
+                'success' => false,
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage()
+            ];
         }
     }
 

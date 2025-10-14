@@ -519,7 +519,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * @param string $webhookUrl Publicly reachable webhook URL
 	 * @return string Subscription ID
 	 */
-	public function subscribeToChanges($calendarId, $webhookUrl): string
+	public function subscribeToChanges($calendarId, $webhookUrl, $subscriptionId = null): string
 	{
 		$this->validateCalendarId($calendarId);
 		$this->logOperation('subscribe_to_changes', ['calendar_id' => $calendarId, 'webhook_url' => $webhookUrl]);

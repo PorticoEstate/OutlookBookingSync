@@ -410,6 +410,17 @@ class BridgeController
                 return $response->withHeader('Content-Type', 'text/plain');
             }
 
+            // Handle booking system webhook validation handshake
+            if ($bridgeName === 'booking_system' && isset($queryParams['challenge']))
+            {
+                $challenge = $queryParams['challenge'];
+                $this->logger->info('Booking system webhook validation handshake', [
+                    'challenge' => $challenge
+                ]);
+                $response->getBody()->write($challenge);
+                return $response->withHeader('Content-Type', 'text/plain');
+            }
+
             // Validate clientState for Outlook notifications if configured
             if ($bridgeName === 'outlook')
             {
@@ -426,6 +437,53 @@ class BridgeController
                 }
             }
 
+            // Get tenant ID early for validation - prefer query parameter from webhook URL, fallback to middleware
+            $queryParams = $request->getQueryParams();
+            $tenantId = (string)($queryParams['tenant_id'] ?? $request->getAttribute('tenant_id') ?? '');
+
+            // Validate clientState for booking system notifications if configured
+            if ($bridgeName === 'booking_system')
+            {
+                $clientState = $body['client_state'] ?? null;
+                if ($clientState)
+                {
+                    try
+                    {
+                        // Get bridge instance to access webhook_client_secret from config
+                        /** @var \App\Bridge\BookingSystemBridge $bookingBridge */
+                        $bookingBridge = $this->bridgeManager->getBridgeForTenant($tenantId, 'booking_system');
+                        
+                        // Generate expected client state using same logic as subscription creation
+                        $clientSecret = $bookingBridge->getConfig()['webhook_client_secret'] ?? $_ENV['WEBHOOK_CLIENT_SECRET'] ?? null;
+                        if ($clientSecret)
+                        {
+                            $payload = sprintf('booking-bridge-%s-%s', $tenantId, $clientSecret);
+                            $expectedClientState = hash('sha256', $payload);
+                            
+                            if (!hash_equals($expectedClientState, $clientState))
+                            {
+                                $this->logger->warning('Booking system webhook clientState mismatch', [
+                                    'tenant_id' => $tenantId,
+                                    'expected_hash' => substr($expectedClientState, 0, 10) . '...',
+                                    'got_hash' => substr($clientState, 0, 10) . '...'
+                                ]);
+                                $response->getBody()->write(json_encode(['success' => false, 'error' => 'Invalid clientState']));
+                                return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+                            }
+                        }
+                        // If no client secret configured, skip validation (allow any client state)
+                    }
+                    catch (\Exception $e)
+                    {
+                        $this->logger->error('Failed to validate booking system client state', [
+                            'error' => $e->getMessage(),
+                            'tenant_id' => $tenantId
+                        ]);
+                        // Don't block webhook on validation errors - log and continue
+                    }
+                }
+            }
+
             $this->logger->info('Webhook received', [
                 'bridge' => $bridgeName,
                 'data' => $body
@@ -433,10 +491,6 @@ class BridgeController
 
             // Determine the target bridge for sync
             $targetBridge = $this->determineTargetBridge($bridgeName);
-            
-            // Get tenant ID - prefer query parameter from webhook URL, fallback to middleware
-            $queryParams = $request->getQueryParams();
-            $tenantId = (string)($queryParams['tenant_id'] ?? $request->getAttribute('tenant_id') ?? '');
 
             // Process Microsoft Graph notifications and transform them
             if ($bridgeName === 'outlook' && isset($body['value']))
@@ -454,9 +508,43 @@ class BridgeController
                     }
                 }
             }
+            elseif ($bridgeName === 'booking_system')
+            {
+                // Process booking system notifications
+                // Booking system can send single notification or batch
+                $notifications = [];
+                
+                if (isset($body['notifications']) && is_array($body['notifications']))
+                {
+                    // Batch format
+                    $notifications = $body['notifications'];
+                }
+                elseif (isset($body['event_type']) || isset($body['booking_id']))
+                {
+                    // Single notification format
+                    $notifications = [$body];
+                }
+                else
+                {
+                    $this->logger->warning('Unknown booking system notification format', [
+                        'body' => $body,
+                        'tenant_id' => $tenantId
+                    ]);
+                }
+                
+                // Transform and queue each notification
+                foreach ($notifications as $notification)
+                {
+                    $transformedPayload = $this->transformBookingSystemNotification($notification, $tenantId);
+                    if ($transformedPayload)
+                    {
+                        $this->queueSyncOperation($bridgeName, $targetBridge, $transformedPayload, $tenantId);
+                    }
+                }
+            }
             else
             {
-                // For non-Outlook bridges, queue the raw payload
+                // For other bridges, queue the raw payload
                 $this->queueSyncOperation($bridgeName, $targetBridge, $body, $tenantId);
             }
 
@@ -700,6 +788,121 @@ class BridgeController
             ]);
             return null;
         }
+    }
+
+    /**
+     * Transform booking system webhook notification to internal format.
+     *
+     * Expected booking system notification format:
+     * {
+     *   "subscription_id": "sub_12345",
+     *   "event_type": "booking.created|booking.updated|booking.deleted",
+     *   "resource_id": "resource_123",
+     *   "booking_id": "booking_456",
+     *   "timestamp": "2025-10-13T10:30:00Z",
+     *   "data": { ... booking details ... }
+     * }
+     *
+     * @param array $notification Raw booking system notification
+     * @param string|null $tenantId Tenant identifier
+     * @return array|null Transformed payload or null if invalid
+     */
+    private function transformBookingSystemNotification($notification, $tenantId)
+    {
+        try
+        {
+            // Extract notification data
+            $eventType = $notification['event_type'] ?? null;
+            $bookingId = $notification['booking_id'] ?? $notification['id'] ?? null;
+            $resourceId = $notification['resource_id'] ?? null;
+            $timestamp = $notification['timestamp'] ?? date('c');
+
+            if (!$bookingId)
+            {
+                $this->logger->warning('Invalid booking system notification - missing booking ID', [
+                    'notification' => $notification,
+                    'tenant_id' => $tenantId
+                ]);
+                return null;
+            }
+
+            // Map booking system event types to standard change types
+            $changeType = $this->mapBookingEventTypeToChangeType($eventType);
+
+            if (!$changeType)
+            {
+                $this->logger->warning('Unknown booking system event type', [
+                    'event_type' => $eventType,
+                    'notification' => $notification,
+                    'tenant_id' => $tenantId
+                ]);
+                return null;
+            }
+
+            // Transform to internal format matching Outlook notification structure
+            $transformedPayload = [
+                'resource_id' => $resourceId,
+                'event_id' => $bookingId,
+                'change_type' => $changeType,
+                'timestamp' => $timestamp,
+                'source' => 'booking_system_webhook',
+                'original_notification' => $notification
+            ];
+
+            $this->logger->info('Transformed booking system notification', [
+                'booking_id' => $bookingId,
+                'resource_id' => $resourceId,
+                'event_type' => $eventType,
+                'change_type' => $changeType,
+                'tenant_id' => $tenantId
+            ]);
+
+            return $transformedPayload;
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to transform booking system notification', [
+                'error' => $e->getMessage(),
+                'notification' => $notification,
+                'tenant_id' => $tenantId
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Map booking system event types to standard change types.
+     *
+     * @param string|null $eventType Booking system event type
+     * @return string|null Standardized change type (created|updated|deleted)
+     */
+    private function mapBookingEventTypeToChangeType(?string $eventType): ?string
+    {
+        if (!$eventType)
+        {
+            return null;
+        }
+
+        // Handle various naming conventions
+        $eventType = strtolower($eventType);
+        
+        // Direct matches
+        $mapping = [
+            'booking.created' => 'created',
+            'booking.updated' => 'updated',
+            'booking.deleted' => 'deleted',
+            'booking.cancelled' => 'deleted',
+            'created' => 'created',
+            'updated' => 'updated',
+            'deleted' => 'deleted',
+            'cancelled' => 'deleted',
+            'create' => 'created',
+            'update' => 'updated',
+            'delete' => 'deleted',
+            'cancel' => 'deleted'
+        ];
+
+        return $mapping[$eventType] ?? null;
     }
 
     /**

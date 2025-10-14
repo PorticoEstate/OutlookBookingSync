@@ -43,7 +43,8 @@ Bridge configuration is stored per-tenant in the database via the Admin API:
     "activity_id": 1,
     "agegroup_id": 1,
     "targetaudience_id": 7
-  }
+  },
+  "webhook_client_secret": "a-strong-secret-for-webhook-validation"
 }
 ```
 
