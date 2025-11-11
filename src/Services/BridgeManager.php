@@ -444,7 +444,7 @@ class BridgeManager
 			$this->logger->error("Critical error processing event {$currentIndex}/{$totalEvents}", [
 				'event_id' => $sourceEvent['id'] ?? 'unknown',
 				'error' => $e->getMessage(),
-				'trace' => $e->getTraceAsString()
+			//	'trace' => $e->getTraceAsString()
 			]);
 
 			return [

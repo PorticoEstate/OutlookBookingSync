@@ -1997,7 +1997,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
             $subscriptionData = [
                 'calendar_id' => $calendarId,
-                'resource_type' => 'resource',
+                'entity_type' => 'all',// 'event', 'allocation', 'booking or 'all'
                 'webhook_url' => $webhookUrl,
                 'events' => ['created', 'updated', 'deleted'],
                 'client_state' => $clientState
