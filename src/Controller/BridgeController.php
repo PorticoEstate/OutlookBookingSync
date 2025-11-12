@@ -514,12 +514,12 @@ class BridgeController
                 // Booking system can send single notification or batch
                 $notifications = [];
                 
-                if (isset($body['notifications']) && is_array($body['notifications']))
+                if (isset($body['value']) && is_array($body['value']))
                 {
-                    // Batch format
-                    $notifications = $body['notifications'];
+                    // Batch format with 'value' array
+                    $notifications = $body['value'];
                 }
-                elseif (isset($body['event_type']) || isset($body['booking_id']))
+                elseif (isset($body['entity_type']) || isset($body['entityId']))
                 {
                     // Single notification format
                     $notifications = [$body];
@@ -793,14 +793,14 @@ class BridgeController
     /**
      * Transform booking system webhook notification to internal format.
      *
-     * Expected booking system notification format:
+     * Expected notification format:
      * {
      *   "subscription_id": "sub_12345",
-     *   "event_type": "booking.created|booking.updated|booking.deleted",
-     *   "resource_id": "resource_123",
-     *   "booking_id": "booking_456",
-     *   "timestamp": "2025-10-13T10:30:00Z",
-     *   "data": { ... booking details ... }
+     *   "change_type": "created|updated|deleted",
+     *   "entity_type": "event|booking|allocation",
+     *   "resource_id": 976,
+     *   "entityId": 117905,
+     *   "entity_data": { ... entity details ... }
      * }
      *
      * @param array $notification Raw booking system notification
@@ -812,27 +812,24 @@ class BridgeController
         try
         {
             // Extract notification data
-            $eventType = $notification['event_type'] ?? null;
-            $bookingId = $notification['booking_id'] ?? $notification['id'] ?? null;
+            $changeType = $notification['change_type'] ?? null;
+            $entityType = $notification['entity_type'] ?? null;
+            $entityId = $notification['entityId'] ?? null;
             $resourceId = $notification['resource_id'] ?? null;
             $timestamp = $notification['timestamp'] ?? date('c');
 
-            if (!$bookingId)
+            if (!$entityId)
             {
-                $this->logger->warning('Invalid booking system notification - missing booking ID', [
+                $this->logger->warning('Invalid booking system notification - missing entityId', [
                     'notification' => $notification,
                     'tenant_id' => $tenantId
                 ]);
                 return null;
             }
 
-            // Map booking system event types to standard change types
-            $changeType = $this->mapBookingEventTypeToChangeType($eventType);
-
             if (!$changeType)
             {
-                $this->logger->warning('Unknown booking system event type', [
-                    'event_type' => $eventType,
+                $this->logger->warning('Invalid booking system notification - missing change_type', [
                     'notification' => $notification,
                     'tenant_id' => $tenantId
                 ]);
@@ -842,7 +839,8 @@ class BridgeController
             // Transform to internal format matching Outlook notification structure
             $transformedPayload = [
                 'resource_id' => $resourceId,
-                'event_id' => $bookingId,
+                'event_id' => $entityId,
+                'entity_type' => $entityType,
                 'change_type' => $changeType,
                 'timestamp' => $timestamp,
                 'source' => 'booking_system_webhook',
@@ -850,9 +848,10 @@ class BridgeController
             ];
 
             $this->logger->info('Transformed booking system notification', [
-                'booking_id' => $bookingId,
+                'entity_id' => $entityId,
+                'entity_type' => $entityType,
                 'resource_id' => $resourceId,
-                'event_type' => $eventType,
+                'change_type' => $changeType,
                 'change_type' => $changeType,
                 'tenant_id' => $tenantId
             ]);
@@ -868,41 +867,6 @@ class BridgeController
             ]);
             return null;
         }
-    }
-
-    /**
-     * Map booking system event types to standard change types.
-     *
-     * @param string|null $eventType Booking system event type
-     * @return string|null Standardized change type (created|updated|deleted)
-     */
-    private function mapBookingEventTypeToChangeType(?string $eventType): ?string
-    {
-        if (!$eventType)
-        {
-            return null;
-        }
-
-        // Handle various naming conventions
-        $eventType = strtolower($eventType);
-        
-        // Direct matches
-        $mapping = [
-            'booking.created' => 'created',
-            'booking.updated' => 'updated',
-            'booking.deleted' => 'deleted',
-            'booking.cancelled' => 'deleted',
-            'created' => 'created',
-            'updated' => 'updated',
-            'deleted' => 'deleted',
-            'cancelled' => 'deleted',
-            'create' => 'created',
-            'update' => 'updated',
-            'delete' => 'deleted',
-            'cancel' => 'deleted'
-        ];
-
-        return $mapping[$eventType] ?? null;
     }
 
     /**
