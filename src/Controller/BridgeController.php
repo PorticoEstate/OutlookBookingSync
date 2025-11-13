@@ -1732,14 +1732,29 @@ class BridgeController
             $this->handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
         } else {
             // Handle create/update - pass the full payload (includes entity_data)
-            $this->createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload);
+            $this->syncWebhookEventAndManageMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload);
         }
     }
 
     /**
-     * Create a bridge mapping after successfully syncing the event.
+     * Sync a webhook event to target bridge and manage the bridge mapping.
+     * 
+     * This method:
+     * 1. Finds the resource mapping between bridges
+     * 2. Retrieves event data (from webhook payload or API)
+     * 3. Performs the actual sync operation via BridgeManager
+     * 4. Creates new mapping for created events or updates existing mapping for updates
+     * 
+     * @param string $sourceBridge Source bridge name
+     * @param string $targetBridge Target bridge name
+     * @param string $resourceId Resource/calendar ID
+     * @param string $eventId Event ID (composite format for booking system: "event_117905")
+     * @param string|null $tenantId Tenant identifier
+     * @param array|null $payload Full webhook payload (may include entity_data)
+     * @return array Sync results
+     * @throws \Exception If sync operation fails
      */
-    private function createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload = null)
+    private function syncWebhookEventAndManageMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload = null)
     {
         try {
             // For webhook events, we need to use the resource mapping to find target calendar
