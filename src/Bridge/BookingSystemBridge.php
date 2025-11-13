@@ -452,7 +452,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $originalId = $this->extractOriginalId($eventId);
         $event = $this->getEventViaApi($originalId);
         //mapped to generic format
-        return $this->normalizeBookingEvent($event);
+        return $this->mapBookingEventToGeneric($event);
     }
 
     /**
@@ -1556,7 +1556,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             {
                 foreach ($responseData as $event)
                 {
-                    $events[] = $this->normalizeBookingEvent($event);
+                    $events[] = $this->mapBookingEventToGeneric($event);
                 }
             }
 
@@ -1601,46 +1601,6 @@ class BookingSystemBridge extends AbstractCalendarBridge
             // Return empty array if resource events endpoint is not available (legacy behavior)
             return [];
         }
-    }
-
-    /**
-     * Normalize booking system event data to bridge format
-     */
-    private function normalizeBookingEvent($event): array
-    {
-        // Apply field mappings if configured
-        $mappedEvent = [];
-        if (isset($this->fieldMappings['events']))
-        {
-            foreach ($this->fieldMappings['events'] as $bridgeField => $bookingField)
-            {
-                $mappedEvent[$bridgeField] = $event[$bookingField] ?? null;
-            }
-        }
-        else
-        {
-            $mappedEvent = $event;
-        }
-
-        // Prepare data for createGenericEvent standardization
-        $genericData = [
-            'id' => $mappedEvent['id'] ?? $event['id'] ?? $event['event_id'] ?? null,
-            'subject' => $mappedEvent['subject'] ?? $event['title'] ?? $event['name'] ?? $event['subject'] ?? 'N/A',
-            'subject' => $mappedEvent['subject'] ?? $event['name'] ?? $event['title'] ?? $event['organizer'] ?? $event['contact_name'] ?? $event['group_name'] ?? $event['organization_name'] ?? $event['type'] ?? '',
-            'start' => $mappedEvent['start'] ?? $event['start_time'] ?? $event['start'] ?? $event['from_'] ?? null,
-            'end' => $mappedEvent['end'] ?? $event['end_time'] ?? $event['end'] ?? $event['to_'] ?? null,
-            'location' => $mappedEvent['location'] ?? $event['resources'][0]['name'] ?? $event['building_name'] ?? null,
-            'description' => $mappedEvent['description'] ?? $event['description'] ?? $event['notes'] ?? '',
-            'organizer' => $mappedEvent['organizer'] ?? $event['organizer'] ?? $event['created_by'] ?? null,
-            'attendees' => $this->normalizeAttendees($mappedEvent['attendees'] ?? $event['attendees'] ?? []),
-            'all_day' => $mappedEvent['all_day'] ?? $event['all_day'] ?? false,
-            'timezone' => $mappedEvent['timezone'] ?? $event['timezone'] ?? $this->config['timezone'] ?? 'UTC',
-            'last_modified' => $mappedEvent['last_modified'] ?? $event['modified_at'] ?? $event['updated_at'] ?? date('c'),
-            'created' => $mappedEvent['created'] ?? $event['created_at'] ?? date('c')
-        ];
-
-        // Use the standardized createGenericEvent method
-        return $this->createGenericEvent($genericData);
     }
 
     /**
