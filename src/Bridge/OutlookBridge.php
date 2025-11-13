@@ -785,7 +785,12 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * Normalize datetime for a specific timezone (for Outlook event creation).
 	 * Unlike normalizeDateTime(), this converts TO the target timezone instead of UTC.
 	 *
-	 * @param string $dateString Input datetime string
+	 * IMPORTANT: When datetime strings come from webhook payloads (especially from booking system),
+	 * they are already in the source timezone but without timezone information appended.
+	 * This method assumes that datetime strings WITHOUT explicit timezone info are already
+	 * in the targetTimezone, so no conversion is needed.
+	 *
+	 * @param string $dateString Input datetime string (may or may not include timezone info)
 	 * @param string $targetTimezone Target timezone (e.g., "Europe/Oslo")
 	 * @return string Datetime in target timezone without timezone suffix
 	 */
@@ -798,11 +803,24 @@ class OutlookBridge extends AbstractCalendarBridge
 
 		try
 		{
-			// Parse the input datetime (which may be in any timezone)
-			$date = new \DateTime($dateString);
+			// Check if the datetime string includes timezone information
+			// If it contains 'Z', '+', or explicit timezone offset, it has timezone info
+			$hasTimezoneInfo = (strpos($dateString, 'Z') !== false) || 
+			                   (preg_match('/[+-]\d{2}:\d{2}$/', $dateString)) ||
+			                   (preg_match('/[+-]\d{4}$/', $dateString));
 			
-			// Convert to the target timezone
-			$date->setTimezone(new \DateTimeZone($targetTimezone));
+			if ($hasTimezoneInfo)
+			{
+				// Parse datetime with its included timezone and convert to target timezone
+				$date = new \DateTime($dateString);
+				$date->setTimezone(new \DateTimeZone($targetTimezone));
+			}
+			else
+			{
+				// No timezone info in string - assume it's already in the target timezone
+				// This is the case for booking system webhook payloads
+				$date = new \DateTime($dateString, new \DateTimeZone($targetTimezone));
+			}
 			
 			// Return in format expected by Graph API (no timezone suffix)
 			// Graph API expects just the datetime part when timezone is specified separately

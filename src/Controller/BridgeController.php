@@ -2011,36 +2011,143 @@ class BridgeController
     }
 
     /**
-     * Handle event deletion from webhook.
+     * Handle event deletion from webhook based on ownership rules.
+     * 
+     * Ownership logic (sync_direction):
+     * - source_to_target: Source owns events → DELETE from target
+     * - target_to_source: Target owns events → SKIP deletion (target change only)
+     * - bidirectional: Both can modify → DELETE from target
+     * 
+     * @param string $sourceBridge Source bridge name
+     * @param string $targetBridge Target bridge name
+     * @param string $resourceId Source resource/calendar ID
+     * @param string $eventId Source event ID
+     * @param string|null $tenantId Tenant identifier
+     * @return void
+     * @throws \Exception If deletion operation fails
      */
     private function handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
     {
         try {
-            // Mark existing mapping as cancelled for deletion processing
-            $sql = "
-                UPDATE bridge_mappings 
-                SET sync_status = 'cancelled', 
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE source_bridge = ? 
-                AND target_bridge = ?
-                AND source_calendar_id = ? 
-                AND source_event_id = ?
+            // Get the resource mapping to check sync_direction and ownership
+            $mappingSql = "
+                SELECT 
+                    brm.id as mapping_id,
+                    brm.source_calendar_id,
+                    brm.target_calendar_id,
+                    brm.bridge_from,
+                    brm.bridge_to,
+                    brm.sync_direction,
+                    bm.target_event_id,
+                    bm.target_calendar_id as mapped_target_calendar
+                FROM bridge_resource_mappings brm
+                LEFT JOIN bridge_mappings bm ON (
+                    bm.source_bridge = brm.bridge_from
+                    AND bm.target_bridge = brm.bridge_to
+                    AND bm.source_calendar_id = brm.source_calendar_id
+                    AND bm.target_calendar_id = brm.target_calendar_id
+                    AND bm.source_event_id = ?
+                )
+                WHERE (
+                    (brm.bridge_from = ? AND brm.bridge_to = ? AND brm.source_calendar_id = ?) OR
+                    (brm.bridge_from = ? AND brm.bridge_to = ? AND brm.target_calendar_id = ?)
+                )
+                AND brm.is_active = true
             ";
             
-            $params = [$sourceBridge, $targetBridge, $resourceId, $eventId];
+            $mappingParams = [
+                $eventId,  // For bridge_mappings JOIN
+                $sourceBridge, $targetBridge, $resourceId,  // Forward direction
+                $targetBridge, $sourceBridge, $resourceId   // Reverse direction
+            ];
+            
             if ($tenantId) {
-                $sql .= " AND tenant_id = ?";
-                $params[] = $tenantId;
+                $mappingSql .= " AND brm.tenant_id = ?";
+                $mappingParams[] = $tenantId;
             }
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
+            $mappingStmt = $this->db->prepare($mappingSql);
+            $mappingStmt->execute($mappingParams);
+            $resourceMapping = $mappingStmt->fetch(\PDO::FETCH_ASSOC);
 
-            $this->logger->info('Marked mapping as cancelled for deletion', [
+            if (!$resourceMapping) {
+                $this->logger->warning('No resource mapping found for deletion - skipping', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'resource_id' => $resourceId,
+                    'event_id' => $eventId,
+                    'tenant_id' => $tenantId
+                ]);
+                return;
+            }
+
+            // Determine if we need to check ownership direction
+            $syncDirection = $resourceMapping['sync_direction'] ?? 'bidirectional';
+            $targetEventId = $resourceMapping['target_event_id'];
+            $targetCalendarId = $resourceMapping['mapped_target_calendar'] ?? $resourceMapping['target_calendar_id'];
+
+            // Determine if source bridge owns the event
+            $sourceOwnsEvent = false;
+            if ($resourceMapping['bridge_from'] === $sourceBridge && $resourceMapping['bridge_to'] === $targetBridge) {
+                // Forward direction: webhook source matches mapping source
+                $sourceOwnsEvent = in_array($syncDirection, ['source_to_target', 'bidirectional']);
+            } elseif ($resourceMapping['bridge_from'] === $targetBridge && $resourceMapping['bridge_to'] === $sourceBridge) {
+                // Reverse direction: webhook source matches mapping target
+                // In this case, source is actually the "target" in the mapping
+                $sourceOwnsEvent = in_array($syncDirection, ['target_to_source', 'bidirectional']);
+            }
+
+            if (!$sourceOwnsEvent) {
+                $this->logger->info('Source does not own event - skipping deletion from target', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'sync_direction' => $syncDirection,
+                    'event_id' => $eventId,
+                    'tenant_id' => $tenantId
+                ]);
+                
+                // Still mark mapping as cancelled for tracking purposes
+                if ($targetEventId) {
+                    $this->markMappingCancelled($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
+                }
+                return;
+            }
+
+            // Source owns the event - delete from target system
+            if (!$targetEventId) {
+                $this->logger->warning('No target event ID found in mapping - cannot delete', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'event_id' => $eventId,
+                    'tenant_id' => $tenantId
+                ]);
+                return;
+            }
+
+            // Get target bridge instance and delete the event
+            $targetBridgeInstance = $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridge);
+            
+            $this->logger->info('Deleting event from target bridge (source owns event)', [
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
-                'resource_id' => $resourceId,
-                'event_id' => $eventId,
+                'source_event_id' => $eventId,
+                'target_event_id' => $targetEventId,
+                'target_calendar_id' => $targetCalendarId,
+                'sync_direction' => $syncDirection,
+                'tenant_id' => $tenantId
+            ]);
+
+            // Delete the event from target system
+            $targetBridgeInstance->deleteEvent($targetCalendarId, $targetEventId);
+
+            // Mark mapping as cancelled after successful deletion
+            $this->markMappingCancelled($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
+
+            $this->logger->info('Successfully deleted event from target bridge', [
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_event_id' => $eventId,
+                'target_event_id' => $targetEventId,
                 'tenant_id' => $tenantId
             ]);
 
@@ -2050,10 +2157,52 @@ class BridgeController
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
                 'resource_id' => $resourceId,
-                'event_id' => $eventId
+                'event_id' => $eventId,
+                'tenant_id' => $tenantId
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Mark a bridge mapping as cancelled.
+     * 
+     * @param string $sourceBridge Source bridge name
+     * @param string $targetBridge Target bridge name
+     * @param string $resourceId Source resource/calendar ID
+     * @param string $eventId Source event ID
+     * @param string|null $tenantId Tenant identifier
+     * @return void
+     */
+    private function markMappingCancelled($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
+    {
+        $sql = "
+            UPDATE bridge_mappings 
+            SET sync_status = 'cancelled', 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE source_bridge = ? 
+            AND target_bridge = ?
+            AND source_calendar_id = ? 
+            AND source_event_id = ?
+        ";
+        
+        $params = [$sourceBridge, $targetBridge, $resourceId, $eventId];
+        if ($tenantId) {
+            $sql .= " AND tenant_id = ?";
+            $params[] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        $this->logger->info('Marked mapping as cancelled', [
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'resource_id' => $resourceId,
+            'event_id' => $eventId,
+            'rows_affected' => $stmt->rowCount(),
+            'tenant_id' => $tenantId
+        ]);
     }
 
     /**
