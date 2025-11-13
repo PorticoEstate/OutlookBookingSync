@@ -409,6 +409,14 @@
 
             let html = `
                 <table class="data-table">
+                    <colgroup>
+                        <col style="width: 35%;">
+                        <col style="width: 12%;">
+                        <col style="width: 12%;">
+                        <col style="width: 15%;">
+                        <col style="width: 15%;">
+                        <col style="width: 11%;">
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Calendar ID</th>
@@ -430,12 +438,14 @@
                 
                 html += `
                     <tr>
-                        <td>${escapeHtml(sub.calendar_id)}</td>
+                        <td title="${escapeHtml(sub.calendar_id)}">
+                            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sub.calendar_id)}</div>
+                        </td>
                         <td>${escapeHtml(sub.bridge_type)}</td>
                         <td><span class="badge ${status.class}">${status.text}</span></td>
                         <td>${expiresAt}</td>
                         <td>${lastRenewed}</td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             <button class="btn btn-sm btn-warning" onclick="renewSubscription('${sub.subscription_id}')">Renew</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteSubscription('${sub.subscription_id}')">Delete</button>
                         </td>
