@@ -532,53 +532,51 @@ class BridgeManager
 				$shouldRecreateDeleted = !$respectDel;
 			}
 			
-			if ($shouldRecreateDeleted)
+			// Fetch target event once for both deletion check and comparison (reuse later)
+			$targetCurrent = null;
+			$targetExists = true;
+			try
 			{
-				// Check if target was deleted; if so, recreate/overwrite unless respecting deletions
-				$targetExists = true;
-				try
-				{
-					$target->getEvent($targetCalendarId, $mapping['target_event_id']);
-				}
-				catch (\Throwable $e)
-				{
-					$targetExists = false;
-				}
+				$targetCurrent = $target->getEvent($targetCalendarId, $mapping['target_event_id']);
+			}
+			catch (\Throwable $e)
+			{
+				$targetExists = false;
+			}
 
-				if (!$targetExists)
+			if ($shouldRecreateDeleted && !$targetExists)
+			{
+				if ($respectDel && $syncDirection === 'bidirectional')
 				{
-					if ($respectDel && $syncDirection === 'bidirectional')
-					{
-						// Only respect deletions in bidirectional mode if explicitly configured
-						return [
-							'success' => true,
-							'action' => 'skipped',
-							'source_event_id' => $sourceEvent['id'],
-							'reason' => 'target_deleted_respected'
-						];
-					}
-					
-					// Owner recreates the event on the target side
-					$this->logger->info('Recreating deleted target event due to ownership policy', [
-						'source_event_id' => $sourceEvent['id'],
-						'target_event_id' => $mapping['target_event_id'],
-						'sync_direction' => $syncDirection,
-						'is_reversed' => $isReversed,
-						'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement'
-					]);
-					
-					$newId = $target->createEvent($targetCalendarId, $sourceEvent);
-					$this->updateMappingTargetEventId($mapping['id'], $newId);
-					$this->updateMappingTimestamp($mapping['id']);
-					$this->updateMappingEventData($mapping['id'], $sourceEvent);
+					// Only respect deletions in bidirectional mode if explicitly configured
 					return [
 						'success' => true,
-						'action' => 'recreated',
+						'action' => 'skipped',
 						'source_event_id' => $sourceEvent['id'],
-						'target_event_id' => $newId,
-						'reason' => 'ownership_enforcement'
+						'reason' => 'target_deleted_respected'
 					];
 				}
+				
+				// Owner recreates the event on the target side
+				$this->logger->info('Recreating deleted target event due to ownership policy', [
+					'source_event_id' => $sourceEvent['id'],
+					'target_event_id' => $mapping['target_event_id'],
+					'sync_direction' => $syncDirection,
+					'is_reversed' => $isReversed,
+					'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement'
+				]);
+				
+				$newId = $target->createEvent($targetCalendarId, $sourceEvent);
+				$this->updateMappingTargetEventId($mapping['id'], $newId);
+				$this->updateMappingTimestamp($mapping['id']);
+				$this->updateMappingEventData($mapping['id'], $sourceEvent);
+				return [
+					'success' => true,
+					'action' => 'recreated',
+					'source_event_id' => $sourceEvent['id'],
+					'target_event_id' => $newId,
+					'reason' => 'ownership_enforcement'
+				];
 			}
 			// Handle cancelled events - check if target event still exists
 			if (($mapping['sync_status'] ?? '') === 'cancelled')
@@ -648,11 +646,11 @@ class BridgeManager
 			}
 
 			// No-op guard: if there are no meaningful changes, skip the update
-			if (!($options['force_update'] ?? false))
+			// Reuse $targetCurrent fetched earlier (no extra API call!)
+			if (!($options['force_update'] ?? false) && $targetCurrent !== null)
 			{
 				try
 				{
-					$targetCurrent = $target->getEvent($targetCalendarId, $mapping['target_event_id']);
 					if ($this->eventsAreEquivalent($sourceEvent, $targetCurrent))
 					{
 						// Optionally bump timestamp to reflect check without write
@@ -668,7 +666,7 @@ class BridgeManager
 				}
 				catch (\Throwable $e)
 				{
-					$this->logger->debug('No-op guard: failed to fetch/compare target event; proceeding with update', [
+					$this->logger->debug('No-op guard: failed to compare target event; proceeding with update', [
 						'target_event_id' => $mapping['target_event_id'],
 						'error' => $e->getMessage()
 					]);

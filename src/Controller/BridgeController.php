@@ -837,9 +837,12 @@ class BridgeController
             }
 
             // Transform to internal format matching Outlook notification structure
+            // Create composite event ID with entity_type prefix (e.g., "event_117905")
+            $compositeEventId = ($entityType ? $entityType . '_' : '') . $entityId;
+            
             $transformedPayload = [
                 'resource_id' => $resourceId,
-                'event_id' => $entityId,
+                'event_id' => $compositeEventId,
                 'entity_type' => $entityType,
                 'change_type' => $changeType,
                 'timestamp' => $timestamp,
@@ -1728,15 +1731,15 @@ class BridgeController
             // Handle deletion
             $this->handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
         } else {
-            // Handle create/update - mark for sync
-            $this->createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
+            // Handle create/update - pass the full payload (includes entity_data)
+            $this->createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload);
         }
     }
 
     /**
      * Create a bridge mapping after successfully syncing the event.
      */
-    private function createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
+    private function createPendingSyncMapping($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId, $payload = null)
     {
         try {
             // For webhook events, we need to use the resource mapping to find target calendar
@@ -1790,14 +1793,55 @@ class BridgeController
             $resourceMappingId = $resourceMapping['mapping_id'];
             $tenantId = $resourceMapping['tenant_id'];
 
-            // Get the source bridge instance and fetch the specific event directly
+            // Get the source bridge instance
             $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
 
-            // Get the specific event directly using getEvent method
-            $sourceEvent = $sourceBridgeInstance->getEvent($sourceCalendarId, $eventId);
+            // Check if we have event data in the webhook payload (booking_system webhooks include entity_data)
+            $sourceEvent = null;
+            if ($payload && isset($payload['original_notification']['entity_data'])) {
+                // Use event data from webhook payload - no need to fetch from API!
+                $entityData = $payload['original_notification']['entity_data'];
+                
+                // Add entity_type from webhook to entity_data if not present
+                // This ensures proper composite ID creation (e.g., "event_117905" instead of "unknown_117905")
+                if (isset($payload['entity_type']) && !isset($entityData['type'])) {
+                    $entityData['type'] = $payload['entity_type'];
+                }
+                
+                $this->logger->info('Using event data from webhook payload (no API fetch needed)', [
+                    'event_id' => $eventId,
+                    'source_bridge' => $sourceBridge,
+                    'entity_type' => $payload['entity_type'] ?? 'unknown',
+                    'has_entity_data' => true
+                ]);
+                
+                // Transform booking system event data to generic format using the bridge's mapping
+                if ($sourceBridge === 'booking_system' && method_exists($sourceBridgeInstance, 'mapBookingEventToGeneric')) {
+                    // Use reflection to call private method (or make it public/protected)
+                    $reflection = new \ReflectionClass($sourceBridgeInstance);
+                    $method = $reflection->getMethod('mapBookingEventToGeneric');
+                    $method->setAccessible(true);
+                    $sourceEvent = $method->invoke($sourceBridgeInstance, $entityData);
+                } else {
+                    // For other bridges or if method doesn't exist, use entity_data directly
+                    // Assume it's already in a reasonable format
+                    $sourceEvent = $entityData;
+                }
+            }
             
+            // Fallback: fetch from API if not in payload
             if (!$sourceEvent) {
-                throw new \Exception("Event {$eventId} not found in {$sourceBridge} calendar {$sourceCalendarId}");
+                $this->logger->info('Event data not in webhook payload, fetching from API', [
+                    'event_id' => $eventId,
+                    'source_bridge' => $sourceBridge,
+                    'source_calendar_id' => $sourceCalendarId
+                ]);
+                
+                $sourceEvent = $sourceBridgeInstance->getEvent($sourceCalendarId, $eventId);
+                
+                if (!$sourceEvent) {
+                    throw new \Exception("Event {$eventId} not found in {$sourceBridge} calendar {$sourceCalendarId}");
+                }
             }
 
             // Perform the actual sync operation to the target bridge
