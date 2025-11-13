@@ -329,8 +329,9 @@
         {
             try
             {
-                const bridgeFilter = document.getElementById('bridgeFilter').value || 'outlook';
-                const response = await fetch(`/bridges/${bridgeFilter}/subscriptions?stats_only=true`, {
+                // Stats always show ALL bridges for the tenant (not filtered by bridge selection)
+                const url = `/bridges/subscriptions?stats_only=true`;
+                const response = await fetch(url, {
                     headers: getHeaders(false)
                 });
                 
@@ -368,12 +369,13 @@
                 });
                 
                 if (searchTerm) params.append('search', searchTerm);
-                if (bridgeFilter) params.append('bridge', bridgeFilter);
                 if (statusFilter) params.append('status', statusFilter);
                 
-                // Use the selected bridge filter, default to 'outlook' if none selected
-                const bridge = bridgeFilter || 'outlook';
-                const response = await fetch(`/bridges/${bridge}/subscriptions?${params}`, {
+                // Use new route structure: /bridges/subscriptions[/{bridgeName}]
+                const url = bridgeFilter 
+                    ? `/bridges/subscriptions/${bridgeFilter}?${params}`
+                    : `/bridges/subscriptions?${params}`;
+                const response = await fetch(url, {
                     headers: getHeaders(false)
                 });
                 

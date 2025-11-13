@@ -383,8 +383,8 @@ $app->get('/bridges/webhook/{bridgeName}', [\App\Controller\BridgeController::cl
 // Create webhook subscriptions for a bridge
 $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeController::class, 'createSubscriptions']);
 
-// List webhook subscriptions for a bridge
-$app->get('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeController::class, 'listSubscriptions']);
+// List webhook subscriptions for a bridge (or all bridges if bridgeName not specified)
+$app->get('/bridges/subscriptions[/{bridgeName}]', [\App\Controller\BridgeController::class, 'listSubscriptions']);
 
 // Delete a webhook subscription
 $app->delete('/bridges/{bridgeName}/subscriptions/{subscriptionId}', [\App\Controller\BridgeController::class, 'deleteSubscription']);

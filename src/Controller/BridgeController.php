@@ -945,16 +945,16 @@ class BridgeController
     }
 
     /**
-     * List webhook subscriptions for a bridge.
+     * List webhook subscriptions for a bridge or all bridges.
      *
      * @param Request $request
      * @param Response $response
-     * @param array $args Must include bridgeName
+     * @param array $args May include bridgeName (optional - if not provided, returns all bridges)
      * @return Response
      */
     public function listSubscriptions(Request $request, Response $response, $args)
     {
-        $bridgeName = $args['bridgeName'];
+        $bridgeName = $args['bridgeName'] ?? null;
         $queryParams = $request->getQueryParams();
 
         try
@@ -964,15 +964,28 @@ class BridgeController
             // Build SQL query
             $sql = "SELECT id, subscription_id, calendar_id, bridge_type, webhook_url, 
                           is_active, expires_at, last_renewed_at, created_at 
-                   FROM bridge_subscriptions 
-                   WHERE bridge_type = :bridge_type";
-            $params = [':bridge_type' => $bridgeName];
+                   FROM bridge_subscriptions";
+            $params = [];
+            
+            $whereClauses = [];
+            
+            // Add bridge filter if specified
+            if ($bridgeName !== null && $bridgeName !== '')
+            {
+                $whereClauses[] = "bridge_type = :bridge_type";
+                $params[':bridge_type'] = $bridgeName;
+            }
 
             // Add tenant filter if specified
             if ($tenantId !== '')
             {
-                $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                $whereClauses[] = "(tenant_id IS NOT DISTINCT FROM :tenant_id)";
                 $params[':tenant_id'] = $tenantId;
+            }
+            
+            if (!empty($whereClauses))
+            {
+                $sql .= " WHERE " . implode(' AND ', $whereClauses);
             }
 
             // Add search filter
@@ -1008,12 +1021,23 @@ class BridgeController
                     COUNT(CASE WHEN is_active = TRUE THEN 1 END) as active,
                     COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 1 END) as expired,
                     COUNT(CASE WHEN expires_at IS NOT NULL AND expires_at > NOW() AND expires_at <= (NOW() + interval '24 hours') THEN 1 END) as expiring_24h
-                FROM bridge_subscriptions 
-                WHERE bridge_type = :bridge_type";
+                FROM bridge_subscriptions";
+                
+                $statsWhereClauses = [];
+                
+                if ($bridgeName !== null && $bridgeName !== '')
+                {
+                    $statsWhereClauses[] = "bridge_type = :bridge_type";
+                }
                 
                 if ($tenantId !== '')
                 {
-                    $statsSql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                    $statsWhereClauses[] = "(tenant_id IS NOT DISTINCT FROM :tenant_id)";
+                }
+                
+                if (!empty($statsWhereClauses))
+                {
+                    $statsSql .= " WHERE " . implode(' AND ', $statsWhereClauses);
                 }
 
                 $stmt = $this->db->prepare($statsSql);
