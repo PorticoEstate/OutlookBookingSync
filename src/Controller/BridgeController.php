@@ -1888,57 +1888,97 @@ class BridgeController
             $totalUpdated = $syncResults['updated'] ?? 0;
             $totalErrors = $syncResults['errors'] ?? 0;
 
-            // Create bridge mapping only after successful sync
-            $mappingStatus = ($totalCreated > 0 || $totalUpdated > 0) ? 'completed' : 'pending';
-            
-            $sql = "
-                INSERT INTO bridge_mappings 
-                (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, sync_status, tenant_id, created_at, updated_at, target_event_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
-                ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
-                DO UPDATE SET 
-                    sync_status = ?,
-                    updated_at = CURRENT_TIMESTAMP,
-                    retry_count = 0,
-                    error_message = NULL,
-                    target_event_id = ?
-            ";
-
             // Extract target event ID from sync results if available
             $targetEventId = $syncResults['target_event_id'] ?? null;
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $sourceBridge,
-                $targetBridge, 
-                $sourceCalendarId,
-                $targetCalendarId,
-                $eventId,
-                $mappingStatus,
-                $tenantId,
-                $targetEventId,
-                // ON CONFLICT values
-                $mappingStatus,
-                $targetEventId
-            ]);
+            // Only create NEW mappings for created events, update existing mappings for updates
+            if ($totalCreated > 0) {
+                // Event was created - insert new mapping
+                $mappingStatus = 'completed';
+                
+                $sql = "
+                    INSERT INTO bridge_mappings 
+                    (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, sync_status, tenant_id, created_at, updated_at, target_event_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                    ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
+                    DO UPDATE SET 
+                        sync_status = ?,
+                        updated_at = CURRENT_TIMESTAMP,
+                        retry_count = 0,
+                        error_message = NULL,
+                        target_event_id = ?
+                ";
 
-            $this->logger->info('Created bridge mapping after successful sync', [
-                'source_bridge' => $sourceBridge,
-                'target_bridge' => $targetBridge,
-                'source_calendar_id' => $sourceCalendarId,
-                'target_calendar_id' => $targetCalendarId,
-                'source_event_id' => $eventId,
-                'target_event_id' => $targetEventId,
-                'sync_status' => $mappingStatus,
-                'sync_results' => [
-                    'created' => $totalCreated,
-                    'updated' => $totalUpdated,
-                    'errors' => $totalErrors
-                ],
-                'tenant_id' => $tenantId,
-                'webhook_resource_id' => $resourceId,
-                'mapping_direction' => $resourceMapping['bridge_from'] . ' -> ' . $resourceMapping['bridge_to']
-            ]);
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $sourceBridge,
+                    $targetBridge, 
+                    $sourceCalendarId,
+                    $targetCalendarId,
+                    $eventId,
+                    $mappingStatus,
+                    $tenantId,
+                    $targetEventId,
+                    // ON CONFLICT values
+                    $mappingStatus,
+                    $targetEventId
+                ]);
+
+                $this->logger->info('Created new bridge mapping after successful event creation', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'source_event_id' => $eventId,
+                    'target_event_id' => $targetEventId,
+                    'tenant_id' => $tenantId
+                ]);
+            } elseif ($totalUpdated > 0) {
+                // Event was updated - only update existing mapping if it exists
+                $mappingStatus = 'completed';
+                
+                $sql = "
+                    UPDATE bridge_mappings 
+                    SET sync_status = ?,
+                        updated_at = CURRENT_TIMESTAMP,
+                        retry_count = 0,
+                        error_message = NULL,
+                        target_event_id = ?
+                    WHERE source_bridge = ?
+                    AND target_bridge = ?
+                    AND source_calendar_id = ?
+                    AND target_calendar_id = ?
+                    AND source_event_id = ?
+                    AND tenant_id IS NOT DISTINCT FROM ?
+                ";
+
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $mappingStatus,
+                    $targetEventId,
+                    $sourceBridge,
+                    $targetBridge,
+                    $sourceCalendarId,
+                    $targetCalendarId,
+                    $eventId,
+                    $tenantId
+                ]);
+
+                if ($stmt->rowCount() > 0) {
+                    $this->logger->info('Updated existing bridge mapping after successful event update', [
+                        'source_bridge' => $sourceBridge,
+                        'target_bridge' => $targetBridge,
+                        'source_event_id' => $eventId,
+                        'target_event_id' => $targetEventId,
+                        'tenant_id' => $tenantId
+                    ]);
+                } else {
+                    $this->logger->warning('No existing mapping found to update after event update', [
+                        'source_bridge' => $sourceBridge,
+                        'target_bridge' => $targetBridge,
+                        'source_event_id' => $eventId,
+                        'tenant_id' => $tenantId
+                    ]);
+                }
+            }
 
             return $syncResults;
 
