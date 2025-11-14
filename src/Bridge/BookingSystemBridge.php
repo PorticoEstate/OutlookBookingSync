@@ -1112,7 +1112,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? $bookingEvent['group_name'] ?? $bookingEvent['organization_name'] ?? $reservationType ?? '',
             'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
             'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
-            'location' => $bookingEvent['location'] ?? $bookingEvent['resources'][0]['name'] ?? $bookingEvent['building_name'] ?? null,
+            'location' => $bookingEvent['location'] ?? $bookingEvent['resource_names'] ?? $bookingEvent['building_name'] ?? null,
             'description' => $bookingEvent['description'] ?? '',
             'organizer' => $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? '',
             'created' => $bookingEvent['created'] ?? $bookingEvent['created_at'] ?? date('c'),
