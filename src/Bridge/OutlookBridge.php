@@ -1726,7 +1726,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * @param array $eventIds Optional list of event IDs to scope; empty for all
 	 * @return array Summary with re_enabled_count and any errors
 	 */
-	public function reEnableFailedEvents(array $eventIds = []): array
+	public function reEnableFailedEvents($eventIds = []): array
 	{
 		$results = [
 			're_enabled_count' => 0,

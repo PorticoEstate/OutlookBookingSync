@@ -3,6 +3,8 @@
 namespace App\Controller;
 
 use App\Services\BridgeManager;
+use App\Repository\BridgeResourceRepository;
+use App\Repository\BridgeMappingRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
@@ -17,17 +19,28 @@ class BridgeController
     private $bridgeManager;
     private $logger;
     private $db;
+    private $resourceRepository;
+    private $mappingRepository;
 
     /**
      * @param BridgeManager $bridgeManager Bridge orchestrator
      * @param LoggerInterface $logger Logger
      * @param PDO $db Database connection
+     * @param BridgeResourceRepository|null $resourceRepository
+     * @param BridgeMappingRepository|null $mappingRepository
      */
-    public function __construct(BridgeManager $bridgeManager, LoggerInterface $logger, PDO $db)
-    {
+    public function __construct(
+        BridgeManager $bridgeManager, 
+        LoggerInterface $logger, 
+        PDO $db,
+        ?BridgeResourceRepository $resourceRepository = null,
+        ?BridgeMappingRepository $mappingRepository = null
+    ) {
         $this->bridgeManager = $bridgeManager;
         $this->logger = $logger;
         $this->db = $db;
+        $this->resourceRepository = $resourceRepository ?: new BridgeResourceRepository($db);
+        $this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
     }
 
     /**
@@ -173,33 +186,7 @@ class BridgeController
 
             // Get all active mappings between these bridges (handle bidirectional)
             $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-            $tenantClause = $tenantId !== '' ? " AND (tenant_id = :tenant_id OR tenant_id IS NULL)" : "";
-            $sql = "SELECT 
-                        tenant_id,
-                        source_calendar_id,
-                        target_calendar_id,
-                        sync_direction, 
-                        id,
-                        bridge_from,
-                        bridge_to
-                    FROM bridge_resource_mappings 
-                    WHERE (
-                        (bridge_from = :bf AND bridge_to = :bt) OR 
-                        (bridge_from = :bt AND bridge_to = :bf)
-                    )
-                    AND is_active = TRUE AND sync_enabled = TRUE" . $tenantClause;
-
-            $stmt = $this->db->prepare($sql);
-            $params = [
-                ':bf' => $sourceBridge,
-                ':bt' => $targetBridge,
-            ];
-            if ($tenantClause)
-            {
-                $params[':tenant_id'] = $tenantId;
-            }
-            $stmt->execute($params);
-            $resourceMappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $resourceMappings = $this->resourceRepository->findActiveMappings($sourceBridge, $targetBridge, $tenantId ?: null);
 
             if (empty($resourceMappings))
             {
@@ -295,8 +282,7 @@ class BridgeController
                             // Treat as success when there is no summary (legacy) or when failed_events == 0
                             if (!$hasSummary || $failedEvents === 0)
                             {
-                                $stmtUpdate = $this->db->prepare("UPDATE bridge_resource_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id");
-                                $stmtUpdate->execute([':id' => (int)$resourceMapping['id']]);
+                                $this->resourceRepository->updateLastSyncedAt((int)$resourceMapping['id']);
                             }
                         }
                         catch (\Throwable $e)
@@ -1783,36 +1769,7 @@ class BridgeController
         try {
             // For webhook events, we need to use the resource mapping to find target calendar
             // Check both directions for bidirectional mappings (like syncBridges does)
-            $mappingSql = "
-                SELECT 
-                    tenant_id, 
-                    source_calendar_id,
-                    target_calendar_id, 
-                    id as mapping_id,
-                    bridge_from,
-                    bridge_to,
-                    sync_direction
-                FROM bridge_resource_mappings 
-                WHERE (
-                    (bridge_from = ? AND bridge_to = ? AND source_calendar_id = ?) OR
-                    (bridge_from = ? AND bridge_to = ? AND target_calendar_id = ?)
-                )
-                AND is_active = true
-            ";
-
-            
-            $mappingParams = [
-                $sourceBridge, $targetBridge, $resourceId,  // Forward direction
-                $targetBridge, $sourceBridge, $resourceId   // Reverse direction
-            ];
-            if ($tenantId) {
-                $mappingSql .= " AND tenant_id = ?";
-                $mappingParams[] = $tenantId;
-            }
-
-            $mappingStmt = $this->db->prepare($mappingSql);
-            $mappingStmt->execute($mappingParams);
-            $resourceMapping = $mappingStmt->fetch(PDO::FETCH_ASSOC);
+            $resourceMapping = $this->resourceRepository->findMappingForWebhook($sourceBridge, $targetBridge, $resourceId, $tenantId);
 
             if (!$resourceMapping) {
                 throw new \Exception("No resource mapping found for {$sourceBridge} resource {$resourceId} to {$targetBridge}");
@@ -1933,34 +1890,15 @@ class BridgeController
             // Only create NEW mappings for created events, update existing mappings for updates
             if ($totalCreated > 0) {
                 // Event was created - insert new mapping
-                $mappingStatus = 'completed';
-                
-                $sql = "
-                    INSERT INTO bridge_mappings 
-                    (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, sync_status, tenant_id, created_at, updated_at, target_event_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
-                    ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
-                    DO UPDATE SET 
-                        sync_status = ?,
-                        updated_at = CURRENT_TIMESTAMP,
-                        retry_count = 0,
-                        error_message = NULL,
-                        target_event_id = ?
-                ";
-
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $sourceBridge,
-                    $targetBridge, 
-                    $sourceCalendarId,
-                    $targetCalendarId,
-                    $eventId,
-                    $mappingStatus,
-                    $tenantId,
-                    $targetEventId,
-                    // ON CONFLICT values
-                    $mappingStatus,
-                    $targetEventId
+                $this->mappingRepository->createOrUpdateWithTargetEventId([
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'source_calendar_id' => $sourceCalendarId,
+                    'target_calendar_id' => $targetCalendarId,
+                    'source_event_id' => $eventId,
+                    'sync_status' => 'completed',
+                    'tenant_id' => $tenantId,
+                    'target_event_id' => $targetEventId
                 ]);
 
                 $this->logger->info('Created new bridge mapping after successful event creation', [
@@ -1972,36 +1910,18 @@ class BridgeController
                 ]);
             } elseif ($totalUpdated > 0) {
                 // Event was updated - only update existing mapping if it exists
-                $mappingStatus = 'completed';
-                
-                $sql = "
-                    UPDATE bridge_mappings 
-                    SET sync_status = ?,
-                        updated_at = CURRENT_TIMESTAMP,
-                        retry_count = 0,
-                        error_message = NULL,
-                        target_event_id = ?
-                    WHERE source_bridge = ?
-                    AND target_bridge = ?
-                    AND source_calendar_id = ?
-                    AND target_calendar_id = ?
-                    AND source_event_id = ?
-                    AND tenant_id IS NOT DISTINCT FROM ?
-                ";
-
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $mappingStatus,
-                    $targetEventId,
-                    $sourceBridge,
-                    $targetBridge,
-                    $sourceCalendarId,
-                    $targetCalendarId,
-                    $eventId,
-                    $tenantId
+                $updatedRows = $this->mappingRepository->updateStatusAndTargetEventId([
+                    'sync_status' => 'completed',
+                    'target_event_id' => $targetEventId,
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'source_calendar_id' => $sourceCalendarId,
+                    'target_calendar_id' => $targetCalendarId,
+                    'source_event_id' => $eventId,
+                    'tenant_id' => $tenantId
                 ]);
 
-                if ($stmt->rowCount() > 0) {
+                if ($updatedRows > 0) {
                     $this->logger->info('Updated existing bridge mapping after successful event update', [
                         'source_bridge' => $sourceBridge,
                         'target_bridge' => $targetBridge,
@@ -2053,46 +1973,8 @@ class BridgeController
     private function handleEventDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
     {
         try {
-            // Get the resource mapping to check sync_direction and ownership
-            $mappingSql = "
-                SELECT 
-                    brm.id as mapping_id,
-                    brm.source_calendar_id,
-                    brm.target_calendar_id,
-                    brm.bridge_from,
-                    brm.bridge_to,
-                    brm.sync_direction,
-                    bm.target_event_id,
-                    bm.target_calendar_id as mapped_target_calendar
-                FROM bridge_resource_mappings brm
-                LEFT JOIN bridge_mappings bm ON (
-                    bm.source_bridge = brm.bridge_from
-                    AND bm.target_bridge = brm.bridge_to
-                    AND bm.source_calendar_id = brm.source_calendar_id
-                    AND bm.target_calendar_id = brm.target_calendar_id
-                    AND bm.source_event_id = ?
-                )
-                WHERE (
-                    (brm.bridge_from = ? AND brm.bridge_to = ? AND brm.source_calendar_id = ?) OR
-                    (brm.bridge_from = ? AND brm.bridge_to = ? AND brm.target_calendar_id = ?)
-                )
-                AND brm.is_active = true
-            ";
-            
-            $mappingParams = [
-                $eventId,  // For bridge_mappings JOIN
-                $sourceBridge, $targetBridge, $resourceId,  // Forward direction
-                $targetBridge, $sourceBridge, $resourceId   // Reverse direction
-            ];
-            
-            if ($tenantId) {
-                $mappingSql .= " AND brm.tenant_id = ?";
-                $mappingParams[] = $tenantId;
-            }
-
-            $mappingStmt = $this->db->prepare($mappingSql);
-            $mappingStmt->execute($mappingParams);
-            $resourceMapping = $mappingStmt->fetch(\PDO::FETCH_ASSOC);
+            // Find the resource mapping and the specific event mapping
+            $resourceMapping = $this->resourceRepository->findMappingForDeletion($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
 
             if (!$resourceMapping) {
                 $this->logger->warning('No resource mapping found for deletion - skipping', [
@@ -2200,31 +2082,14 @@ class BridgeController
      */
     private function markMappingCancelled($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId)
     {
-        $sql = "
-            UPDATE bridge_mappings 
-            SET sync_status = 'cancelled', 
-                updated_at = CURRENT_TIMESTAMP
-            WHERE source_bridge = ? 
-            AND target_bridge = ?
-            AND source_calendar_id = ? 
-            AND source_event_id = ?
-        ";
-        
-        $params = [$sourceBridge, $targetBridge, $resourceId, $eventId];
-        if ($tenantId) {
-            $sql .= " AND tenant_id = ?";
-            $params[] = $tenantId;
-        }
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        $rowsAffected = $this->mappingRepository->markAsCancelled($sourceBridge, $targetBridge, $resourceId, $eventId, $tenantId);
 
         $this->logger->info('Marked mapping as cancelled', [
             'source_bridge' => $sourceBridge,
             'target_bridge' => $targetBridge,
             'resource_id' => $resourceId,
             'event_id' => $eventId,
-            'rows_affected' => $stmt->rowCount(),
+            'rows_affected' => $rowsAffected,
             'tenant_id' => $tenantId
         ]);
     }
@@ -3020,21 +2885,8 @@ class BridgeController
         try
         {
             // Look for the event in bridge_mappings table
-            $sql = "SELECT source_calendar_id, target_calendar_id, source_bridge, target_bridge 
-                    FROM bridge_mappings 
-                    WHERE (source_event_id = :event_id OR target_event_id = :event_id)
-                    AND (source_bridge = :bridge_name OR target_bridge = :bridge_name)
-                    AND (tenant_id = :tenant_id OR tenant_id IS NULL)
-                    LIMIT 1";
+            $bridgeMapping = $this->mappingRepository->findByEventIdAndBridge($eventId, $bridgeName, $tenantId);
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                'event_id' => $eventId,
-                'bridge_name' => $bridgeName,
-                'tenant_id' => $tenantId
-            ]);
-
-            $bridgeMapping = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($bridgeMapping)
             {
                 // Return the appropriate calendar ID based on which bridge we're working with

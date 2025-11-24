@@ -2330,7 +2330,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Re-enable failed events (set from error back to pending)
      */
-    public function reEnableFailedEvents(array $eventIds = []): array
+    public function reEnableFailedEvents($eventIds = []): array
     {
         $results = [
             're_enabled_count' => 0,

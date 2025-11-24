@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Bridge\AbstractCalendarBridge;
 use App\Services\SyncLogService;
+use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeConfigRepository;
 use Psr\Log\LoggerInterface;
 use PDO;
 
@@ -16,6 +18,8 @@ class BridgeManager
 	private $logger;
 	private $db;
 	private $syncLog;
+	private $mappingRepository;
+	private $configRepository;
 	/** @var array<string, array<string, AbstractCalendarBridge>> */
 	private $tenantBridgeCache = [];
 
@@ -23,12 +27,16 @@ class BridgeManager
 	 * @param LoggerInterface $logger
 	 * @param PDO $db
 	 * @param SyncLogService $syncLog
+	 * @param BridgeMappingRepository|null $mappingRepository
+	 * @param BridgeConfigRepository|null $configRepository
 	 */
-	public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog)
+	public function __construct(LoggerInterface $logger, PDO $db, SyncLogService $syncLog, ?BridgeMappingRepository $mappingRepository = null, ?BridgeConfigRepository $configRepository = null)
 	{
 		$this->logger = $logger;
 		$this->db = $db;
 		$this->syncLog = $syncLog;
+		$this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
+		$this->configRepository = $configRepository ?: new BridgeConfigRepository($db);
 	}
 
 	/**
@@ -89,7 +97,7 @@ class BridgeManager
 		// Inject context tenant id without colliding with bridge-specific config keys
 		$config['context_tenant_id'] = $tenantId;
 
-		$instance = new $class($config, $this->logger, $this->db);
+		$instance = new $class($config, $this->logger, $this->db, $this->mappingRepository);
 		$this->tenantBridgeCache[$tenantId][$name] = $instance;
 		return $instance;
 	}
@@ -98,14 +106,7 @@ class BridgeManager
 	{
 		try
 		{
-			$stmt = $this->db->prepare("SELECT config_data FROM bridge_configs WHERE bridge_name = :name AND tenant_id = :tid LIMIT 1");
-			$stmt->execute(['name' => $bridgeName, 'tid' => $tenantId]);
-			$row = $stmt->fetch(PDO::FETCH_ASSOC);
-			if ($row && isset($row['config_data']))
-			{
-				$data = json_decode($row['config_data'], true);
-				return is_array($data) ? $data : null;
-			}
+			return $this->configRepository->findByTenantAndName($tenantId, $bridgeName);
 		}
 		catch (\Throwable $e)
 		{
@@ -991,68 +992,32 @@ class BridgeManager
 	 */
 	private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, ?string $windowStart = null, ?string $windowEnd = null, array $options = []): array
 	{
-		// Build a UNION query to get mappings in either orientation for the pair,
-		// then normalize so that source_* refers to the provided source/target.
-		$tenantId = $options['tenant_id'] ?? $_SERVER['HTTP_X_TENANT_ID'] ?? null;
+		return $this->mappingRepository->findMappings(
+			$sourceBridge,
+			$targetBridge,
+			$sourceCalendarId,
+			$targetCalendarId,
+			$windowStart ?? '',
+			$windowEnd ?? '',
+			$options
+		);
+	}
 
-		$baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
-		$reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
-		$tenantPredicate = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
-		
-		// Time predicate for event overlap detection:
-		// An event overlaps the window if: event_start < window_end AND event_end > window_start
-		// Date strings are converted to full day ranges (00:00:00 to 23:59:59)
-		// This catches events that start before, during, or after the window but have any time overlap
-		$timePredicate = ($windowStart && $windowEnd)
-			? " AND ((created_at BETWEEN :wstart AND :wend) OR (source_event_start < :wend AND source_event_end > :wstart))"
-			: "";
-
-		$sql = "SELECT * FROM bridge_mappings WHERE $baseWhere$tenantPredicate$timePredicate
-				UNION ALL
-				SELECT * FROM bridge_mappings WHERE $reverseWhere$tenantPredicate$timePredicate
-				ORDER BY created_at DESC";
-
-		$stmt = $this->db->prepare($sql);
-		$params = [
-			':source_bridge'      => $sourceBridge,
-			':target_bridge'      => $targetBridge,
-			':source_calendar_id' => $sourceCalendarId,
-			':target_calendar_id' => $targetCalendarId,
+	/**
+	 * Normalize event data for comparison or hashing.
+	 * Returns an array with consistent fields and formatting.
+	 */
+	private function normalizeEventForComparison(array $event): array
+	{
+		return [
+			'subject'   => $this->normalizeString((string)($event['subject'] ?? '')),
+			'location'  => $this->normalizeString((string)($event['location'] ?? '')),
+			'description' => $this->normalizeString((string)($event['description'] ?? '')),
+			'all_day'   => (bool)($event['all_day'] ?? false),
+			'start_ts'  => $this->normalizeDateToTimestamp($event['start'] ?? null),
+			'end_ts'    => $this->normalizeDateToTimestamp($event['end'] ?? null),
+			'attendees' => $this->normalizeAttendees($event['attendees'] ?? []),
 		];
-		if ($tenantId !== null)
-		{
-			$params[':tenant_id'] = (string)$tenantId;
-		}
-		if ($windowStart && $windowEnd)
-		{
-			// Convert date strings to full datetime ranges for proper comparison
-			// windowStart becomes start of day (00:00:00), windowEnd becomes end of day (23:59:59)
-			$params[':wstart'] = date('Y-m-d H:i:s', strtotime($windowStart . ' 00:00:00'));
-			$params[':wend'] = date('Y-m-d H:i:s', strtotime($windowEnd . ' 23:59:59'));
-		}
-		$stmt->execute($params);
-		$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-		foreach ($rows as &$row)
-		{
-			$isCurrentDirection =
-				$row['source_bridge'] === $sourceBridge &&
-				$row['target_bridge'] === $targetBridge &&
-				$row['source_calendar_id'] === $sourceCalendarId &&
-				$row['target_calendar_id'] === $targetCalendarId;
-
-			if ($isCurrentDirection)
-			{
-				$row['normalized_reversed'] = false;
-			}
-			else
-			{
-				$row['normalized_reversed'] = true;
-			}
-
-		}
-
-		return $rows;
 	}
 
 	/**
@@ -1061,44 +1026,10 @@ class BridgeManager
 	 */
 	private function eventsAreEquivalent(array $a, array $b): bool
 	{
-		$fields = ['subject', 'location', 'description'];
-		foreach ($fields as $f)
-		{
-			$av = isset($a[$f]) ? $this->normalizeString((string)$a[$f]) : '';
-			$bv = isset($b[$f]) ? $this->normalizeString((string)$b[$f]) : '';
-			if ($av !== $bv)
-			{
-				return false;
-			}
-		}
+		$normA = $this->normalizeEventForComparison($a);
+		$normB = $this->normalizeEventForComparison($b);
 
-		// All-day flag
-		$allDayA = (bool)($a['all_day'] ?? false);
-		$allDayB = (bool)($b['all_day'] ?? false);
-		if ($allDayA !== $allDayB)
-		{
-			return false;
-		}
-
-		// Start/End: compare as timestamps (UTC-equivalent)
-		if ($this->normalizeDateToTimestamp($a['start'] ?? null) !== $this->normalizeDateToTimestamp($b['start'] ?? null))
-		{
-			return false;
-		}
-		if ($this->normalizeDateToTimestamp($a['end'] ?? null) !== $this->normalizeDateToTimestamp($b['end'] ?? null))
-		{
-			return false;
-		}
-
-		// Attendees (case-insensitive, order-insensitive)
-		$attA = $this->normalizeAttendees($a['attendees'] ?? []);
-		$attB = $this->normalizeAttendees($b['attendees'] ?? []);
-		if ($attA !== $attB)
-		{
-			return false;
-		}
-
-		return true;
+		return $normA === $normB;
 	}
 
 	private function normalizeString(string $s): string
@@ -1146,15 +1077,7 @@ class BridgeManager
 	 */
 	private function computeEventHash(array $event): string
 	{
-		$payload = [
-			'subject'   => $this->normalizeString((string)($event['subject'] ?? '')),
-			'location'  => $this->normalizeString((string)($event['location'] ?? '')),
-			'description' => $this->normalizeString((string)($event['description'] ?? '')),
-			'all_day'   => (bool)($event['all_day'] ?? false),
-			'start_ts'  => $this->normalizeDateToTimestamp($event['start'] ?? null),
-			'end_ts'    => $this->normalizeDateToTimestamp($event['end'] ?? null),
-			'attendees' => $this->normalizeAttendees($event['attendees'] ?? []),
-		];
+		$payload = $this->normalizeEventForComparison($event);
 		return hash('sha256', json_encode($payload));
 	}
 
@@ -1166,9 +1089,7 @@ class BridgeManager
 		try
 		{
 			$hash = $this->computeEventHash($event);
-			$sql = "UPDATE bridge_mappings SET event_data = :event_data, event_hash = :event_hash, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([':id' => $mappingId, ':event_data' => json_encode($event), ':event_hash' => $hash]);
+			$this->mappingRepository->updateEventData($mappingId, json_encode($event), $hash);
 		}
 		catch (\Throwable $e)
 		{
@@ -1181,9 +1102,7 @@ class BridgeManager
 	 */
 	private function updateMappingTimestamp($mappingId)
 	{
-		$sql = "UPDATE bridge_mappings SET last_synced_at = CURRENT_TIMESTAMP WHERE id = :id";
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([':id' => $mappingId]);
+		$this->mappingRepository->updateTimestamp($mappingId);
 	}
 
 	/**
@@ -1193,31 +1112,11 @@ class BridgeManager
 	{
 		try
 		{
-			$sql = "UPDATE bridge_mappings 
-					SET sync_status = :status, 
-						error_message = :error_message,
-						updated_at = CURRENT_TIMESTAMP 
-					WHERE id = :id";
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
-				':id' => $mappingId,
-				':status' => $status,
-				':error_message' => $errorMessage
-			]);
-
-			$this->logger->debug('Updated mapping sync status', [
-				'mapping_id' => $mappingId,
-				'status' => $status,
-				'error_message' => $errorMessage
-			]);
+			$this->mappingRepository->updateSyncStatus($mappingId, $status, $errorMessage);
 		}
-		catch (\Exception $e)
+		catch (\Throwable $e)
 		{
-			$this->logger->warning('Failed to update mapping sync status', [
-				'mapping_id' => $mappingId,
-				'status' => $status,
-				'error' => $e->getMessage()
-			]);
+			$this->logger->warning('Failed to update mapping status', ['mapping_id' => $mappingId, 'error' => $e->getMessage()]);
 		}
 	}
 
@@ -1476,29 +1375,12 @@ class BridgeManager
 	 */
 	private function updateMappingWithSourceTiming($mappingId, $sourceStart, $sourceEnd)
 	{
-		// Only update if we have timing information
-		if (empty($sourceStart))
-		{
-			return;
-		}
-
 		try
 		{
-			// Convert datetime strings to proper UTC format for TIMESTAMPTZ fields
 			$startTimestamp = $this->normalizeTimestampForDatabase($sourceStart);
 			$endTimestamp = $this->normalizeTimestampForDatabase($sourceEnd);
 
-			$sql = "UPDATE bridge_mappings 
-                    SET source_event_start = :start, 
-                        source_event_end = :end,
-                        updated_at = CURRENT_TIMESTAMP 
-                    WHERE id = :id";
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
-				':id' => $mappingId,
-				':start' => $startTimestamp,
-				':end' => $endTimestamp
-			]);
+			$this->mappingRepository->updateSourceTiming($mappingId, $startTimestamp, $endTimestamp);
 
 			$this->logger->debug('Updated mapping with source event timing (UTC)', [
 				'mapping_id' => $mappingId,
@@ -1525,16 +1407,12 @@ class BridgeManager
 		{
 			return null;
 		}
-
 		try
 		{
-			// Handle various datetime formats and convert to database-compatible format
 			$dateTime = new \DateTime($dateTimeString);
 
-			// Always convert to UTC to ensure consistent storage and comparison across bridges
 			$dateTime->setTimezone(new \DateTimeZone('UTC'));
 
-			// Format for PostgreSQL TIMESTAMP (without timezone info since we're storing in UTC)
 			return $dateTime->format('Y-m-d H:i:s');
 		}
 		catch (\Exception $e)
@@ -1554,24 +1432,14 @@ class BridgeManager
 	{
 		try
 		{
-			$sql = "UPDATE bridge_mappings 
-                    SET sync_method = :sync_method,
-                        updated_at = CURRENT_TIMESTAMP 
-                    WHERE source_bridge = :source_bridge
-                    AND target_bridge = :target_bridge
-                    AND source_calendar_id = :source_calendar_id
-                    AND target_calendar_id = :target_calendar_id
-                    AND source_event_id = :source_event_id";
-
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
-				':sync_method' => $syncMethod,
-				':source_bridge' => $sourceBridge,
-				':target_bridge' => $targetBridge,
-				':source_calendar_id' => $sourceCalendarId,
-				':target_calendar_id' => $targetCalendarId,
-				':source_event_id' => $sourceEventId
-			]);
+			$this->mappingRepository->updateSyncMethod(
+				$sourceBridge,
+				$targetBridge,
+				$sourceCalendarId,
+				$targetCalendarId,
+				$sourceEventId,
+				$syncMethod
+			);
 
 			$this->logger->debug('Updated mapping with sync method', [
 				'source_event_id' => $sourceEventId,
@@ -1739,16 +1607,9 @@ class BridgeManager
 	{
 		try
 		{
-			$sql = "UPDATE bridge_mappings 
-                    SET target_event_id = :target_event_id,
-                        sync_status = 'synced',
-                        updated_at = CURRENT_TIMESTAMP 
-                    WHERE id = :id";
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
-				':id' => $mappingId,
-				':target_event_id' => $newTargetEventId
-			]);
+			$this->mappingRepository->updateTargetEventId($mappingId, $newTargetEventId);
+			// Also update status to synced as per original logic
+			$this->mappingRepository->updateSyncStatus($mappingId, 'synced');
 
 			$this->logger->debug('Updated mapping with new target event ID', [
 				'mapping_id' => $mappingId,
@@ -1866,11 +1727,7 @@ class BridgeManager
 	 */
 	public function get_configured_bridges()
 	{
-		$stmt = $this->db->prepare("SELECT tenant_id, bridge_name, config_data
-         FROM bridge_configs WHERE is_active = TRUE
-         ORDER BY tenant_id, bridge_name");
-		$stmt->execute();
-		$row = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+		$row = $this->configRepository->findAllActive();
 		$result = [];
 		foreach ($row as $entry)
 		{

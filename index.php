@@ -324,10 +324,27 @@ $app->group('/api/migrations', function ($group)
 
 // Dashboard route now handled by .htaccess directly serving public/dashboard.html
 
+// Register Repositories
+$container->set(\App\Repository\BridgeMappingRepository::class, function () use ($container)
+{
+    return new \App\Repository\BridgeMappingRepository($container->get('db'));
+});
+
+$container->set(\App\Repository\BridgeConfigRepository::class, function () use ($container)
+{
+    return new \App\Repository\BridgeConfigRepository($container->get('db'));
+});
+
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
-    $manager = new \App\Services\BridgeManager($container->get('logger'), $container->get('db'), $container->get('syncLog'));
+    $manager = new \App\Services\BridgeManager(
+        $container->get('logger'), 
+        $container->get('db'), 
+        $container->get('syncLog'),
+        $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Repository\BridgeConfigRepository::class)
+    );
 
     // Register Outlook bridge
     $manager->registerBridge('outlook', \App\Bridge\OutlookBridge::class, []);
@@ -340,12 +357,19 @@ $container->set('bridgeManager', function () use ($container)
     return $manager;
 });
 
+$container->set(\App\Repository\BridgeResourceRepository::class, function () use ($container)
+{
+    return new \App\Repository\BridgeResourceRepository($container->get('db'));
+});
+
 $container->set(\App\Controller\BridgeController::class, function () use ($container)
 {
     return new \App\Controller\BridgeController(
         $container->get('bridgeManager'),
         $container->get('logger'),
-        $container->get('db')
+        $container->get('db'),
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get(\App\Repository\BridgeMappingRepository::class)
     );
 });
 

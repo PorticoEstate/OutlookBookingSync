@@ -4,6 +4,7 @@ namespace App\Bridge;
 
 use Psr\Log\LoggerInterface;
 use PDO;
+use App\Repository\BridgeMappingRepository;
 
 /**
  * Base class for calendar bridge implementations, providing common utilities
@@ -14,6 +15,7 @@ abstract class AbstractCalendarBridge
     protected $config;
     protected $logger;
     protected $db;
+    protected $mappingRepository;
 
     // Simple session storage helpers
     protected $sessionData = null; // for CLI file-based sessions
@@ -24,12 +26,14 @@ abstract class AbstractCalendarBridge
      * @param array $config Bridge configuration; may include context_tenant_id for scoping
      * @param LoggerInterface $logger
      * @param PDO $db
+     * @param BridgeMappingRepository|null $mappingRepository
      */
-    public function __construct($config, LoggerInterface $logger, PDO $db)
+    public function __construct($config, LoggerInterface $logger, PDO $db, ?BridgeMappingRepository $mappingRepository = null)
     {
         $this->config = $config;
         $this->logger = $logger;
         $this->db = $db;
+        $this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
 
         $this->validateConfig();
         $this->initialize();
@@ -625,34 +629,16 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $sql = "
-                UPDATE bridge_mappings 
-                SET sync_status = ?, 
-                    error_message = ?,
-                    retry_count = CASE 
-                        WHEN ? = 'error' THEN retry_count + 1 
-                        WHEN ? = 'synced' THEN 0 
-                        ELSE retry_count 
-                    END,
-                    updated_at = CURRENT_TIMESTAMP,
-                    last_synced_at = CASE WHEN ? = 'synced' THEN CURRENT_TIMESTAMP ELSE last_synced_at END
-                WHERE source_bridge = ? 
-                    AND target_bridge = ? 
-                    AND source_calendar_id = ? 
-                    AND target_calendar_id = ? 
-                    AND source_event_id = ?
-            ";
-            if ($tenantId !== null)
-            {
-                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
-            }
-            $stmt = $this->db->prepare($sql);
-            $params = [$status, $errorMessage, $status, $status, $status, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId];
-            if ($tenantId !== null)
-            {
-                $params[] = (string)$tenantId;
-            }
-            return $stmt->execute($params);
+            return $this->mappingRepository->updateSyncStatusByCompositeKey(
+                $sourceBridge,
+                $targetBridge,
+                $sourceCalendarId,
+                $targetCalendarId,
+                $sourceEventId,
+                $status,
+                $errorMessage,
+                $tenantId
+            );
         }
         catch (\Exception $e)
         {
@@ -666,22 +652,18 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $stmt = $this->db->prepare("INSERT INTO bridge_mappings
-            (source_bridge, target_bridge, source_calendar_id, target_calendar_id,
-            source_event_id, target_event_id, sync_direction, sync_status, event_data, tenant_id,
-            created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (source_bridge, target_bridge, source_calendar_id, target_calendar_id, source_event_id, tenant_id)
-            DO UPDATE SET
-                target_event_id = EXCLUDED.target_event_id,
-                sync_status = 'synced',
-                event_data = EXCLUDED.event_data,
-                updated_at = CURRENT_TIMESTAMP,
-                last_synced_at = CURRENT_TIMESTAMP,
-                retry_count = 0,
-                error_message = NULL
-            ");
-            return $stmt->execute([$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId, $targetEventId, $syncDirection, json_encode($eventData), $tenantId]);
+            $this->mappingRepository->createOrUpdate([
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $sourceEventId,
+                'target_event_id' => $targetEventId,
+                'sync_direction' => $syncDirection,
+                'event_data' => json_encode($eventData),
+                'tenant_id' => $tenantId
+            ]);
+            return true;
         }
         catch (\Exception $e)
         {
@@ -700,18 +682,14 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $sql = "\n                UPDATE bridge_mappings \n                SET sync_status = 'pending', target_event_id = '', error_message = NULL, retry_count = 0, updated_at = CURRENT_TIMESTAMP\n                WHERE source_bridge = ? AND target_bridge = ? AND source_calendar_id = ? AND target_calendar_id = ? AND source_event_id = ?\n            ";
-            if ($tenantId !== null)
-            {
-                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
-            }
-            $stmt = $this->db->prepare($sql);
-            $params = [$sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $sourceEventId];
-            if ($tenantId !== null)
-            {
-                $params[] = (string)$tenantId;
-            }
-            return $stmt->execute($params);
+            return $this->mappingRepository->markAsPending(
+                $sourceBridge,
+                $targetBridge,
+                $sourceCalendarId,
+                $targetCalendarId,
+                $sourceEventId,
+                $tenantId
+            );
         }
         catch (\Exception $e)
         {
@@ -725,17 +703,12 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $sql = "\n                SELECT * FROM bridge_mappings \n                WHERE source_bridge = ? AND target_bridge = ? AND (sync_status = 'pending' OR (sync_status = 'error' AND retry_count < ?))\n            ";
-            $params = [$sourceBridge, $targetBridge, $maxRetries];
-            if ($tenantId !== null)
-            {
-                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
-                $params[] = (string)$tenantId;
-            }
-            $sql .= " ORDER BY CASE sync_status WHEN 'pending' THEN 1 WHEN 'error' THEN 2 ELSE 3 END, created_at ASC LIMIT 100";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $this->mappingRepository->getEventsToSync(
+                $sourceBridge,
+                $targetBridge,
+                $maxRetries,
+                $tenantId
+            );
         }
         catch (\Exception $e)
         {
@@ -749,17 +722,11 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $sql = "\n                SELECT * FROM bridge_mappings \n                WHERE source_bridge = ? AND target_bridge = ? AND sync_status = 'cancelled' AND target_event_id != ''\n            ";
-            $params = [$sourceBridge, $targetBridge];
-            if ($tenantId !== null)
-            {
-                $sql .= " AND (tenant_id IS NOT DISTINCT FROM ? )";
-                $params[] = (string)$tenantId;
-            }
-            $sql .= " ORDER BY updated_at ASC LIMIT 50";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $this->mappingRepository->getCancelledEvents(
+                $sourceBridge,
+                $targetBridge,
+                $tenantId
+            );
         }
         catch (\Exception $e)
         {
@@ -773,26 +740,11 @@ abstract class AbstractCalendarBridge
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            $where = 'WHERE 1=1';
-            $params = [];
-            if ($sourceBridge)
-            {
-                $where .= ' AND source_bridge = ?';
-                $params[] = $sourceBridge;
-            }
-            if ($targetBridge)
-            {
-                $where .= ' AND target_bridge = ?';
-                $params[] = $targetBridge;
-            }
-            if ($tenantId !== null)
-            {
-                $where .= ' AND (tenant_id IS NOT DISTINCT FROM ? )';
-                $params[] = (string)$tenantId;
-            }
-            $stmt = $this->db->prepare("\n                SELECT sync_status, COUNT(*) as count, AVG(retry_count) as avg_retries, MAX(retry_count) as max_retries\n                FROM bridge_mappings $where GROUP BY sync_status\n            ");
-            $stmt->execute($params);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $this->mappingRepository->getSyncStats(
+                $sourceBridge,
+                $targetBridge,
+                $tenantId
+            );
         }
         catch (\Exception $e)
         {
@@ -890,28 +842,18 @@ abstract class AbstractCalendarBridge
     }
 
     // Default implementation; bridges may override
-    public function reEnableFailedEvents(array $eventIds = []): array
+    public function reEnableFailedEvents($eventIds = []): array
     {
         $results = ['re_enabled_count' => 0, 'errors' => 0, 'error_details' => []];
         try
         {
-            $whereClause = "sync_status = 'error' AND (source_bridge = ? OR target_bridge = ?)";
-            $params = [$this->getBridgeType(), $this->getBridgeType()];
-            if (!empty($eventIds))
-            {
-                $placeholders = str_repeat('?,', count($eventIds) - 1) . '?';
-                $whereClause .= " AND source_event_id IN ($placeholders)";
-                $params = array_merge($params, $eventIds);
-            }
             $tenantId = $this->config['context_tenant_id'] ?? null;
-            if ($tenantId !== null)
-            {
-                $whereClause .= " AND (tenant_id IS NOT DISTINCT FROM ?)";
-                $params[] = (string)$tenantId;
-            }
-            $stmt = $this->db->prepare("UPDATE bridge_mappings SET sync_status = 'pending', error_message = NULL, retry_count = 0, updated_at = CURRENT_TIMESTAMP WHERE $whereClause");
-            $stmt->execute($params);
-            $results['re_enabled_count'] = $stmt->rowCount();
+            $count = $this->mappingRepository->resetSyncStatus(
+                $this->getBridgeType(),
+                $eventIds,
+                $tenantId
+            );
+            $results['re_enabled_count'] = $count;
             $this->logOperation('re_enable_failed_events', ['bridge_type' => $this->getBridgeType(), 're_enabled_count' => $results['re_enabled_count'], 'event_ids_filter' => $eventIds]);
         }
         catch (\Exception $e)
