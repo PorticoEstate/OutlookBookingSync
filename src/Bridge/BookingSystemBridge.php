@@ -1112,7 +1112,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             'subject' => $bookingEvent['subject'] ?? $bookingEvent['name'] ?? $bookingEvent['title'] ?? $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? $bookingEvent['group_name'] ?? $bookingEvent['organization_name'] ?? $reservationType ?? '',
             'start' => $bookingEvent['start'] ?? $bookingEvent['start_time'] ?? '',
             'end' => $bookingEvent['end'] ?? $bookingEvent['end_time'] ?? '',
-            'location' => $bookingEvent['location'] ?? $bookingEvent['resource_names'] ?? $bookingEvent['building_name'] ?? null,
+            'location' => $bookingEvent['location'] ?? $bookingEvent['resource_names'] ?? $bookingEvent['resources'][0]['name'] ?? $bookingEvent['building_name'] ?? null,
             'description' => $bookingEvent['description'] ?? '',
             'organizer' => $bookingEvent['organizer'] ?? $bookingEvent['contact_name'] ?? '',
             'created' => $bookingEvent['created'] ?? $bookingEvent['created_at'] ?? date('c'),
@@ -1124,9 +1124,25 @@ class BookingSystemBridge extends AbstractCalendarBridge
         {
             if (!isset($genericEvent[$field]) && !empty($value))
             {
-                $genericEvent[$field] = $value;
+				$genericEvent[$field] = $value;
             }
-        }
+		}
+		unset($value);
+
+		foreach ($genericEvent as $key => &$value)
+		{
+			switch ($key)
+			{
+				case 'subject':
+				case 'location':
+				case 'description':
+				case 'organizer':
+					$value = $this->stripslashes($value);
+					break;
+				default:
+			}
+		}
+		unset($value);
 
         // Handle attendees extraction
         if (!isset($genericEvent['attendees']))
@@ -1169,14 +1185,29 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return $this->createGenericEvent($genericEvent);
     }
 
-    /**
-     * Map generic event to booking system format using configurable mappings
-     */
+	function stripslashes(&$value)
+	{
+		return	htmlspecialchars_decode(
+			stripslashes(
+				str_replace(
+					array('&amp;', '&#40;', '&#41;', '&#61;', '&#8722;&#8722;', '&#59;'),
+					array('&', '(', ')', '=', '--', ';'),
+					(string)$value
+				)
+			),
+			ENT_QUOTES
+		);
+	}
+
+
+		/**
+		 * Map generic event to booking system format using configurable mappings
+		 */
     private function mapGenericEventToBooking($event): array
     {
         $mappings = $this->fieldMappings['to_booking_system'];
         $bookingEvent = [];
-    $defaults = is_array($this->config['defaults'] ?? null) ? $this->config['defaults'] : [];
+    	$defaults = is_array($this->config['defaults'] ?? null) ? $this->config['defaults'] : [];
 
         // For new events from Outlook: DO NOT set ID - let booking system generate it
         // For updates: Only use booking system composite IDs (format: "type_id")

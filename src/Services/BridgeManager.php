@@ -618,32 +618,6 @@ class BridgeManager
 				}
 			}
 
-			// Fast no-op guard using cached last-synced payload from mapping.event_data
-			if (!($options['force_update'] ?? false))
-			{
-				try
-				{
-					if (isset($mapping['event_data']) && !empty($mapping['event_data']))
-					{
-						$cached = is_array($mapping['event_data']) ? $mapping['event_data'] : json_decode((string)$mapping['event_data'], true);
-						if (is_array($cached) && $this->eventsAreEquivalent($sourceEvent, $cached))
-						{
-							$this->updateMappingTimestamp($mapping['id']);
-							return [
-								'success' => true,
-								'action' => 'skipped',
-								'source_event_id' => $sourceEvent['id'],
-								'target_event_id' => $mapping['target_event_id'],
-								'reason' => 'no_changes_cached'
-							];
-						}
-					}
-				}
-				catch (\Throwable $e)
-				{
-					$this->logger->debug('Cached no-op guard failed; will attempt live comparison or proceed with update', ['error' => $e->getMessage()]);
-				}
-			}
 
 			// No-op guard: if there are no meaningful changes, skip the update
 			// Reuse $targetCurrent fetched earlier (no extra API call!)
