@@ -85,7 +85,21 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->fieldMappings = $this->config['field_mappings'] ?? $this->getDefaultFieldMappings();
         $this->authConfig = $this->config['auth'] ?? $this->getDefaultAuthConfig();
 
-        // Initialize session
+        // Session initialization is now lazy-loaded via ensureSession()
+    }
+
+    /**
+     * Ensure session is initialized and valid
+     */
+    private function ensureSession()
+    {
+        if (!empty($this->sessionInfo) && isset($this->sessionInfo['session_id'])) {
+             // Check expiry in memory
+             $lastActivity = $this->sessionInfo['last_activity'] ?? 0;
+             if ((time() - $lastActivity) < $this->sessionTimeout) {
+                 return;
+             }
+        }
         $this->initializeSession();
     }
 
@@ -434,6 +448,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function getEvents($resourceId, $startDate, $endDate): array
     {
+        $this->ensureSession();
         $this->logOperation('get_events', ['resource_id' => $resourceId]);
 
         return $this->getEventsViaApi($resourceId, $startDate, $endDate);
@@ -448,6 +463,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function getEvent($calendarId, $eventId): array
     {
+        $this->ensureSession();
         $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
         $originalId = $this->extractOriginalId($eventId);
         $event = $this->getEventViaApi($originalId);
@@ -467,6 +483,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function createEvent($calendarId, $event): string
     {
+        $this->ensureSession();
         try
         {
             //alter event start and end according to timezone for receiving system.
@@ -539,6 +556,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function updateEvent($calendarId, $eventId, $event): bool
     {
+        $this->ensureSession();
         //for now: do not update Event if it is of type 'booking' (e.g. "booking_25634") or 'allocation' (e.g. "allocation_800395")
         if (preg_match('/^(booking|allocation)_\d+$/', $eventId))
         {
@@ -612,6 +630,14 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function deleteEvent($calendarId, $eventId): bool
     {
+        $this->ensureSession();
+        //for now: do not delete Event if it is of type 'booking' (e.g. "booking_25634") or 'allocation' (e.g. "allocation_800395")
+        if (preg_match('/^(booking|allocation)_\d+$/', $eventId))
+        {
+            error_log("BookingSystemBridge: Skipping delete for event - composite ID: {$eventId}");
+            return false;
+        }
+
         try
         {
             // Extract original ID from composite ID for API call
@@ -1359,12 +1385,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function getAvailableResources($nameFilter = null, $limit = 0, $offset = 0): array
     {
-        try
+        $this->ensureSession();
+        $this->logOperation('get_available_resources', ['filter' => $nameFilter]);
+
+        try {
+            // Check if endpoint is configured
+        if (isset($this->apiEndpoints['list_resources']))
         {
-            $endpoint = $this->getEndpointConfig('list_resources', [
-                'method' => 'GET',
-                'url' => '/booking/resources'
-            ]);
+            $endpoint = $this->apiEndpoints['list_resources'];
+            $url = $this->buildUrl($endpoint['url']);
 
             $params = ['results' => -1];
             if ($offset)
@@ -1375,7 +1404,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
             {
                 $params['results'] = $limit;
             }
-            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url'], $params);
+            $response = $this->makeApiRequest($endpoint['method'], $url, $params);
 
             $resources = [];
             $dataKey = $endpoint['response_data_key'] ?? 'results';
@@ -1427,6 +1456,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
             return $result;
         }
+    }
         catch (\Exception $e)
         {
             $this->logger->error('Failed to get available resources from booking system', [
@@ -1444,6 +1474,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
             // Return empty array if resources endpoint is not available (legacy behavior)
             return [];
         }
+        
+        return [];
     }
 
     /**
@@ -1451,17 +1483,15 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function getAvailableGroups($nameFilter = null, $limit = 0, $offset = 0): array
     {
-        try
+        $this->ensureSession();
+        $this->logOperation('get_available_groups', ['filter' => $nameFilter]);
+
+        try {
+            // Check if endpoint is configured
+        if (isset($this->apiEndpoints['list_groups']))
         {
-            $endpoint = $this->getEndpointConfig('list_groups', [
-                'method' => 'GET',
-                'url' => '/api/groups',
-                'response_mapping' => [
-                    'id' => 'id',
-                    'name' => 'name',
-                    'description' => 'description'
-                ]
-            ]);
+            $endpoint = $this->apiEndpoints['list_groups'];
+            $url = $this->buildUrl($endpoint['url']);
 
             $params = [];
             if ($offset)
@@ -1473,7 +1503,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 $params['results'] = $limit;
             }
 
-            $response = $this->makeApiRequest($endpoint['method'], $endpoint['url'], $params);
+            $response = $this->makeApiRequest($endpoint['method'], $url, $params);
 
             $groups = [];
             $dataKey = $endpoint['response_data_key'] ?? 'data';
@@ -1528,6 +1558,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
 
             return $result;
         }
+    }
         catch (\Exception $e)
         {
             $this->logger->error('Failed to get available groups from booking system', [
@@ -1545,6 +1576,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
             // Return empty array if groups endpoint is not available (legacy behavior)
             return [];
         }
+        
+        return [];
     }
 
     /**
@@ -1940,7 +1973,20 @@ class BookingSystemBridge extends AbstractCalendarBridge
      */
     public function getCalendars(): array
     {
-        return $this->getCalendarsViaApi();
+        $this->ensureSession();
+        // For booking system, calendars are resources
+        // We can use getAvailableResources to fetch them
+        try
+        {
+            return $this->getAvailableResources();
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get calendars from booking system', [
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
     }
 
     /**

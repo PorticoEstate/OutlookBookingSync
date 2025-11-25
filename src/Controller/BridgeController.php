@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Services\BridgeManager;
 use App\Repository\BridgeResourceRepository;
 use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeQueueRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
@@ -21,6 +22,8 @@ class BridgeController
     private $db;
     private $resourceRepository;
     private $mappingRepository;
+    private $queueRepository;
+    private $syncOrchestrator;
 
     /**
      * @param BridgeManager $bridgeManager Bridge orchestrator
@@ -28,19 +31,25 @@ class BridgeController
      * @param PDO $db Database connection
      * @param BridgeResourceRepository|null $resourceRepository
      * @param BridgeMappingRepository|null $mappingRepository
+     * @param BridgeQueueRepository|null $queueRepository
+     * @param \App\Services\SyncOrchestrator|null $syncOrchestrator
      */
     public function __construct(
         BridgeManager $bridgeManager, 
         LoggerInterface $logger, 
         PDO $db,
         ?BridgeResourceRepository $resourceRepository = null,
-        ?BridgeMappingRepository $mappingRepository = null
+        ?BridgeMappingRepository $mappingRepository = null,
+        ?BridgeQueueRepository $queueRepository = null,
+        ?\App\Services\SyncOrchestrator $syncOrchestrator = null
     ) {
         $this->bridgeManager = $bridgeManager;
         $this->logger = $logger;
         $this->db = $db;
         $this->resourceRepository = $resourceRepository ?: new BridgeResourceRepository($db);
         $this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
+        $this->queueRepository = $queueRepository ?: new BridgeQueueRepository($db);
+        $this->syncOrchestrator = $syncOrchestrator;
     }
 
     /**
@@ -254,7 +263,7 @@ class BridgeController
                             'bridge_to' => $targetBridge, //actual target bridge for this sync call
                         ];
                         
-                        $results = $this->bridgeManager->syncBetweenBridges(
+                        $results = $this->syncOrchestrator->syncBetweenBridges(
                             $sourceBridge,
                             $targetBridge,
                             $sourceCalendarId,
@@ -1367,15 +1376,14 @@ class BridgeController
     {
         try
         {
-            $sql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority, tenant_id) 
-                    VALUES ('bridge_sync', :source_bridge, :target_bridge, :payload, 1, :tenant_id)";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':source_bridge' => $sourceBridge,
-                ':target_bridge' => $targetBridge,
-                ':payload' => json_encode($webhookData),
-                ':tenant_id' => $tenantId
-            ]);
+            $this->queueRepository->enqueue(
+                'bridge_sync',
+                $sourceBridge,
+                $targetBridge,
+                $webhookData,
+                1,
+                $tenantId
+            );
             $this->logger->info('Webhook queued to DB', [
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge
@@ -1503,25 +1511,7 @@ class BridgeController
             $tenantId = $request->getAttribute('tenant_id');
 
             // Get pending webhook queue items
-            $sql = "
-                SELECT id, tenant_id, source_bridge, target_bridge, payload, attempts, created_at
-                FROM bridge_queue 
-                WHERE queue_type = 'bridge_sync' 
-                AND status = 'pending'
-            ";
-            
-            $params = [];
-            if ($tenantId) {
-                $sql .= " AND tenant_id = ?";
-                $params[] = $tenantId;
-            }
-            
-            $sql .= " ORDER BY priority ASC, created_at ASC LIMIT ?";
-            $params[] = $batchSize;
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $queueItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId);
 
             $processed = 0;
             $errors = 0;
@@ -1530,9 +1520,7 @@ class BridgeController
             foreach ($queueItems as $item) {
                 try {
                     // Mark as processing
-                    $updateSql = "UPDATE bridge_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?";
-                    $updateStmt = $this->db->prepare($updateSql);
-                    $updateStmt->execute([$item['id']]);
+                    $this->queueRepository->markProcessing($item['id']);
 
                     // Process the webhook payload
                     $payload = json_decode($item['payload'], true);
@@ -1547,9 +1535,7 @@ class BridgeController
                     }
 
                     // Mark as completed
-                    $completeSql = "UPDATE bridge_queue SET status = 'completed', processed_at = CURRENT_TIMESTAMP WHERE id = ?";
-                    $completeStmt = $this->db->prepare($completeSql);
-                    $completeStmt->execute([$item['id']]);
+                    $this->queueRepository->markCompleted($item['id']);
 
                     $processed++;
 
@@ -1564,9 +1550,7 @@ class BridgeController
                     $maxAttempts = 3;
                     $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
                     
-                    $errorSql = "UPDATE bridge_queue SET status = ?, error_message = ? WHERE id = ?";
-                    $errorStmt = $this->db->prepare($errorSql);
-                    $errorStmt->execute([$newStatus, $e->getMessage(), $item['id']]);
+                    $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
                     $this->logger->error('Failed to process webhook queue item', [
                         'queue_id' => $item['id'],
@@ -1617,26 +1601,7 @@ class BridgeController
             $startTime = time();
             
             // Get the most recent pending item for this tenant
-            $sql = "
-                SELECT id, source_bridge, target_bridge, payload, attempts, created_at, tenant_id
-                FROM bridge_queue 
-                WHERE queue_type = 'bridge_sync' 
-                AND status = 'pending'
-            ";
-            
-            $params = [];
-            if ($tenantId)
-            {
-                $sql .= " AND tenant_id = ?";
-                $params[] = $tenantId;
-            }
-            
-            $sql .= " ORDER BY priority ASC, created_at DESC LIMIT ?";
-            $params[] = $batchSize;
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $queueItems = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId, 'DESC');
 
             $processed = 0;
             $errors = 0;
@@ -1648,7 +1613,7 @@ class BridgeController
                 {
                     $this->logger->warning('Immediate webhook processing time limit reached', [
                         'processed' => $processed,
-                        'time_limit' => $maxProcessingTime
+                        'limit' => $maxProcessingTime
                     ]);
                     break;
                 }
@@ -1656,62 +1621,45 @@ class BridgeController
                 try
                 {
                     // Mark as processing
-                    $updateSql = "UPDATE bridge_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?";
-                    $updateStmt = $this->db->prepare($updateSql);
-                    $updateStmt->execute([$item['id']]);
+                    $this->queueRepository->markProcessing($item['id']);
 
                     // Process the webhook payload
                     $payload = json_decode($item['payload'], true);
-                    $this->processWebhookEvent($item['source_bridge'], $item['target_bridge'], $payload, $item['tenant_id']);
+                    $sourceBridge = $item['source_bridge'];
+                    $targetBridge = $item['target_bridge'];
+                    $tenantId = $item['tenant_id'];
+
+                    // Process sync operation based on payload
+                    if ($payload && isset($payload['resource_id']))
+                    {
+                        // This is a webhook event - process it
+                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId);
+                    }
 
                     // Mark as completed
-                    $completeSql = "UPDATE bridge_queue SET status = 'completed', processed_at = CURRENT_TIMESTAMP WHERE id = ?";
-                    $completeStmt = $this->db->prepare($completeSql);
-                    $completeStmt->execute([$item['id']]);
+                    $this->queueRepository->markCompleted($item['id']);
 
                     $processed++;
-
-                    $this->logger->info('Immediate webhook processing completed', [
-                        'queue_id' => $item['id'],
-                        'source_bridge' => $item['source_bridge'],
-                        'target_bridge' => $item['target_bridge'],
-                        'tenant_id' => $item['tenant_id']
-                    ]);
-
                 }
                 catch (\Exception $e)
                 {
                     $errors++;
-                    
-                    // Mark as failed or back to pending based on attempts
-                    $maxAttempts = intval($_ENV['WEBHOOK_MAX_ATTEMPTS'] ?? 3);
+                    // Mark as failed if max attempts reached, otherwise back to pending
+                    $maxAttempts = 3;
                     $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
                     
-                    $errorSql = "UPDATE bridge_queue SET status = ?, error_message = ? WHERE id = ?";
-                    $errorStmt = $this->db->prepare($errorSql);
-                    $errorStmt->execute([$newStatus, $e->getMessage(), $item['id']]);
+                    $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
-                    $this->logger->error('Immediate webhook processing failed', [
+                    $this->logger->error('Failed to process immediate webhook queue item', [
                         'queue_id' => $item['id'],
-                        'error' => $e->getMessage(),
-                        'tenant_id' => $item['tenant_id']
+                        'error' => $e->getMessage()
                     ]);
                 }
             }
-
-            $this->logger->info('Immediate webhook queue processing completed', [
-                'processed' => $processed,
-                'errors' => $errors,
-                'total_items' => count($queueItems),
-                'processing_time' => time() - $startTime
-            ]);
         }
         catch (\Exception $e)
         {
-            $this->logger->error('Immediate webhook queue processing failed', [
-                'error' => $e->getMessage(),
-                'tenant_id' => $tenantId
-            ]);
+            $this->logger->error('Immediate webhook queue processing failed', ['error' => $e->getMessage()]);
         }
     }
 
@@ -1866,7 +1814,7 @@ class BridgeController
             ]);
 
             // Process the single event directly instead of full date range sync
-            $syncResults = $this->bridgeManager->processSingleEventSync(
+            $syncResults = $this->syncOrchestrator->processSingleEventSync(
                 $sourceBridge,
                 $targetBridge,
                 $sourceCalendarId,
@@ -2008,6 +1956,7 @@ class BridgeController
                     'source_bridge' => $sourceBridge,
                     'target_bridge' => $targetBridge,
                     'sync_direction' => $syncDirection,
+                   
                     'event_id' => $eventId,
                     'tenant_id' => $tenantId
                 ]);
@@ -2448,9 +2397,51 @@ class BridgeController
             $body = json_decode($request->getBody()->getContents(), true) ?? [];
             $bridgeName = $args['bridgeName'] ?? null;
             $batchSize = $body['batch_size'] ?? 50;
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
 
-            // Process pending syncs
-            $results = $this->bridgeManager->processPendingSyncs($bridgeName, $batchSize);
+            $results = [];
+            
+            if ($bridgeName)
+            {
+                // Process for specific bridge (and tenant if provided)
+                $results[$bridgeName] = $this->syncOrchestrator->processPendingSyncs($bridgeName, $batchSize, ['tenant_id' => $tenantId ?: null]);
+            }
+            else
+            {
+                // Process for all bridges
+                $configuredBridges = $this->bridgeManager->get_configured_bridges();
+                
+                foreach ($configuredBridges as $tId => $bridges)
+                {
+                    // If request is scoped to a specific tenant, skip others
+                    if ($tenantId && $tenantId !== 'default' && $tenantId !== $tId)
+                    {
+                        continue;
+                    }
+
+                    foreach (array_keys($bridges) as $bName)
+                    {
+                        try
+                        {
+                            $results[$bName] = $this->syncOrchestrator->processPendingSyncs($bName, $batchSize, ['tenant_id' => $tId]);
+                        }
+                        catch (\Exception $e)
+                        {
+                            $results[$bName] = [
+                                'processed' => 0,
+                                'errors' => 1,
+                                'error_details' => [['error' => $e->getMessage()]]
+                            ];
+                            
+                            $this->logger->error('Failed to process pending syncs for bridge', [
+                                'bridge' => $bName,
+                                'tenant_id' => $tId,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+                }
+            }
 
             $response->getBody()->write(json_encode([
                 'success' => true,
@@ -2491,9 +2482,44 @@ class BridgeController
             $bridgeName = $args['bridgeName'] ?? null;
             $body = json_decode($request->getBody()->getContents(), true) ?? [];
             $eventIds = $body['event_ids'] ?? [];
+            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
 
-            // Re-enable failed events
-            $results = $this->bridgeManager->reEnableFailedEvents($bridgeName, $eventIds);
+            $results = [];
+
+            if ($bridgeName)
+            {
+                $count = $this->syncOrchestrator->reEnableFailedEvents($bridgeName, $eventIds, ['tenant_id' => $tenantId ?: null]);
+                $results[$bridgeName] = $count;
+            }
+            else
+            {
+                $configuredBridges = $this->bridgeManager->get_configured_bridges();
+                foreach ($configuredBridges as $tId => $bridges)
+                {
+                    if ($tenantId && $tenantId !== 'default' && $tenantId !== $tId)
+                    {
+                        continue;
+                    }
+                    
+                    foreach (array_keys($bridges) as $bName)
+                    {
+                        try
+                        {
+                            $count = $this->syncOrchestrator->reEnableFailedEvents($bName, $eventIds, ['tenant_id' => $tId]);
+                            $results[$bName] = $count;
+                        }
+                        catch (\Exception $e)
+                        {
+                            $results[$bName] = 0;
+                            $this->logger->error('Failed to re-enable failed events for bridge', [
+                                'bridge' => $bName,
+                                'tenant_id' => $tId,
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+                }
+            }
 
             $response->getBody()->write(json_encode([
                 'success' => true,

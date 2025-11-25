@@ -523,4 +523,73 @@ class BridgeMappingRepository
             ':source_event_id' => $sourceEventId
         ]);
     }
+
+    public function findPendingSyncsForBridge(
+        string $bridgeName,
+        int $limit = 50,
+        int $maxRetries = 3,
+        ?string $tenantId = null
+    ): array {
+        $sql = "SELECT * FROM bridge_mappings 
+                WHERE (source_bridge = :bridge_name OR target_bridge = :bridge_name)
+                AND sync_status IN ('pending', 'failed') 
+                AND retry_count < :max_retries";
+        
+        $params = [
+            ':bridge_name' => $bridgeName,
+            ':max_retries' => $maxRetries
+        ];
+
+        if ($tenantId !== null) {
+            $sql .= " AND tenant_id IS NOT DISTINCT FROM :tenant_id";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $sql .= " ORDER BY created_at ASC LIMIT " . (int)$limit;
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function findMappingBySourceEventId(
+        string $sourceBridge,
+        string $targetBridge,
+        string $sourceCalendarId,
+        string $targetCalendarId,
+        string $sourceEventId,
+        ?string $tenantId = null
+    ): ?array {
+        $sql = "SELECT * FROM bridge_mappings 
+                WHERE source_bridge = :source_bridge 
+                AND target_bridge = :target_bridge 
+                AND source_calendar_id = :source_calendar_id 
+                AND target_calendar_id = :target_calendar_id
+                AND source_event_id = :source_event_id";
+        
+        $params = [
+            ':source_bridge' => $sourceBridge,
+            ':target_bridge' => $targetBridge,
+            ':source_calendar_id' => $sourceCalendarId,
+            ':target_calendar_id' => $targetCalendarId,
+            ':source_event_id' => $sourceEventId
+        ];
+
+        if ($tenantId !== null) {
+            $sql .= " AND tenant_id IS NOT DISTINCT FROM :tenant_id";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        $mapping = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($mapping) {
+            $mapping['normalized_reversed'] = false; // Direct lookup implies direct direction
+        }
+        
+        return $mapping ?: null;
+    }
 }

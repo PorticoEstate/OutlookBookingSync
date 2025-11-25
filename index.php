@@ -335,6 +335,11 @@ $container->set(\App\Repository\BridgeConfigRepository::class, function () use (
     return new \App\Repository\BridgeConfigRepository($container->get('db'));
 });
 
+$container->set(\App\Services\SessionManager::class, function () use ($container)
+{
+    return new \App\Services\SessionManager($container->get('logger'));
+});
+
 // Register Bridge Manager and related services
 $container->set('bridgeManager', function () use ($container)
 {
@@ -343,7 +348,8 @@ $container->set('bridgeManager', function () use ($container)
         $container->get('db'), 
         $container->get('syncLog'),
         $container->get(\App\Repository\BridgeMappingRepository::class),
-        $container->get(\App\Repository\BridgeConfigRepository::class)
+        $container->get(\App\Repository\BridgeConfigRepository::class),
+        $container->get(\App\Services\SessionManager::class)
     );
 
     // Register Outlook bridge
@@ -362,6 +368,21 @@ $container->set(\App\Repository\BridgeResourceRepository::class, function () use
     return new \App\Repository\BridgeResourceRepository($container->get('db'));
 });
 
+$container->set(\App\Repository\BridgeQueueRepository::class, function () use ($container)
+{
+    return new \App\Repository\BridgeQueueRepository($container->get('db'));
+});
+
+$container->set(\App\Services\SyncOrchestrator::class, function () use ($container)
+{
+    return new \App\Services\SyncOrchestrator(
+        $container->get('bridgeManager'),
+        $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get('syncLog'),
+        $container->get('logger')
+    );
+});
+
 $container->set(\App\Controller\BridgeController::class, function () use ($container)
 {
     return new \App\Controller\BridgeController(
@@ -369,7 +390,9 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
         $container->get('logger'),
         $container->get('db'),
         $container->get(\App\Repository\BridgeResourceRepository::class),
-        $container->get(\App\Repository\BridgeMappingRepository::class)
+        $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
+        $container->get(\App\Services\SyncOrchestrator::class)
     );
 });
 
