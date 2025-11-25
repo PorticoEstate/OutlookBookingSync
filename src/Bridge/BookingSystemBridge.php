@@ -1099,7 +1099,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Map booking system event to generic format using configurable mappings
      */
-    private function mapBookingEventToGeneric($bookingEvent): array
+    public function mapBookingEventToGeneric($bookingEvent): array
     {
         $mappings = $this->fieldMappings['from_booking_system'];
         $genericEvent = [];

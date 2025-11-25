@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use App\Repository\BridgeMappingRepository;
 use PDO;
 
 /**
@@ -11,10 +12,12 @@ use PDO;
  */
 class ResourceMappingController
 {
+	private BridgeMappingRepository $repository;
 	private PDO $db;
 
-	public function __construct(PDO $db)
+	public function __construct(BridgeMappingRepository $repository, PDO $db)
 	{
+		$this->repository = $repository;
 		$this->db = $db;
 	}
 
@@ -31,58 +34,16 @@ class ResourceMappingController
 		try
 		{
 			$queryParams = $request->getQueryParams();
-			$bridgeFrom = $queryParams['bridge_from'] ?? null;
-			$bridgeTo = $queryParams['bridge_to'] ?? null;
-			$sourceCalendarId = $queryParams['source_calendar_id'] ?? null;
-			$targetCalendarId = $queryParams['target_calendar_id'] ?? null;
-			$activeOnly = ($queryParams['active_only'] ?? 'true') === 'true';
+			$filters = [
+				'bridge_from' => $queryParams['bridge_from'] ?? null,
+				'bridge_to' => $queryParams['bridge_to'] ?? null,
+				'source_calendar_id' => $queryParams['source_calendar_id'] ?? null,
+				'target_calendar_id' => $queryParams['target_calendar_id'] ?? null,
+				'active_only' => ($queryParams['active_only'] ?? 'true') === 'true',
+				'tenant_id' => $request->getAttribute('tenant_id')
+			];
 
-			$sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
-			$params = [];
-
-			// Optional tenant scoping
-			$tenantId = $request->getAttribute('tenant_id');
-			if ($tenantId)
-			{
-				$sql .= " AND (tenant_id = :tenant_id OR tenant_id IS NULL)";
-				$params['tenant_id'] = $tenantId;
-			}
-
-			if ($bridgeFrom)
-			{
-				$sql .= " AND bridge_from = :bridge_from";
-				$params['bridge_from'] = $bridgeFrom;
-			}
-
-			if ($bridgeTo)
-			{
-				$sql .= " AND bridge_to = :bridge_to";
-				$params['bridge_to'] = $bridgeTo;
-			}
-
-			// Handle legacy source_calendar_id parameter - search both source and target
-			if ($sourceCalendarId)
-			{
-				$sql .= " AND (source_calendar_id = :source_calendar_id OR target_calendar_id = :source_calendar_id)";
-				$params['source_calendar_id'] = $sourceCalendarId;
-			}
-
-			if ($targetCalendarId)
-			{
-				$sql .= " AND target_calendar_id = :target_calendar_id";
-				$params['target_calendar_id'] = $targetCalendarId;
-			}
-
-			if ($activeOnly)
-			{
-				$sql .= " AND is_active = true AND sync_enabled = true";
-			}
-
-			$sql .= " ORDER BY created_at DESC";
-
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute($params);
-			$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+			$mappings = $this->repository->findAllResourceMappings($filters);
 
 			foreach ($mappings as &$mapping)
 			{

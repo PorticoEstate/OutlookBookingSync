@@ -188,7 +188,8 @@ $container->set(\App\Controller\HealthController::class, function () use ($conta
 
 $container->set(\App\Controller\AlertController::class, function () use ($container)
 {
-    return new \App\Controller\AlertController($container->get('db'), $container->get('logger'));
+    $alertService = new \App\Services\AlertService($container->get('db'), $container->get('logger'));
+    return new \App\Controller\AlertController($alertService);
 });
 
 $container->set(\App\Controller\MaintenanceController::class, function () use ($container)
@@ -392,6 +393,7 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
         $container->get(\App\Repository\BridgeResourceRepository::class),
         $container->get(\App\Repository\BridgeMappingRepository::class),
         $container->get(\App\Repository\BridgeQueueRepository::class),
+        null, // subscriptionRepository
         $container->get(\App\Services\SyncOrchestrator::class)
     );
 });
@@ -399,15 +401,19 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
 $container->set(\App\Controller\ResourceMappingController::class, function () use ($container)
 {
     return new \App\Controller\ResourceMappingController(
+        $container->get(\App\Repository\BridgeMappingRepository::class),
         $container->get('db')
     );
 });
 
 $container->set(\App\Controller\BridgeResourceController::class, function () use ($container)
 {
-    return new \App\Controller\BridgeResourceController(
-        $container->get('db')
-    );
+    $db = $container->get('db');
+    $logger = $container->get('logger');
+    $resourceRepository = new \App\Repository\BridgeResourceRepository($db);
+    $importService = new \App\Services\ResourceImportService($resourceRepository, $logger, $db);
+    
+    return new \App\Controller\BridgeResourceController($resourceRepository, $importService);
 });
 
 

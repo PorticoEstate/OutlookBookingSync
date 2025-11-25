@@ -592,4 +592,54 @@ class BridgeMappingRepository
         
         return $mapping ?: null;
     }
+
+    /**
+     * Find all resource mappings based on filters.
+     *
+     * @param array $filters
+     * @return array
+     */
+    public function findAllResourceMappings(array $filters = []): array
+    {
+        $sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
+        $params = [];
+
+        // Optional tenant scoping
+        if (!empty($filters['tenant_id'])) {
+            $sql .= " AND (tenant_id = :tenant_id OR tenant_id IS NULL)";
+            $params['tenant_id'] = $filters['tenant_id'];
+        }
+
+        if (!empty($filters['bridge_from'])) {
+            $sql .= " AND bridge_from = :bridge_from";
+            $params['bridge_from'] = $filters['bridge_from'];
+        }
+
+        if (!empty($filters['bridge_to'])) {
+            $sql .= " AND bridge_to = :bridge_to";
+            $params['bridge_to'] = $filters['bridge_to'];
+        }
+
+        // Handle legacy source_calendar_id parameter - search both source and target
+        if (!empty($filters['source_calendar_id'])) {
+            $sql .= " AND (source_calendar_id = :source_calendar_id OR target_calendar_id = :source_calendar_id)";
+            $params['source_calendar_id'] = $filters['source_calendar_id'];
+        }
+
+        if (!empty($filters['target_calendar_id'])) {
+            $sql .= " AND target_calendar_id = :target_calendar_id";
+            $params['target_calendar_id'] = $filters['target_calendar_id'];
+        }
+
+        if (isset($filters['active_only']) && $filters['active_only'] === true) {
+            $sql .= " AND is_active = true AND sync_enabled = true";
+        }
+
+        $sql .= " ORDER BY created_at DESC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }

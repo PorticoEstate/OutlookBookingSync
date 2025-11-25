@@ -562,4 +562,65 @@ class AlertService
 			];
 		}
 	}
+
+	/**
+	 * Acknowledge an alert.
+	 *
+	 * @param int $alertId
+	 * @param string $acknowledgedBy
+	 * @return bool True if acknowledged, false if not found or already acknowledged
+	 */
+	public function acknowledgeAlert($alertId, $acknowledgedBy)
+	{
+		$stmt = $this->db->prepare("
+            UPDATE outlook_sync_alerts 
+            SET acknowledged_at = NOW(), acknowledged_by = ?
+            WHERE id = ? AND acknowledged_at IS NULL
+        ");
+		$stmt->execute([$acknowledgedBy, $alertId]);
+
+		return $stmt->rowCount() > 0;
+	}
+
+	/**
+	 * Get alert statistics.
+	 *
+	 * @param int $hours
+	 * @return array
+	 */
+	public function getAlertStats($hours = 24)
+	{
+		$stmt = $this->db->prepare("
+            SELECT 
+                severity,
+                alert_type,
+                COUNT(*) as count,
+                MAX(created_at) as latest_occurrence
+            FROM outlook_sync_alerts 
+            WHERE created_at > NOW() - INTERVAL '{$hours} hours'
+            GROUP BY severity, alert_type
+            ORDER BY severity DESC, count DESC
+        ");
+		$stmt->execute();
+		$results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+		// Get summary stats
+		$summaryStmt = $this->db->prepare("
+            SELECT 
+                COUNT(*) as total_alerts,
+                COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_alerts,
+                COUNT(CASE WHEN severity = 'warning' THEN 1 END) as warning_alerts,
+                COUNT(CASE WHEN acknowledged_at IS NOT NULL THEN 1 END) as acknowledged_alerts
+            FROM outlook_sync_alerts 
+            WHERE created_at > NOW() - INTERVAL '{$hours} hours'
+        ");
+		$summaryStmt->execute();
+		$summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
+
+		return [
+			'hours' => $hours,
+			'summary' => $summary,
+			'breakdown' => $results
+		];
+	}
 }

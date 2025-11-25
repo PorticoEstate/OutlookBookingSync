@@ -334,34 +334,6 @@ class WebhookService
     private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         try {
-            // Prefer Redis if available (TODO: Abstract this into QueueService/Repository)
-            if (extension_loaded('redis') && class_exists('\\Redis')) {
-                $redisClass = '\\Redis';
-                $redis = new $redisClass();
-                $redis->connect('localhost', 6379);
-
-                $queueData = [
-                    'type' => 'bridge_sync',
-                    'source_bridge' => $sourceBridge,
-                    'target_bridge' => $targetBridge,
-                    'webhook_data' => $webhookData,
-                    'created_at' => time(),
-                    'priority' => 1
-                ];
-
-                $redis->zadd('bridge_sync_queue', time(), json_encode($queueData));
-            } else {
-                $this->queueRepository->enqueue(
-                    'bridge_sync',
-                    $sourceBridge,
-                    $targetBridge,
-                    $webhookData,
-                    1,
-                    $tenantId
-                );
-            }
-        } catch (\Exception $e) {
-            $this->logger->warning('Redis not available, using database queue fallback', ['error' => $e->getMessage()]);
             $this->queueRepository->enqueue(
                 'bridge_sync',
                 $sourceBridge,
@@ -370,6 +342,12 @@ class WebhookService
                 1,
                 $tenantId
             );
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to enqueue sync operation', [
+                'error' => $e->getMessage(),
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge
+            ]);
         }
     }
 
@@ -522,14 +500,11 @@ class WebhookService
                 ]);
                 
                 // Transform booking system event data to generic format using the bridge's mapping
-                if ($sourceBridge === 'booking_system' && method_exists($sourceBridgeInstance, 'mapBookingEventToGeneric')) {
-                    // Use reflection to call private method (or make it public/protected)
-                    $reflection = new \ReflectionClass($sourceBridgeInstance);
-                    $method = $reflection->getMethod('mapBookingEventToGeneric');
-                    $method->setAccessible(true);
-                    $sourceEvent = $method->invoke($sourceBridgeInstance, $entityData);
+                if ($sourceBridge === 'booking_system' && $sourceBridgeInstance instanceof \App\Bridge\BookingSystemBridge) {
+                    // Use public method if available instead of Reflection
+                    $sourceEvent = $sourceBridgeInstance->mapBookingEventToGeneric($entityData);
                 } else {
-                    // For other bridges or if method doesn't exist, use entity_data directly
+                    // For other bridges or if method doesn't exist/isn't public, use entity_data directly
                     $sourceEvent = $entityData;
                 }
             }

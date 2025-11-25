@@ -294,6 +294,17 @@ abstract class AbstractCalendarBridge
         ];
     }
 
+    /**
+     * Map booking system event to generic format.
+     *
+     * @param array $bookingEvent
+     * @return array
+     */
+    public function mapBookingEventToGeneric($bookingEvent): array
+    {
+        return [];
+    }
+
     // ----------------------
     // Session management
     // ----------------------
