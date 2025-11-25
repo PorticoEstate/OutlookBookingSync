@@ -43,6 +43,16 @@ abstract class AbstractCalendarBridge
         $this->initialize();
     }
 
+    /**
+     * Get the bridge configuration.
+     *
+     * @return array
+     */
+    public function getConfig()
+    {
+        return $this->config;
+    }
+
     // Abstract methods that each bridge must implement
     /** @param string $calendarId @param string $startDate @param string $endDate @return array<int,array<string,mixed>> */
     abstract public function getEvents($calendarId, $startDate, $endDate): array;

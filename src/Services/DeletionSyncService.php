@@ -17,18 +17,23 @@ class DeletionSyncService
 	 /** @var mixed BridgeManager orchestrator */
 	 private $bridgeManager;
 
+	 /** @var \App\Repository\BridgeQueueRepository Queue repository */
+	 private $queueRepository;
+
 	 /**
 	  * Constructor.
 	  *
 	  * @param PDO $db Database connection
 	  * @param LoggerInterface $logger Logger
 	  * @param mixed $bridgeManager BridgeManager instance
+	  * @param \App\Repository\BridgeQueueRepository $queueRepository Queue repository
 	  */
-	public function __construct(PDO $db, LoggerInterface $logger, $bridgeManager)
+	public function __construct(PDO $db, LoggerInterface $logger, $bridgeManager, $queueRepository)
 	{
 		$this->db = $db;
 		$this->logger = $logger;
 		$this->bridgeManager = $bridgeManager;
+		$this->queueRepository = $queueRepository;
 	}
 
 	/**
@@ -48,12 +53,15 @@ class DeletionSyncService
 		try
 		{
 			// Get pending deletion checks from queue
-			$checks = $this->getDeletionChecks($tenantId);
+			$checks = $this->queueRepository->findPendingItems('deletion_check', 50, $tenantId);
 
 			foreach ($checks as $check)
 			{
 				try
 				{
+                    // Mark as processing
+                    $this->queueRepository->markProcessing($check['id']);
+
 					$checkData = json_decode($check['payload'], true);
 					$mappingTenantId = $check['tenant_id'];
 
@@ -65,7 +73,7 @@ class DeletionSyncService
 					$results['processed']++;
 
 					// Mark queue item as processed
-					$this->markQueueItemProcessed($check['id']);
+					$this->queueRepository->markCompleted($check['id']);
 				}
 				catch (\Exception $e)
 				{
@@ -74,7 +82,7 @@ class DeletionSyncService
 						'error' => $e->getMessage()
 					];
 
-					$this->markQueueItemFailed($check['id'], $e->getMessage());
+					$this->queueRepository->updateStatus($check['id'], 'failed', $e->getMessage());
 				}
 			}
 		}
@@ -112,66 +120,28 @@ class DeletionSyncService
 
 		try
 		{
-			// Attempt to get the specific event
-			$event = $this->getOutlookEvent($outlookBridge, $calendarId, $eventId);
-
-			if ($event === null)
+			// Attempt to get the specific event using the public bridge interface
+			// This will throw an exception if the event is not found (404)
+			$event = $outlookBridge->getEvent($calendarId, $eventId);
+			
+			// If we get here, the event exists
+			return false;
+		}
+		catch (\Exception $e)
+		{
+			// Check if it's a "not found" error
+			if (
+				strpos($e->getMessage(), '404') !== false ||
+				strpos($e->getMessage(), 'not found') !== false ||
+				strpos($e->getMessage(), 'Event not found') !== false
+			)
 			{
 				// Event doesn't exist in Outlook anymore - it was deleted
 				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
 				return true;
 			}
 
-			// Event still exists, no deletion detected
-			return false;
-		}
-		catch (\Exception $e)
-		{
-			// If we get a 404 or similar error, the event was likely deleted
-			if (
-				strpos($e->getMessage(), '404') !== false ||
-				strpos($e->getMessage(), 'not found') !== false
-			)
-			{
-
-				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
-				return true;
-			}
-
 			// Other errors should be re-thrown
-			throw $e;
-		}
-	}
-
-	/**
-	 * Get a specific event from Outlook.
-	 *
-	 * @param mixed $outlookBridge Outlook bridge instance
-	 * @param string $calendarId Outlook user or calendar ID
-	 * @param string $eventId Outlook event ID
-	 * @return array|null Event data if found, null if 404/not found
-	 * @throws \Exception On non-404 errors from Graph
-	 */
-	private function getOutlookEvent($outlookBridge, $calendarId, $eventId)
-	{
-		$graphBaseUrl = 'https://graph.microsoft.com/v1.0';
-		$url = "{$graphBaseUrl}/users/{$calendarId}/calendar/events/{$eventId}";
-
-		try
-		{
-			// Use reflection to access the private makeGraphRequest method
-			$reflection = new \ReflectionClass($outlookBridge);
-			$method = $reflection->getMethod('makeGraphRequest');
-			$method->setAccessible(true);
-
-			return $method->invoke($outlookBridge, 'GET', $url);
-		}
-		catch (\Exception $e)
-		{
-			if (strpos($e->getMessage(), '404') !== false)
-			{
-				return null; // Event not found
-			}
 			throw $e;
 		}
 	}
@@ -323,61 +293,7 @@ class DeletionSyncService
 		]);
 	}
 
-	/**
-	 * Get pending deletion checks from queue.
-	 *
-	 * @param string|null $tenantId Tenant identifier to filter by
-	 * @return array<int,array<string,mixed>> Queue rows
-	 */
-	private function getDeletionChecks(?string $tenantId = null): array
-	{
-		$sql = "SELECT * FROM bridge_queue 
-				WHERE queue_type = 'deletion_check' 
-				AND status = 'pending' " . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . "
-				ORDER BY scheduled_at ASC 
-				LIMIT 50";
-		$stmt = $this->db->prepare($sql);
-		$params = [];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
-		return $stmt->fetchAll(PDO::FETCH_ASSOC);
-	}
 
-	/**
-	 * Mark queue item as processed.
-	 *
-	 * @param int $queueId Queue row ID
-	 * @return void
-	 */
-	private function markQueueItemProcessed($queueId)
-	{
-		$sql = "UPDATE bridge_queue 
-                SET status = 'completed', processed_at = CURRENT_TIMESTAMP 
-                WHERE id = :id";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([':id' => $queueId]);
-	}
-
-	/**
-	 * Mark queue item as failed.
-	 *
-	 * @param int $queueId Queue row ID
-	 * @param string $errorMessage Error message
-	 * @return void
-	 */
-	private function markQueueItemFailed($queueId, $errorMessage)
-	{
-		$sql = "UPDATE bridge_queue 
-                SET status = 'failed', error_message = :error, processed_at = CURRENT_TIMESTAMP 
-                WHERE id = :id";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':id' => $queueId,
-			':error' => $errorMessage
-		]);
-	}
 
 	/**
 	 * Manual deletion sync - check all recent mappings for deleted Outlook events.
@@ -389,7 +305,7 @@ class DeletionSyncService
 	{
 		$results = [
 			'checked' => 0,
-			'deleted' => 0,
+			'queued' => 0,
 			'errors' => []
 		];
 
@@ -417,11 +333,16 @@ class DeletionSyncService
 					'event_id' => $mapping['source_event_id']
 				];
 
-				if ($this->processOutlookDeletionCheck($checkData, $mappingTenantId))
-				{
-					$results['deleted']++;
-				}
+                $this->queueRepository->enqueue(
+                    'deletion_check',
+                    'outlook',
+                    null,
+                    $checkData,
+                    5,
+                    $mappingTenantId
+                );
 
+				$results['queued']++;
 				$results['checked']++;
 			}
 			catch (\Exception $e)
