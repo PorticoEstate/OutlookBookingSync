@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Services\BridgeManager;
+use App\Services\SyncLogService;
 use App\Repository\BridgeResourceRepository;
 use App\Repository\BridgeMappingRepository;
 use App\Repository\BridgeQueueRepository;
@@ -10,7 +11,6 @@ use App\Repository\BridgeSubscriptionRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
-use PDO;
 
 /**
  * BridgeController provides endpoints to interact with bridges: listing, syncing,
@@ -20,52 +20,45 @@ class BridgeController
 {
     private $bridgeManager;
     private $logger;
-    private $db;
     private $resourceRepository;
     private $mappingRepository;
     private $queueRepository;
     private $subscriptionRepository;
     private $syncOrchestrator;
     private $webhookService;
+    private $syncLogService;
 
     /**
      * @param BridgeManager $bridgeManager Bridge orchestrator
      * @param LoggerInterface $logger Logger
-     * @param PDO $db Database connection
-     * @param BridgeResourceRepository|null $resourceRepository
-     * @param BridgeMappingRepository|null $mappingRepository
-     * @param BridgeQueueRepository|null $queueRepository
-     * @param BridgeSubscriptionRepository|null $subscriptionRepository
-     * @param \App\Services\SyncOrchestrator|null $syncOrchestrator
-     * @param \App\Services\WebhookService|null $webhookService
+     * @param BridgeResourceRepository $resourceRepository
+     * @param BridgeMappingRepository $mappingRepository
+     * @param BridgeQueueRepository $queueRepository
+     * @param BridgeSubscriptionRepository $subscriptionRepository
+     * @param \App\Services\SyncOrchestrator $syncOrchestrator
+     * @param \App\Services\WebhookService $webhookService
+     * @param SyncLogService $syncLogService
      */
     public function __construct(
         BridgeManager $bridgeManager, 
         LoggerInterface $logger, 
-        PDO $db,
-        ?BridgeResourceRepository $resourceRepository = null,
-        ?BridgeMappingRepository $mappingRepository = null,
-        ?BridgeQueueRepository $queueRepository = null,
-        ?BridgeSubscriptionRepository $subscriptionRepository = null,
-        ?\App\Services\SyncOrchestrator $syncOrchestrator = null,
-        ?\App\Services\WebhookService $webhookService = null
+        BridgeResourceRepository $resourceRepository,
+        BridgeMappingRepository $mappingRepository,
+        BridgeQueueRepository $queueRepository,
+        BridgeSubscriptionRepository $subscriptionRepository,
+        \App\Services\SyncOrchestrator $syncOrchestrator,
+        \App\Services\WebhookService $webhookService,
+        SyncLogService $syncLogService
     ) {
         $this->bridgeManager = $bridgeManager;
         $this->logger = $logger;
-        $this->db = $db;
-        $this->resourceRepository = $resourceRepository ?: new BridgeResourceRepository($db);
-        $this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
-        $this->queueRepository = $queueRepository ?: new BridgeQueueRepository($db);
-        $this->subscriptionRepository = $subscriptionRepository ?: new BridgeSubscriptionRepository($db);
+        $this->resourceRepository = $resourceRepository;
+        $this->mappingRepository = $mappingRepository;
+        $this->queueRepository = $queueRepository;
+        $this->subscriptionRepository = $subscriptionRepository;
         $this->syncOrchestrator = $syncOrchestrator;
-        $this->webhookService = $webhookService ?: new \App\Services\WebhookService(
-            $logger, 
-            $bridgeManager, 
-            $this->queueRepository,
-            $this->resourceRepository,
-            $this->mappingRepository,
-            $this->syncOrchestrator
-        );
+        $this->webhookService = $webhookService;
+        $this->syncLogService = $syncLogService;
     }
 
     /**
@@ -839,10 +832,11 @@ class BridgeController
         try
         {
             $deletionService = new \App\Services\DeletionSyncService(
-                $this->db,
                 $this->logger,
                 $this->bridgeManager,
-                $this->queueRepository
+                $this->queueRepository,
+                $this->mappingRepository,
+                $this->syncLogService
             );
 
             $results = $deletionService->syncDeletedEvents();
@@ -882,10 +876,11 @@ class BridgeController
         try
         {
             $deletionService = new \App\Services\DeletionSyncService(
-                $this->db,
                 $this->logger,
                 $this->bridgeManager,
-                $this->queueRepository
+                $this->queueRepository,
+                $this->mappingRepository,
+                $this->syncLogService
             );
 
             $results = $deletionService->processDeletionChecks();

@@ -2,7 +2,8 @@
 
 namespace App\Services;
 
-use PDO;
+use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeQueueRepository;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -10,30 +11,42 @@ use Psr\Log\LoggerInterface;
  */
 class DeletionSyncService
 {
-	 /** @var PDO Database connection */
-	 private PDO $db;
 	 /** @var LoggerInterface Logger instance */
 	 private LoggerInterface $logger;
 	 /** @var mixed BridgeManager orchestrator */
 	 private $bridgeManager;
 
-	 /** @var \App\Repository\BridgeQueueRepository Queue repository */
+	 /** @var BridgeQueueRepository Queue repository */
 	 private $queueRepository;
+
+	 /** @var BridgeMappingRepository Mapping repository */
+	 private $mappingRepository;
+
+	 /** @var SyncLogService Sync log service */
+	 private $syncLogService;
 
 	 /**
 	  * Constructor.
 	  *
-	  * @param PDO $db Database connection
 	  * @param LoggerInterface $logger Logger
 	  * @param mixed $bridgeManager BridgeManager instance
-	  * @param \App\Repository\BridgeQueueRepository $queueRepository Queue repository
+	  * @param BridgeQueueRepository $queueRepository Queue repository
+	  * @param BridgeMappingRepository $mappingRepository Mapping repository
+	  * @param SyncLogService $syncLogService Sync log service
 	  */
-	public function __construct(PDO $db, LoggerInterface $logger, $bridgeManager, $queueRepository)
+	public function __construct(
+		LoggerInterface $logger, 
+		$bridgeManager, 
+		BridgeQueueRepository $queueRepository,
+		BridgeMappingRepository $mappingRepository,
+		SyncLogService $syncLogService
+	)
 	{
-		$this->db = $db;
 		$this->logger = $logger;
 		$this->bridgeManager = $bridgeManager;
 		$this->queueRepository = $queueRepository;
+		$this->mappingRepository = $mappingRepository;
+		$this->syncLogService = $syncLogService;
 	}
 
 	/**
@@ -236,17 +249,7 @@ class DeletionSyncService
 	 */
 	private function findMappingsForOutlookEvent($calendarId, $eventId, ?string $tenantId = null): array
 	{
-		$sql = "SELECT * FROM bridge_mappings 
-				WHERE source_bridge = 'outlook' 
-				AND source_calendar_id = :calendar_id 
-				AND source_event_id = :event_id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-
-		$stmt = $this->db->prepare($sql);
-		$params = [ ':calendar_id' => $calendarId, ':event_id' => $eventId ];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
-
-		return $stmt->fetchAll(PDO::FETCH_ASSOC);
+		return $this->mappingRepository->findMappingsByEvent('outlook', $calendarId, $eventId, $tenantId);
 	}
 
 	/**
@@ -258,11 +261,7 @@ class DeletionSyncService
 	 */
 	private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
 	{
-		$sql = "DELETE FROM bridge_mappings WHERE id = :id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-		$stmt = $this->db->prepare($sql);
-		$params = [':id' => $mappingId];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
+		$this->mappingRepository->deleteMappingById($mappingId, $tenantId);
 	}
 
 	/**
@@ -278,19 +277,17 @@ class DeletionSyncService
 	 */
 	private function logSyncOperation($operation, $sourceBridge, $targetBridge, $status, $details = [], ?string $tenantId = null)
 	{
-		$sql = "INSERT INTO bridge_sync_logs 
-				(source_bridge, target_bridge, operation, status, details, tenant_id) 
-				VALUES (:source, :target, :operation, :status, :details, :tenant_id)";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':source' => $sourceBridge,
-			':target' => $targetBridge,
-			':operation' => $operation,
-			':status' => $status,
-			':details' => json_encode($details),
-			':tenant_id' => $tenantId
-		]);
+		$this->syncLogService->write(
+			$operation,
+			$sourceBridge,
+			$targetBridge,
+			$status,
+			0, // eventCount
+			$details,
+			null, // durationMs
+			null, // errorMessage
+			$tenantId
+		);
 	}
 
 
@@ -310,18 +307,7 @@ class DeletionSyncService
 		];
 
 		// Get all recent Outlook to booking system mappings
-		$sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
-					FROM bridge_mappings 
-					WHERE source_bridge = 'outlook' 
-			AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-		$stmt = $this->db->prepare($sql);
-		$params = [];
-		if ($tenantId !== null)
-		{
-			$params[':tenant_id'] = (string)$tenantId;
-		}
-		$stmt->execute($params);
-		$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+		$mappings = $this->mappingRepository->findRecentOutlookMappings(7, $tenantId);
 
 		foreach ($mappings as $mapping)
 		{

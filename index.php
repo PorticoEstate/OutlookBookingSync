@@ -374,6 +374,11 @@ $container->set(\App\Repository\BridgeQueueRepository::class, function () use ($
     return new \App\Repository\BridgeQueueRepository($container->get('db'));
 });
 
+$container->set(\App\Repository\BridgeSubscriptionRepository::class, function () use ($container)
+{
+    return new \App\Repository\BridgeSubscriptionRepository($container->get('db'));
+});
+
 $container->set(\App\Services\SyncOrchestrator::class, function () use ($container)
 {
     return new \App\Services\SyncOrchestrator(
@@ -384,17 +389,30 @@ $container->set(\App\Services\SyncOrchestrator::class, function () use ($contain
     );
 });
 
+$container->set(\App\Services\WebhookService::class, function () use ($container)
+{
+    return new \App\Services\WebhookService(
+        $container->get('logger'),
+        $container->get('bridgeManager'),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Services\SyncOrchestrator::class)
+    );
+});
+
 $container->set(\App\Controller\BridgeController::class, function () use ($container)
 {
     return new \App\Controller\BridgeController(
         $container->get('bridgeManager'),
         $container->get('logger'),
-        $container->get('db'),
         $container->get(\App\Repository\BridgeResourceRepository::class),
         $container->get(\App\Repository\BridgeMappingRepository::class),
         $container->get(\App\Repository\BridgeQueueRepository::class),
-        null, // subscriptionRepository
-        $container->get(\App\Services\SyncOrchestrator::class)
+        $container->get(\App\Repository\BridgeSubscriptionRepository::class),
+        $container->get(\App\Services\SyncOrchestrator::class),
+        $container->get(\App\Services\WebhookService::class),
+        $container->get('syncLog')
     );
 });
 
@@ -402,7 +420,7 @@ $container->set(\App\Controller\ResourceMappingController::class, function () us
 {
     return new \App\Controller\ResourceMappingController(
         $container->get(\App\Repository\BridgeMappingRepository::class),
-        $container->get('db')
+        $container->get(\App\Repository\BridgeQueueRepository::class)
     );
 });
 

@@ -642,4 +642,271 @@ class BridgeMappingRepository
         
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+
+    /**
+     * Find a resource mapping by its unique keys.
+     */
+    public function findResourceMapping(string $bridgeFrom, string $bridgeTo, string $sourceCalendarId, string $targetCalendarId, ?string $tenantId): ?array
+    {
+        $sql = "SELECT id, is_active FROM bridge_resource_mappings 
+                WHERE bridge_from = :bridge_from 
+                AND bridge_to = :bridge_to 
+                AND source_calendar_id = :source_calendar_id 
+                AND target_calendar_id = :target_calendar_id
+                AND (tenant_id = :tenant_id OR (tenant_id IS NULL AND :tenant_id IS NULL))";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'bridge_from' => $bridgeFrom,
+            'bridge_to' => $bridgeTo,
+            'source_calendar_id' => $sourceCalendarId,
+            'target_calendar_id' => $targetCalendarId,
+            'tenant_id' => $tenantId
+        ]);
+
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Reactivate an existing resource mapping.
+     */
+    public function reactivateResourceMapping(int $id, string $syncDirection): void
+    {
+        $sql = "UPDATE bridge_resource_mappings 
+                SET is_active = true, 
+                    sync_enabled = true,
+                    sync_direction = :sync_direction,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'id' => $id,
+            'sync_direction' => $syncDirection
+        ]);
+    }
+
+    /**
+     * Create a new resource mapping.
+     */
+    public function createResourceMapping(array $data): int
+    {
+        $sql = "INSERT INTO bridge_resource_mappings 
+                (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
+                source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled, tenant_id) 
+                VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
+                :source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled, :tenant_id)
+                RETURNING id";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'bridge_from' => $data['bridge_from'],
+            'bridge_to' => $data['bridge_to'],
+            'source_calendar_id' => $data['source_calendar_id'],
+            'target_calendar_id' => $data['target_calendar_id'],
+            'source_calendar_name' => $data['source_calendar_name'] ?? null,
+            'target_calendar_name' => $data['target_calendar_name'] ?? null,
+            'sync_direction' => $data['sync_direction'] ?? 'bidirectional',
+            'is_active' => $data['is_active'] ?? true,
+            'sync_enabled' => $data['sync_enabled'] ?? true,
+            'tenant_id' => $data['tenant_id'] ?? null
+        ]);
+
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Find a resource mapping by ID.
+     */
+    public function findResourceMappingById(int $id): ?array
+    {
+        $sql = "SELECT * FROM bridge_resource_mappings WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(['id' => $id]);
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Update a resource mapping.
+     */
+    public function updateResourceMapping(int $id, array $fields, array $params): bool
+    {
+        $fields[] = "updated_at = CURRENT_TIMESTAMP";
+        $params['id'] = $id;
+        
+        $sql = "UPDATE bridge_resource_mappings SET " . implode(', ', $fields) . " WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        
+        return $stmt->execute($params);
+    }
+
+    /**
+     * Find resource mapping by composite key (bridge_from, source_calendar_id, target_calendar_id).
+     * Checks both directions for backward compatibility.
+     */
+    public function findResourceMappingByCompositeKey(string $bridgeFrom, string $sourceCalendarId, string $targetCalendarId, ?string $tenantId): ?array
+    {
+        $sql = "SELECT id, bridge_from, bridge_to, source_calendar_id, target_calendar_id, source_calendar_name, target_calendar_name, tenant_id
+                FROM bridge_resource_mappings 
+                WHERE bridge_from = :bridge_from 
+                AND ((source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
+                     OR (source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
+                AND is_active = true";
+        
+        $params = [
+            'bridge_from' => $bridgeFrom,
+            'source_calendar_id' => $sourceCalendarId,
+            'target_calendar_id' => $targetCalendarId
+        ];
+
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params['tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Count dependent mappings for a resource pair.
+     */
+    public function countDependentMappings(string $bridgeFrom, string $bridgeTo, string $sourceId, string $targetId, ?string $tenantId): int
+    {
+        $sql = "SELECT COUNT(*) FROM bridge_mappings 
+                WHERE (
+                  (source_bridge = :bridge_from AND target_bridge = :bridge_to AND source_calendar_id = :source_id AND target_calendar_id = :target_id)
+                  OR
+                  (source_bridge = :bridge_to AND target_bridge = :bridge_from AND source_calendar_id = :target_id AND target_calendar_id = :source_id)
+                )";
+        
+        $params = [
+            'bridge_from' => $bridgeFrom,
+            'bridge_to' => $bridgeTo,
+            'source_id' => $sourceId,
+            'target_id' => $targetId
+        ];
+
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params['tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Hard delete a resource mapping.
+     */
+    public function deleteResourceMapping(int $id): bool
+    {
+        $sql = "DELETE FROM bridge_resource_mappings WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        return $stmt->execute(['id' => $id]);
+    }
+
+    /**
+     * Soft delete a resource mapping.
+     */
+    public function softDeleteResourceMapping(int $id): bool
+    {
+        $sql = "UPDATE bridge_resource_mappings 
+                SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        return $stmt->execute(['id' => $id]);
+    }
+
+    /**
+     * Find resource mappings by source calendar ID.
+     */
+    public function findResourceMappingsByResource(string $sourceCalendarId, string $bridgeFrom): array
+    {
+        $sql = "SELECT * FROM bridge_resource_mappings
+                WHERE source_calendar_id = :source_calendar_id
+                AND bridge_from = :bridge_from
+                AND is_active = true 
+                ORDER BY created_at DESC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'source_calendar_id' => $sourceCalendarId,
+            'bridge_from' => $bridgeFrom
+        ]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Find mappings by source event ID.
+     */
+    public function findMappingsByEvent(string $sourceBridge, string $calendarId, string $eventId, ?string $tenantId): array
+    {
+        $sql = "SELECT * FROM bridge_mappings 
+                WHERE source_bridge = :source_bridge 
+                AND source_calendar_id = :calendar_id 
+                AND source_event_id = :event_id";
+        
+        $params = [
+            ':source_bridge' => $sourceBridge,
+            ':calendar_id' => $calendarId,
+            ':event_id' => $eventId
+        ];
+
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Delete a mapping by ID.
+     */
+    public function deleteMappingById(int $id, ?string $tenantId = null): void
+    {
+        $sql = "DELETE FROM bridge_mappings WHERE id = :id";
+        $params = [':id' => $id];
+
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+    }
+
+    /**
+     * Find recent Outlook mappings for deletion check.
+     */
+    public function findRecentOutlookMappings(int $days, ?string $tenantId = null): array
+    {
+        $sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
+                FROM bridge_mappings 
+                WHERE source_bridge = 'outlook' 
+                AND last_synced_at > NOW() - INTERVAL '$days days'";
+        
+        $params = [];
+
+        if ($tenantId !== null) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
