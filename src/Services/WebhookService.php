@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Repository\BridgeQueueRepository;
 use App\Repository\BridgeResourceRepository;
 use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeSubscriptionRepository;
 use Psr\Log\LoggerInterface;
 
 class WebhookService
@@ -14,6 +15,7 @@ class WebhookService
     private $queueRepository;
     private $resourceRepository;
     private $mappingRepository;
+    private $subscriptionRepository;
     private $syncOrchestrator;
 
     public function __construct(
@@ -22,6 +24,7 @@ class WebhookService
         BridgeQueueRepository $queueRepository,
         BridgeResourceRepository $resourceRepository,
         BridgeMappingRepository $mappingRepository,
+        BridgeSubscriptionRepository $subscriptionRepository,
         SyncOrchestrator $syncOrchestrator
     ) {
         $this->logger = $logger;
@@ -29,6 +32,7 @@ class WebhookService
         $this->queueRepository = $queueRepository;
         $this->resourceRepository = $resourceRepository;
         $this->mappingRepository = $mappingRepository;
+        $this->subscriptionRepository = $subscriptionRepository;
         $this->syncOrchestrator = $syncOrchestrator;
     }
 
@@ -398,9 +402,12 @@ class WebhookService
             return null;
         }
 
+        // Transform to internal format matching Outlook notification structure
+        // Create composite event ID with entity_type prefix (e.g., "event_117905")
+        $compositeEventId = ($entityType ? $entityType . '_' : '') . $entityId;
         return [
             'resource_id' => $resourceId,
-            'event_id' => $entityId,
+            'event_id' => $compositeEventId,
             'change_type' => $changeType,
             'entity_type' => $entityType,
             'timestamp' => date('c'),
@@ -759,5 +766,144 @@ class WebhookService
         } catch (\Exception $e) {
             $this->logger->error('Failed to mark mapping as cancelled', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Renew expiring webhook subscriptions.
+     */
+    public function renewSubscriptions(string $bridge = '', int $minutes = 1440, int $limit = 50, string $tenantId = '', string $subscriptionId = ''): array
+    {
+        $rows = $this->subscriptionRepository->findExpiring($minutes, $limit, $bridge ?: null, $tenantId ?: null, $subscriptionId ?: null);
+
+        $renewed = [];
+        $failed = [];
+        $recreated = [];
+
+        if (empty($rows)) {
+            return [
+                'checked' => 0,
+                'renewed' => [],
+                'recreated' => [],
+                'failed' => [],
+                'summary' => ['total_checked' => 0, 'success_count' => 0]
+            ];
+        }
+
+        $prevSubscriptionTenantId = null;
+        $bridgeInstance = null;
+
+        foreach ($rows as $row) {
+            $subscriptionTenantId = $row['tenant_id'];
+            $subscriptionBridge = $row['bridge_type'];
+
+            if (!$tenantId || $subscriptionTenantId !== $prevSubscriptionTenantId) {
+                $bridgeInstance = $this->bridgeManager->getBridgeForTenant($subscriptionTenantId, $subscriptionBridge);
+            }
+            $prevSubscriptionTenantId = $row['tenant_id'];
+
+            $expiresAt = $row['expires_at'];
+            $isExpired = strtotime($expiresAt) < time();
+
+            if ($isExpired) {
+                // Expired - recreate
+                $this->logger->info('Subscription expired, recreating', [
+                    'subscription_id' => $row['subscription_id'],
+                    'tenant_id' => $subscriptionTenantId
+                ]);
+
+                $this->subscriptionRepository->deactivate($row['subscription_id'], $subscriptionTenantId);
+
+                if (method_exists($bridgeInstance, 'subscribeToChanges')) {
+                    try {
+                        $webhookUrl = $row['webhook_url'];
+                        if (!$webhookUrl) {
+                            $baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
+                            $webhookUrl = "{$baseUrl}/bridges/webhook/{$subscriptionBridge}?tenant_id={$subscriptionTenantId}";
+                        }
+
+                        $newSubscriptionId = $bridgeInstance->subscribeToChanges(
+                            $row['calendar_id'],
+                            $webhookUrl,
+                            $row['subscription_id']
+                        );
+
+                        $recreated[] = [
+                            'success' => true,
+                            'old_subscription_id' => $row['subscription_id'],
+                            'new_subscription_id' => $newSubscriptionId,
+                            'calendar_id' => $row['calendar_id']
+                        ];
+                    } catch (\Exception $e) {
+                        $failed[] = [
+                            'subscription_id' => $row['subscription_id'],
+                            'error' => $e->getMessage()
+                        ];
+                    }
+                } else {
+                    $failed[] = ['subscription_id' => $row['subscription_id'], 'error' => 'Bridge does not support subscription creation'];
+                }
+            } else {
+                // Renew
+                if (method_exists($bridgeInstance, 'renewSubscription')) {
+                    $result = $bridgeInstance->renewSubscription($row['subscription_id']);
+                    if (!empty($result['success'])) {
+                        $renewed[] = $result;
+                    } else {
+                        // Check if 404/not found
+                        $errorMessage = $result['error'] ?? '';
+                        if (stripos($errorMessage, '404') !== false || 
+                            stripos($errorMessage, 'not found') !== false ||
+                            (stripos($errorMessage, 'subscription') !== false && stripos($errorMessage, 'does not exist') !== false)) {
+                            
+                            // Recreate
+                            $this->subscriptionRepository->deactivate($row['subscription_id'], $subscriptionTenantId);
+                            
+                            if (method_exists($bridgeInstance, 'subscribeToChanges')) {
+                                try {
+                                    $webhookUrl = $row['webhook_url'];
+                                    if (!$webhookUrl) {
+                                        $baseUrl = $_ENV['APP_BASE_URL'] ?? 'http://localhost';
+                                        $webhookUrl = "{$baseUrl}/bridges/webhook/{$subscriptionBridge}?tenant_id={$subscriptionTenantId}";
+                                    }
+
+                                    $newSubscriptionId = $bridgeInstance->subscribeToChanges(
+                                        $row['calendar_id'],
+                                        $webhookUrl,
+                                        $row['subscription_id']
+                                    );
+
+                                    $recreated[] = [
+                                        'success' => true,
+                                        'old_subscription_id' => $row['subscription_id'],
+                                        'new_subscription_id' => $newSubscriptionId,
+                                        'reason' => 'not_found_on_microsoft'
+                                    ];
+                                } catch (\Exception $e) {
+                                    $failed[] = ['subscription_id' => $row['subscription_id'], 'error' => $e->getMessage()];
+                                }
+                            }
+                        } else {
+                            $failed[] = $result;
+                        }
+                    }
+                } else {
+                    $failed[] = ['subscription_id' => $row['subscription_id'], 'error' => 'Bridge does not support renewal'];
+                }
+            }
+        }
+
+        return [
+            'checked' => count($rows),
+            'renewed' => $renewed,
+            'recreated' => $recreated,
+            'failed' => $failed,
+            'summary' => [
+                'total_checked' => count($rows),
+                'renewed_count' => count($renewed),
+                'recreated_count' => count($recreated),
+                'failed_count' => count($failed),
+                'success_count' => count($renewed) + count($recreated)
+            ]
+        ];
     }
 }

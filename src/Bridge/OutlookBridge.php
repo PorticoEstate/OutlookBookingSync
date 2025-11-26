@@ -597,7 +597,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * @param string $extendInterval DateInterval spec string (default P1D = +1 day)
 	 * @return array{success:bool, subscription_id:string, new_expires_at?:string, error?:string}
 	 */
-	public function renewSubscription($subscriptionId, $extendInterval = 'P1D'): array
+	public function renewSubscription(string $subscriptionId, $extendInterval = 'P1D'): array
 	{
 		$this->logOperation('renew_subscription', ['subscription_id' => $subscriptionId]);
 

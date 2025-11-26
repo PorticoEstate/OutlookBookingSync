@@ -320,8 +320,9 @@ class SyncOrchestrator
             } elseif ($syncDirection === 'bidirectional') {
                 $shouldRecreateDeleted = !$respectDel;
             }
-            
+
             // Fetch target event once for both deletion check and comparison
+            $target_bridge = $target->getBridgeType();
             $targetCurrent = null;
             $targetExists = true;
             try {

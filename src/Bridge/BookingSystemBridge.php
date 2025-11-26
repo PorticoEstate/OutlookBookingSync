@@ -356,7 +356,8 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 'to_' => 'end',
                 'description' => 'description',
                 'contact_name' => 'organizer',
-                'contact_email' => 'attendees'  // Contact email becomes attendees array
+                'contact_email' => 'attendees',  // Contct email becomes attendees array
+                'active' => 'active'  // active=1 -> status='confirmed', active=0 -> status='cancelled'
             ]
         ];
     }

@@ -181,30 +181,82 @@ $container->set('syncLog', function () use ($container)
 
 // Register controllers in the container
 
+// Register Health components
+$container->set(\App\Repository\HealthRepository::class, function () use ($container)
+{
+    return new \App\Repository\HealthRepository($container->get('db'));
+});
+
+$container->set(\App\Services\HealthService::class, function () use ($container)
+{
+    return new \App\Services\HealthService(
+        $container->get(\App\Repository\HealthRepository::class),
+        $container->get('logger')
+    );
+});
+
 $container->set(\App\Controller\HealthController::class, function () use ($container)
 {
-    return new \App\Controller\HealthController($container->get('db'), $container->get('logger'));
+    return new \App\Controller\HealthController(
+        $container->get(\App\Services\HealthService::class),
+        $container->get('logger')
+    );
+});
+
+$container->set(\App\Repository\AlertRepository::class, function () use ($container)
+{
+    return new \App\Repository\AlertRepository($container->get('db'));
 });
 
 $container->set(\App\Controller\AlertController::class, function () use ($container)
 {
-    $alertService = new \App\Services\AlertService($container->get('db'), $container->get('logger'));
+    $alertService = new \App\Services\AlertService(
+        $container->get(\App\Repository\AlertRepository::class),
+        $container->get('logger')
+    );
     return new \App\Controller\AlertController($alertService);
 });
 
 $container->set(\App\Controller\MaintenanceController::class, function () use ($container)
 {
-    return new \App\Controller\MaintenanceController($container->get('db'), $container->get('logger'), $container->get('bridgeManager'));
+    return new \App\Controller\MaintenanceController(
+        $container->get('syncLog'),
+        $container->get(\App\Services\WebhookService::class),
+        $container->get('logger')
+    );
+});
+
+$container->set(\App\Repository\TenantRepository::class, function () use ($container)
+{
+    return new \App\Repository\TenantRepository($container->get('db'));
+});
+
+$container->set(\App\Services\TenantService::class, function () use ($container)
+{
+    return new \App\Services\TenantService($container->get(\App\Repository\TenantRepository::class));
 });
 
 $container->set(\App\Controller\AdminController::class, function () use ($container)
 {
-    return new \App\Controller\AdminController($container->get('db'));
+    return new \App\Controller\AdminController(
+        $container->get(\App\Services\TenantService::class),
+        $container->get(\App\Repository\BridgeConfigRepository::class)
+    );
+});
+
+$container->set(\App\Repository\MigrationRepository::class, function () use ($container)
+{
+    return new \App\Repository\MigrationRepository($container->get('db'));
+});
+
+$container->set(\App\Services\MigrationService::class, function () use ($container)
+{
+    return new \App\Services\MigrationService($container->get(\App\Repository\MigrationRepository::class));
 });
 
 $container->set(\App\Controller\MigrationController::class, function () use ($container)
 {
-    return new \App\Controller\MigrationController($container->get('db'));
+    return new \App\Controller\MigrationController($container->get(\App\Services\MigrationService::class));
 });
 
 AppFactory::setContainer($container);
@@ -397,6 +449,7 @@ $container->set(\App\Services\WebhookService::class, function () use ($container
         $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get(\App\Repository\BridgeResourceRepository::class),
         $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Repository\BridgeSubscriptionRepository::class),
         $container->get(\App\Services\SyncOrchestrator::class)
     );
 });
@@ -424,14 +477,21 @@ $container->set(\App\Controller\ResourceMappingController::class, function () us
     );
 });
 
+$container->set(\App\Services\ResourceImportService::class, function () use ($container)
+{
+    return new \App\Services\ResourceImportService(
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get('logger'),
+        $container->get('db')
+    );
+});
+
 $container->set(\App\Controller\BridgeResourceController::class, function () use ($container)
 {
-    $db = $container->get('db');
-    $logger = $container->get('logger');
-    $resourceRepository = new \App\Repository\BridgeResourceRepository($db);
-    $importService = new \App\Services\ResourceImportService($resourceRepository, $logger, $db);
-    
-    return new \App\Controller\BridgeResourceController($resourceRepository, $importService);
+    return new \App\Controller\BridgeResourceController(
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get(\App\Services\ResourceImportService::class)
+    );
 });
 
 

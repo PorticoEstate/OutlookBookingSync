@@ -195,4 +195,63 @@ class BridgeSubscriptionRepository
         
         return $stmt->rowCount() > 0;
     }
+
+    /**
+     * Find expiring subscriptions.
+     *
+     * @param int $minutes Number of minutes to check for expiration
+     * @param int $limit Maximum number of records to return
+     * @param string|null $bridgeName Filter by bridge type/name
+     * @param string|null $tenantId Filter by tenant ID
+     * @param string|null $subscriptionId Filter by subscription ID
+     * @return array List of expiring subscriptions
+     */
+    public function findExpiring(int $minutes, int $limit, ?string $bridgeName = null, ?string $tenantId = null, ?string $subscriptionId = null): array
+    {
+        $sql = "SELECT tenant_id, bridge_type, subscription_id, calendar_id, expires_at, webhook_url 
+              FROM bridge_subscriptions 
+              WHERE is_active = TRUE AND expires_at IS NOT NULL 
+              AND expires_at < (NOW() + (:minutes || ' minutes')::interval)";
+        
+        $params = [':minutes' => $minutes, ':limit' => $limit];
+
+        if ($tenantId) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+        if ($subscriptionId) {
+            $sql .= " AND subscription_id = :subscription_id";
+            $params[':subscription_id'] = $subscriptionId;
+        }
+        if ($bridgeName) {
+            $sql .= " AND bridge_type = :bridge";
+            $params[':bridge'] = $bridgeName;
+        }
+
+        $sql .= " ORDER BY tenant_id, expires_at ASC LIMIT :limit";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Deactivate a subscription.
+     *
+     * @param string $subscriptionId
+     * @param string|null $tenantId
+     */
+    public function deactivate(string $subscriptionId, ?string $tenantId = null): void
+    {
+        $sql = "UPDATE bridge_subscriptions SET is_active = FALSE WHERE subscription_id = :sub_id";
+        $params = [':sub_id' => $subscriptionId];
+        
+        if ($tenantId) {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+    }
 }

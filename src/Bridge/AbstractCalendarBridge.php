@@ -70,6 +70,18 @@ abstract class AbstractCalendarBridge
     abstract public function subscribeToChanges($calendarId, $webhookUrl): string;
     /** @param string $subscriptionId @return bool */
     abstract public function unsubscribeFromChanges($subscriptionId): bool;
+
+    /**
+     * Renew a webhook subscription.
+     *
+     * @param string $subscriptionId
+     * @return array{success: bool, error?: string, expires_at?: string}
+     */
+    public function renewSubscription(string $subscriptionId): array
+    {
+        return ['success' => false, 'error' => 'Bridge does not support renewal'];
+    }
+
     /** @return string Bridge name/type identifier */
     abstract public function getBridgeType(): string;
 

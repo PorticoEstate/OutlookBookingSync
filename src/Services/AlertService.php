@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use PDO;
+use App\Repository\AlertRepository;
 use Exception;
 
 /**
@@ -10,16 +10,16 @@ use Exception;
  */
 class AlertService
 {
-	private $db;
+	private $alertRepo;
 	private $logger;
 
 	/**
-	 * @param PDO $db Database connection instance
+	 * @param AlertRepository $alertRepo Repository for alert data
 	 * @param mixed|null $logger Optional PSR-3 compatible logger
 	 */
-	public function __construct(PDO $db, $logger = null)
+	public function __construct(AlertRepository $alertRepo, $logger = null)
 	{
-		$this->db = $db;
+		$this->alertRepo = $alertRepo;
 		$this->logger = $logger;
 	}
 
@@ -100,18 +100,9 @@ class AlertService
 	{
 		try
 		{
-			$stmt = $this->db->prepare("
-                SELECT 
-                    COUNT(*) as total_operations,
-                    COUNT(CASE WHEN sync_status = 'error' THEN 1 END) as error_count
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '1 hour'
-            ");
-			$stmt->execute();
-			$result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-			$totalOps = $result['total_operations'];
-			$errorCount = $result['error_count'];
+			$stats = $this->alertRepo->getErrorRate(1);
+			$totalOps = $stats['total_operations'];
+			$errorCount = $stats['error_count'];
 
 			if ($totalOps > 0)
 			{
@@ -162,16 +153,7 @@ class AlertService
 	{
 		try
 		{
-			$stmt = $this->db->prepare("
-                SELECT COUNT(*) as stalled_count
-                FROM bridge_mappings 
-                WHERE sync_status = 'pending' 
-                AND created_at < NOW() - INTERVAL '2 hours'
-            ");
-			$stmt->execute();
-			$result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-			$stalledCount = $result['stalled_count'];
+			$stalledCount = $this->alertRepo->getStalledSyncsCount(2);
 
 			if ($stalledCount > 10)
 			{
@@ -202,9 +184,7 @@ class AlertService
 	{
 		try
 		{
-			$start = microtime(true);
-			$stmt = $this->db->query('SELECT 1');
-			$responseTime = (microtime(true) - $start) * 1000;
+			$responseTime = $this->alertRepo->checkDatabaseHealth();
 
 			if ($responseTime > 5000)
 			{ // 5 seconds
@@ -253,17 +233,7 @@ class AlertService
 	{
 		try
 		{
-			// Check for recent automated sync activity using sync_method instead of sync_direction
-			$stmt = $this->db->prepare("
-                SELECT COUNT(*) as recent_activity
-                FROM bridge_mappings 
-                WHERE updated_at > NOW() - INTERVAL '30 minutes'
-                AND sync_method IN ('polling', 'automated', 'cron')
-            ");
-			$stmt->execute();
-			$result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-			$recentActivity = $result['recent_activity'];
+			$recentActivity = $this->alertRepo->getRecentAutomatedActivity(30);
 
 			// If no automated activity in 30 minutes, something might be wrong
 			if ($recentActivity == 0)
@@ -342,24 +312,12 @@ class AlertService
 	{
 		try
 		{
-			$stmt = $this->db->prepare("
-                INSERT INTO outlook_sync_alerts (
-                    alert_type, 
-                    severity, 
-                    message, 
-                    alert_data, 
-                    created_at
-                ) VALUES (?, ?, ?, ?, NOW())
-            ");
-
-			$alertData = json_encode($alert['data'] ?? []);
-
-			$stmt->execute([
+			$this->alertRepo->createAlert(
 				$alert['type'],
 				$alert['severity'],
 				$alert['message'],
-				$alertData
-			]);
+				$alert['data'] ?? []
+			);
 		}
 		catch (Exception $e)
 		{
@@ -495,27 +453,7 @@ class AlertService
 	{
 		try
 		{
-			$stmt = $this->db->prepare("
-                SELECT 
-                    alert_type,
-                    severity,
-                    message,
-                    alert_data,
-                    created_at
-                FROM outlook_sync_alerts 
-                WHERE created_at > NOW() - INTERVAL '{$hours} hours'
-                ORDER BY created_at DESC
-                LIMIT 50
-            ");
-			$stmt->execute();
-
-			$alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-			// Decode JSON data
-			foreach ($alerts as &$alert)
-			{
-				$alert['alert_data'] = json_decode($alert['alert_data'], true);
-			}
+			$alerts = $this->alertRepo->getRecentAlerts($hours);
 
 			return [
 				'success' => true,
@@ -541,13 +479,7 @@ class AlertService
 	{
 		try
 		{
-			$stmt = $this->db->prepare("
-                DELETE FROM outlook_sync_alerts 
-                WHERE created_at < NOW() - INTERVAL '{$days} days'
-            ");
-			$stmt->execute();
-
-			$deletedCount = $stmt->rowCount();
+			$deletedCount = $this->alertRepo->deleteOldAlerts($days);
 
 			return [
 				'success' => true,
@@ -572,14 +504,7 @@ class AlertService
 	 */
 	public function acknowledgeAlert($alertId, $acknowledgedBy)
 	{
-		$stmt = $this->db->prepare("
-            UPDATE outlook_sync_alerts 
-            SET acknowledged_at = NOW(), acknowledged_by = ?
-            WHERE id = ? AND acknowledged_at IS NULL
-        ");
-		$stmt->execute([$acknowledgedBy, $alertId]);
-
-		return $stmt->rowCount() > 0;
+		return $this->alertRepo->acknowledgeAlert($alertId, $acknowledgedBy);
 	}
 
 	/**
@@ -590,37 +515,6 @@ class AlertService
 	 */
 	public function getAlertStats($hours = 24)
 	{
-		$stmt = $this->db->prepare("
-            SELECT 
-                severity,
-                alert_type,
-                COUNT(*) as count,
-                MAX(created_at) as latest_occurrence
-            FROM outlook_sync_alerts 
-            WHERE created_at > NOW() - INTERVAL '{$hours} hours'
-            GROUP BY severity, alert_type
-            ORDER BY severity DESC, count DESC
-        ");
-		$stmt->execute();
-		$results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-		// Get summary stats
-		$summaryStmt = $this->db->prepare("
-            SELECT 
-                COUNT(*) as total_alerts,
-                COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_alerts,
-                COUNT(CASE WHEN severity = 'warning' THEN 1 END) as warning_alerts,
-                COUNT(CASE WHEN acknowledged_at IS NOT NULL THEN 1 END) as acknowledged_alerts
-            FROM outlook_sync_alerts 
-            WHERE created_at > NOW() - INTERVAL '{$hours} hours'
-        ");
-		$summaryStmt->execute();
-		$summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
-
-		return [
-			'hours' => $hours,
-			'summary' => $summary,
-			'breakdown' => $results
-		];
+		return $this->alertRepo->getAlertStats($hours);
 	}
 }
