@@ -64,6 +64,7 @@ class SyncOrchestrator
             'deleted' => 0,
             'skipped' => 0,
             'recreated' => 0,
+            'reactivated' => 0,
             'errors' => [],
             'processed_events' => []
         ];
@@ -129,7 +130,7 @@ class SyncOrchestrator
         }
 
         // Calculate success rate and add summary
-        $totalProcessed = $results['created'] + $results['updated'] + $results['skipped'];
+        $totalProcessed = $results['created'] + $results['updated'] + $results['skipped'] + $results['recreated'] + $results['reactivated'];
         $successRate = count($sourceEvents) > 0 ? ($totalProcessed / count($sourceEvents)) * 100 : 100;
 
         $results['summary'] = [
@@ -147,13 +148,15 @@ class SyncOrchestrator
                 'updated' => $results['updated'],
                 'deleted' => $results['deleted'],
                 'skipped' => $results['skipped'],
+                'recreated' => $results['recreated'],
+                'reactivated' => $results['reactivated'],
                 'errors' => count($results['errors'])
             ]
         ]));
 
         // Persist sync summary to bridge_sync_logs for health metrics
         try {
-            $processedCount = (int)(($results['created'] ?? 0) + ($results['updated'] ?? 0));
+            $processedCount = (int)(($results['created'] ?? 0) + ($results['updated'] ?? 0) + ($results['recreated'] ?? 0) + ($results['reactivated'] ?? 0));
             $status = (count($results['errors'] ?? []) > 0) ? 'error' : 'success';
             $this->syncLog->write(
                 ($options['dry_run'] ?? false) ? 'dry_run' : 'sync',
@@ -169,6 +172,8 @@ class SyncOrchestrator
                     'updated' => $results['updated'] ?? 0,
                     'deleted' => $results['deleted'] ?? 0,
                     'skipped' => $results['skipped'] ?? 0,
+                    'recreated' => $results['recreated'] ?? 0,
+                    'reactivated' => $results['reactivated'] ?? 0,
                     'failed_events' => count($results['errors'] ?? [])
                 ],
                 null,
