@@ -287,7 +287,7 @@ abstract class AbstractCalendarBridge
     /** @param array $data @return array Generic normalized event */
     protected function createGenericEvent($data): array
     {
-        return [
+        $ret = [
             'id' => $data['id'] ?? null,
             'subject' => $data['subject'] ?? $data['title'] ?? '',
             'start' => $this->normalizeDateTime($data['start']),
@@ -304,6 +304,13 @@ abstract class AbstractCalendarBridge
             'created' => $data['created'] ?? date('c'),
             'raw_data' => $data
         ];
+
+        if (isset($data['active']))
+        {
+            $ret['active'] = $data['active'];
+        }
+
+        return $ret;
     }
 
     /**

@@ -331,7 +331,9 @@ class SyncOrchestrator
                 $targetExists = false;
             }
 
-            if ($shouldRecreateDeleted && !$targetExists) {
+            $targetIsInactive = $targetExists && isset($targetCurrent['active']) && $targetCurrent['active'] === false;
+
+            if ($shouldRecreateDeleted && (!$targetExists || $targetIsInactive)) {
                 if ($respectDel && $syncDirection === 'bidirectional') {
                     return [
                         'success' => true,
@@ -341,13 +343,37 @@ class SyncOrchestrator
                     ];
                 }
                 
-                $this->logger->info('Recreating deleted target event due to ownership policy', [
+                $this->logger->info('Recreating/Reactivating deleted target event due to ownership policy', [
                     'source_event_id' => $sourceEvent['id'],
                     'target_event_id' => $mapping['target_event_id'],
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed,
-                    'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement'
+                    'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement',
+                    'is_reactivation' => $targetIsInactive
                 ]);
+
+                if ($targetIsInactive) {
+                    // Try to reactivate via update
+                    $eventToUpdate = $sourceEvent;
+                    $eventToUpdate['active'] = true;
+                    
+                    try {
+                        $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $eventToUpdate);
+                        if ($success) {
+                            $this->updateMappingTimestamp($mapping['id']);
+                            $this->updateMappingEventData($mapping['id'], $sourceEvent);
+                            return [
+                                'success' => true,
+                                'action' => 'reactivated',
+                                'source_event_id' => $sourceEvent['id'],
+                                'target_event_id' => $mapping['target_event_id'],
+                                'reason' => 'ownership_enforcement_reactivation'
+                            ];
+                        }
+                    } catch (\Exception $e) {
+                        $this->logger->warning('Failed to reactivate target event via update, falling back to create', ['error' => $e->getMessage()]);
+                    }
+                }
                 
                 $newId = $target->createEvent($targetCalendarId, $sourceEvent);
                 $this->updateMappingTargetEventId($mapping['id'], $newId);

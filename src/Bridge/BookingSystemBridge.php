@@ -467,9 +467,12 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $this->ensureSession();
         $this->logOperation('get_event', ['calendar_id' => $calendarId, 'event_id' => $eventId]);
         $originalId = $this->extractOriginalId($eventId);
+        $parts = explode('_', $eventId, 2);
+        $type = count($parts) >= 2 ? $parts[0] : 'event';
+
         $event = $this->getEventViaApi($originalId);
         //mapped to generic format
-        return $this->mapBookingEventToGeneric($event);
+        return $this->mapBookingEventToGeneric($event, $type);
     }
 
     /**
@@ -1100,13 +1103,13 @@ class BookingSystemBridge extends AbstractCalendarBridge
     /**
      * Map booking system event to generic format using configurable mappings
      */
-    public function mapBookingEventToGeneric($bookingEvent): array
+    public function mapBookingEventToGeneric($bookingEvent, $type = ''): array
     {
         $mappings = $this->fieldMappings['from_booking_system'];
         $genericEvent = [];
 
         // Create composite ID including reservation type and ID for unique identification
-        $reservationType = strtolower($bookingEvent['type'] ?? 'unknown');
+        $reservationType = strtolower($bookingEvent['type'] ?? $type ?? 'unknown');
         $reservationId = $bookingEvent['id'] ?? 'unknown';
         $compositeId = $reservationType . '_' . $reservationId;
 
