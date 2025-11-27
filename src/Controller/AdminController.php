@@ -112,7 +112,7 @@ class AdminController
 
     public function getBridgeConfig(Request $request, Response $response, array $args): Response
     {
-        $result = $this->configRepository->findByTenantAndName($args['tenantId'], $args['bridgeName']);
+        $result = $this->configRepository->findFullConfigByTenantAndName($args['tenantId'], $args['bridgeName']);
         if (!$result) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');

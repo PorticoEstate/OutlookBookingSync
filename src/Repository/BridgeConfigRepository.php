@@ -41,15 +41,37 @@ class BridgeConfigRepository
     public function upsert(string $tenantId, string $bridgeName, array $config): void
     {
         $json = json_encode($config);
-        $sql = "INSERT INTO bridge_configs (tenant_id, bridge_name, config_data, updated_at)
-                VALUES (:tid, :name, :config, CURRENT_TIMESTAMP)
+        // For now, assume bridge_type is same as bridge_name
+        $bridgeType = $bridgeName;
+        
+        $sql = "INSERT INTO bridge_configs (tenant_id, bridge_name, bridge_type, config_data, updated_at)
+                VALUES (:tid, :name, :type, :config, CURRENT_TIMESTAMP)
                 ON CONFLICT (tenant_id, bridge_name) 
                 DO UPDATE SET config_data = EXCLUDED.config_data, updated_at = CURRENT_TIMESTAMP";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':tid' => $tenantId,
             ':name' => $bridgeName,
+            ':type' => $bridgeType,
             ':config' => $json
         ]);
+    }
+
+    public function findFullConfigByTenantAndName(string $tenantId, string $bridgeName): ?array
+    {
+        $sql = "SELECT * FROM bridge_configs WHERE bridge_name = :name AND tenant_id = :tid LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([':name' => $bridgeName, ':tid' => $tenantId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($row) {
+            // Decode config_data
+            if (isset($row['config_data'])) {
+                $row['config_data'] = json_decode($row['config_data'], true);
+            }
+            return $row;
+        }
+        
+        return null;
     }
 }

@@ -99,4 +99,80 @@ class RealDatabaseTest extends BaseTestCase
         $this->assertTrue($body['success']);
         $this->assertArrayHasKey('alerts', $body);
     }
+
+    public function testGetBridgeConfigWithRealDb()
+    {
+        // Setup CSRF token
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['csrf_token'] = 'test-csrf-token';
+        
+        // 1. Create a test tenant
+        $tenantId = 'test_tenant_' . uniqid();
+        $createTenantRequest = $this->createRequest('POST', '/admin/tenants');
+        $createTenantRequest = $createTenantRequest->withHeader('X-CSRF-Token', 'test-csrf-token');
+        
+        $createTenantRequest->getBody()->write(json_encode([
+            'id' => $tenantId,
+            'name' => 'Test Tenant for Config',
+            'active' => true
+        ]));
+        $createTenantRequest->getBody()->rewind();
+        $response = $this->app->handle($createTenantRequest);
+        
+        if ($response->getStatusCode() !== 201) {
+            fwrite(STDERR, "Create Tenant Failed: " . $response->getStatusCode() . "\n");
+            fwrite(STDERR, "Body: " . (string)$response->getBody() . "\n");
+            fwrite(STDERR, "Env Key: " . ($_ENV['API_KEY'] ?? 'unset') . "\n");
+        }
+
+        $this->assertEquals(201, $response->getStatusCode());
+
+        // 2. Upsert a bridge config
+        $bridgeName = 'outlook';
+        $configData = [
+            'group_id' => 'test-group-id',
+            'timezone' => 'UTC',
+            'client_id' => 'test-client-id',
+            'tenant_id' => 'test-azure-tenant-id',
+            'client_secret' => 'test-client-secret',
+            'webhook_client_secret' => 'test-webhook-secret'
+        ];
+        
+        $upsertRequest = $this->createRequest('PUT', "/admin/tenants/{$tenantId}/configs/{$bridgeName}");
+        $upsertRequest = $upsertRequest->withHeader('X-CSRF-Token', 'test-csrf-token');
+        $upsertRequest->getBody()->write(json_encode($configData));
+        $upsertRequest->getBody()->rewind();
+        $response = $this->app->handle($upsertRequest);
+        $this->assertEquals(200, $response->getStatusCode());
+
+        // 3. Get the bridge config and verify structure
+        $getRequest = $this->createRequest('GET', "/admin/tenants/{$tenantId}/configs/{$bridgeName}");
+        // GET requests don't need CSRF token usually, but let's see
+        $response = $this->app->handle($getRequest);
+        
+        $this->assertEquals(200, $response->getStatusCode());
+        $body = json_decode((string)$response->getBody(), true);
+        
+        // Verify structure matches user requirement
+        $this->assertArrayHasKey('bridge_name', $body);
+        $this->assertEquals($bridgeName, $body['bridge_name']);
+        
+        $this->assertArrayHasKey('bridge_type', $body);
+        // Note: bridge_type usually defaults to bridge_name if not specified, or handled by repo
+        
+        $this->assertArrayHasKey('config_data', $body);
+        $this->assertEquals($configData, $body['config_data']);
+        
+        $this->assertArrayHasKey('tenant_id', $body);
+        $this->assertEquals($tenantId, $body['tenant_id']);
+        
+        $this->assertArrayHasKey('updated_at', $body);
+
+        // 4. Cleanup (Optional but good practice)
+        $deleteRequest = $this->createRequest('DELETE', "/admin/tenants/{$tenantId}");
+        $deleteRequest = $deleteRequest->withHeader('X-CSRF-Token', 'test-csrf-token');
+        $this->app->handle($deleteRequest);
+    }
 }
