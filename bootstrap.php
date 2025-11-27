@@ -518,7 +518,7 @@ $app->post('/bridges/{bridgeName}/subscriptions', [\App\Controller\BridgeControl
 $app->get('/bridges/subscriptions[/{bridgeName}]', [\App\Controller\BridgeController::class, 'listSubscriptions']);
 
 // Delete a webhook subscription
-$app->delete('/bridges/{bridgeName}/subscriptions/{subscriptionId}', [\App\Controller\BridgeController::class, 'deleteSubscription']);
+$app->delete('/bridges/subscriptions/{subscriptionId}', [\App\Controller\BridgeController::class, 'deleteSubscription']);
 
 // Event management routes
 $app->post('/bridges/{bridgeName}/resources/{resourceId}/events', [\App\Controller\BridgeController::class, 'createEvent']);
@@ -635,7 +635,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /bridges/webhook/{bridge}' => 'Handle bridge webhooks (body format varies by bridge - see docs for booking_system webhook example)',
                 'POST /bridges/{bridge}/subscriptions' => 'Create webhook subscriptions for a bridge (body: webhook_url, optional: calendar_ids[])',
                 'GET /bridges/{bridge}/subscriptions' => 'List webhook subscriptions (query: ?search=string&status=active|expired|expiring&limit=int&offset=int&stats_only=bool)',
-                'DELETE /bridges/{bridge}/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
+                'DELETE /bridges/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
                 'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
                 'POST /bridges/sync-deletions' => 'Sync deletions across bridges',

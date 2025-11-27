@@ -626,15 +626,12 @@ class BridgeController
      */
     public function deleteSubscription(Request $request, Response $response, $args)
     {
-        $bridgeName = $args['bridgeName'];
         $subscriptionId = $args['subscriptionId'];
 
         try
         {
-            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-            
-            // First check if subscription exists
-            $subscription = $this->subscriptionRepository->find($subscriptionId, $bridgeName, $tenantId ?: null);
+            // Fetch subscription details from database to ensure we have the correct bridge and tenant
+            $subscription = $this->subscriptionRepository->findById($subscriptionId);
 
             if (!$subscription)
             {
@@ -644,6 +641,9 @@ class BridgeController
                 ]));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
+
+            $bridgeName = $subscription['bridge_type'];
+            $tenantId = $subscription['tenant_id'];
 
             // Try to unsubscribe from the provider (if bridge supports it)
             try
@@ -664,7 +664,7 @@ class BridgeController
             }
 
             // Delete from database
-            $deleted = $this->subscriptionRepository->delete($subscriptionId, $bridgeName, $tenantId ?: null);
+            $deleted = $this->subscriptionRepository->delete($subscriptionId, $bridgeName, $tenantId);
 
             if ($deleted)
             {
@@ -686,7 +686,6 @@ class BridgeController
         catch (\Exception $e)
         {
             $this->logger->error('Failed to delete subscription', [
-                'bridge' => $bridgeName,
                 'subscription_id' => $subscriptionId,
                 'error' => $e->getMessage()
             ]);

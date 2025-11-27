@@ -532,6 +532,12 @@
         // Modal functions
         function showCreateModal()
         {
+            if (!currentTenantId)
+            {
+                alert('Please select a tenant first.');
+                return;
+            }
+
             document.getElementById('createModal').style.display = 'block';
             
             // Set default webhook URL based on selected bridge and tenant ID
@@ -878,9 +884,8 @@
             
             try
             {
-                // Use the selected bridge filter, default to 'outlook' if none selected
-                const bridgeFilter = document.getElementById('bridgeFilter').value || 'outlook';
-                const response = await fetch(`/bridges/${bridgeFilter}/subscriptions/${subscriptionId}`, {
+                // Use the new endpoint that doesn't require bridge name
+                const response = await fetch(`/bridges/subscriptions/${subscriptionId}`, {
                     method: 'DELETE',
                     headers: getHeaders(false)
                 });

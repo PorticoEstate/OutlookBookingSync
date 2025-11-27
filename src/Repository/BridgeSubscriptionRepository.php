@@ -168,6 +168,31 @@ class BridgeSubscriptionRepository
     }
 
     /**
+     * Find a subscription by ID without bridge type.
+     *
+     * @param string $subscriptionId
+     * @param string|null $tenantId
+     * @return array|null
+     */
+    public function findById(string $subscriptionId, ?string $tenantId = null): ?array
+    {
+        $sql = "SELECT * FROM bridge_subscriptions WHERE subscription_id = :subscription_id";
+        $params = [':subscription_id' => $subscriptionId];
+
+        if ($tenantId !== null && $tenantId !== '')
+        {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        return $result ?: null;
+    }
+
+    /**
      * Delete a subscription.
      * 
      * @param string $subscriptionId
