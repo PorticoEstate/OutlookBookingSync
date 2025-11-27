@@ -2133,7 +2133,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 $success = $response['success'] ?? true;
                 
                 // Remove from database regardless of API result (for cleanup)
-                $this->removeSubscription($subscriptionId);
+                $this->subscriptionRepository->delete(
+                    $subscriptionId, 
+                    $this->getBridgeType(), 
+                    (string)($this->config['context_tenant_id'] ?? 'default')
+                );
                 
                 if ($this->debug)
                 {
@@ -2150,7 +2154,11 @@ class BookingSystemBridge extends AbstractCalendarBridge
                 }
                 
                 // Still try to remove from database for cleanup
-                $this->removeSubscription($subscriptionId);
+                $this->subscriptionRepository->delete(
+                    $subscriptionId, 
+                    $this->getBridgeType(), 
+                    (string)($this->config['context_tenant_id'] ?? 'default')
+                );
                 
                 return false;
             }
@@ -2218,36 +2226,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         }
     }
 
-    /**
-     * Remove webhook subscription from database
-     */
-    private function removeSubscription(string $subscriptionId): void
-    {
-        try
-        {
-            $sql = "DELETE FROM bridge_subscriptions 
-                    WHERE subscription_id = :subscription_id 
-                    AND bridge_type = :bridge_type";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                ':subscription_id' => $subscriptionId,
-                ':bridge_type' => $this->getBridgeType()
-            ]);
-
-            if ($this->debug)
-            {
-                error_log("BookingSystemBridge: Subscription removed from database: {$subscriptionId}");
-            }
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Failed to remove webhook subscription from database', [
-                'subscription_id' => $subscriptionId,
-                'error' => $e->getMessage()
-            ]);
-        }
-    }
 
     /**
      * Get expiring subscriptions that need renewal

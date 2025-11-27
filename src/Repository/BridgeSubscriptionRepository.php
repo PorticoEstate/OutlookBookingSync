@@ -296,4 +296,38 @@ class BridgeSubscriptionRepository
             ':subscription_id' => $subscriptionId
         ]);
     }
+
+    /**
+     * Find active subscription for a specific calendar.
+     *
+     * @param string $bridgeType
+     * @param string $calendarId
+     * @param string|null $tenantId
+     * @return array|null
+     */
+    public function findActiveByCalendar(string $bridgeType, string $calendarId, ?string $tenantId = null): ?array
+    {
+        $sql = "SELECT * FROM bridge_subscriptions 
+               WHERE bridge_type = :bridge_type 
+               AND calendar_id = :calendar_id 
+               AND is_active = TRUE 
+               AND (expires_at IS NULL OR expires_at > NOW())";
+        
+        $params = [
+            ':bridge_type' => $bridgeType,
+            ':calendar_id' => $calendarId
+        ];
+
+        if ($tenantId !== null && $tenantId !== '')
+        {
+            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
+            $params[':tenant_id'] = $tenantId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        return $result ?: null;
+    }
 }

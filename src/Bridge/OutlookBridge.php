@@ -579,7 +579,11 @@ class OutlookBridge extends AbstractCalendarBridge
 			$this->graphServiceClient->subscriptions()->bySubscriptionId($subscriptionId)->delete()->wait();
 
 			// Remove subscription from database
-			$this->removeSubscription($subscriptionId);
+			$this->subscriptionRepository->delete(
+				$subscriptionId, 
+				$this->getBridgeType(), 
+				(string)($this->config['context_tenant_id'] ?? 'default')
+			);
 
 			return true;
 		}
@@ -922,21 +926,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	}
 
 
-	/**
-	 * Remove a subscription record from the database.
-	 *
-	 * @param string $subscriptionId
-	 * @return void
-	 */
-	private function removeSubscription($subscriptionId)
-	{
-		$sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':subscription_id' => $subscriptionId,
-			':tenant_id' => (string)($this->config['context_tenant_id'] ?? 'default')
-		]);
-	}
+
 
 
 	/**

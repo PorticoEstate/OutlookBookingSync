@@ -516,11 +516,26 @@ class BridgeController
             {
                 try
                 {
+                    // Check for existing active subscription to avoid duplicates
+                    $existing = $this->subscriptionRepository->findActiveByCalendar($bridgeName, $calendarId, $tenantId);
+                    
+                    if ($existing) {
+                        $subscriptions[] = [
+                            'calendar_id' => $calendarId,
+                            'subscription_id' => $existing['subscription_id'],
+                            'webhook_url' => $existing['webhook_url'],
+                            'status' => 'existing',
+                            'expires_at' => $existing['expires_at']
+                        ];
+                        continue;
+                    }
+
                     $subscriptionId = $bridge->subscribeToChanges($calendarId, $webhookUrl);
                     $subscriptions[] = [
                         'calendar_id' => $calendarId,
                         'subscription_id' => $subscriptionId,
-                        'webhook_url' => $webhookUrl
+                        'webhook_url' => $webhookUrl,
+                        'status' => 'created'
                     ];
                 }
                 catch (\Exception $e)
@@ -645,13 +660,15 @@ class BridgeController
             $bridgeName = $subscription['bridge_type'];
             $tenantId = $subscription['tenant_id'];
 
+            $providerUnsubscribeSuccess = false;
+
             // Try to unsubscribe from the provider (if bridge supports it)
             try
             {
                 $bridge = $this->bridgeManager->getBridgeForTenant($tenantId ?: 'default', $bridgeName);
                 if (method_exists($bridge, 'unsubscribeFromChanges'))
                 {
-                    $bridge->unsubscribeFromChanges($subscriptionId);
+                    $providerUnsubscribeSuccess = $bridge->unsubscribeFromChanges($subscriptionId);
                 }
             }
             catch (\Exception $e)
@@ -666,7 +683,17 @@ class BridgeController
             // Delete from database
             $deleted = $this->subscriptionRepository->delete($subscriptionId, $bridgeName, $tenantId);
 
-            if ($deleted)
+            // If not deleted by the repository call (0 rows affected), it might be because 
+            // the bridge's unsubscribeFromChanges() already deleted it. 
+            // We should check if it's actually gone.
+            if (!$deleted) {
+                $exists = $this->subscriptionRepository->findById($subscriptionId);
+                if (!$exists) {
+                    $deleted = true;
+                }
+            }
+
+            if ($deleted || $providerUnsubscribeSuccess)
             {
                 $response->getBody()->write(json_encode([
                     'success' => true,

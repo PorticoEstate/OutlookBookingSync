@@ -609,7 +609,16 @@
                 if (response.ok)
                 {
                     const result = await response.json();
-                    alert(`Created ${result.subscriptions ? result.subscriptions.length : 0} subscriptions`);
+                    const subs = result.subscriptions || [];
+                    const created = subs.filter(s => s.status === 'created').length;
+                    const existing = subs.filter(s => s.status === 'existing').length;
+                    
+                    let msg = `Processed ${subs.length} calendars.`;
+                    if (created > 0) msg += `\nCreated: ${created}`;
+                    if (existing > 0) msg += `\nExisting (skipped): ${existing}`;
+                    if (result.errors && result.errors.length > 0) msg += `\nErrors: ${result.errors.length}`;
+                    
+                    alert(msg);
                     closeCreateModal();
                     refreshData();
                 }

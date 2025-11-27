@@ -5,6 +5,7 @@ namespace App\Bridge;
 use Psr\Log\LoggerInterface;
 use PDO;
 use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeSubscriptionRepository;
 use App\Services\SessionManager;
 
 /**
@@ -17,6 +18,7 @@ abstract class AbstractCalendarBridge
     protected $logger;
     protected $db;
     protected $mappingRepository;
+    protected $subscriptionRepository;
     protected $sessionManager;
 
     // Simple session storage helpers
@@ -30,14 +32,23 @@ abstract class AbstractCalendarBridge
      * @param PDO $db
      * @param BridgeMappingRepository|null $mappingRepository
      * @param SessionManager|null $sessionManager
+     * @param BridgeSubscriptionRepository|null $subscriptionRepository
      */
-    public function __construct($config, LoggerInterface $logger, PDO $db, ?BridgeMappingRepository $mappingRepository = null, ?SessionManager $sessionManager = null)
+    public function __construct(
+        $config, 
+        LoggerInterface $logger, 
+        PDO $db, 
+        ?BridgeMappingRepository $mappingRepository = null, 
+        ?SessionManager $sessionManager = null,
+        ?BridgeSubscriptionRepository $subscriptionRepository = null
+    )
     {
         $this->config = $config;
         $this->logger = $logger;
         $this->db = $db;
         $this->mappingRepository = $mappingRepository ?: new BridgeMappingRepository($db);
         $this->sessionManager = $sessionManager ?: new SessionManager($logger);
+        $this->subscriptionRepository = $subscriptionRepository ?: new BridgeSubscriptionRepository($db);
 
         $this->validateConfig();
         $this->initialize();
