@@ -55,6 +55,10 @@ class SyncOrchestrator
         $mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options);
         $mappingIndex = $this->indexMappingsBySourceId($mappings);
 
+        // Ensure startDate and endDate are in options for downstream use
+        $options['startDate'] = $startDate;
+        $options['endDate'] = $endDate;
+
         $results = [
             'source_bridge' => $sourceBridge,
             'target_bridge' => $targetBridge,

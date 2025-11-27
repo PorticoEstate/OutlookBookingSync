@@ -848,6 +848,10 @@ class WebhookService
                     $result = $bridgeInstance->renewSubscription($row['subscription_id']);
                     if (!empty($result['success'])) {
                         $renewed[] = $result;
+                        $this->subscriptionRepository->updateExpiration(
+                            $row['subscription_id'],
+                            $result['expirationDateTime']
+                        );
                     } else {
                         // Check if 404/not found
                         $errorMessage = $result['error'] ?? '';

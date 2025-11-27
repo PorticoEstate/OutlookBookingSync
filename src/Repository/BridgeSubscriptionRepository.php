@@ -254,4 +254,21 @@ class BridgeSubscriptionRepository
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
     }
+
+    /**
+     * Update subscription expiration time.
+     *
+     * @param string $subscriptionId
+     * @param string $expirationDateTime
+     * @return void
+     */
+    public function updateExpiration(string $subscriptionId, string $expirationDateTime): void
+    {
+        $sql = "UPDATE bridge_subscriptions SET expires_at = :expires_at, last_renewed_at = NOW() WHERE subscription_id = :subscription_id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            ':expires_at' => $expirationDateTime,
+            ':subscription_id' => $subscriptionId
+        ]);
+    }
 }

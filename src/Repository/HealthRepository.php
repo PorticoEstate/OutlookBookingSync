@@ -155,7 +155,7 @@ class HealthRepository
 				COUNT(*) as total_syncs,
 				COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_syncs,
 				COUNT(CASE WHEN status = 'error' THEN 1 END) as failed_syncs,
-				AVG(CASE WHEN status = 'success' THEN execution_time_ms END) as avg_execution_time
+				AVG(CASE WHEN status = 'success' THEN duration_ms END) as avg_execution_time
 			FROM bridge_sync_logs 
 			WHERE created_at > NOW() - INTERVAL '24 hours'
 		" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
@@ -182,7 +182,7 @@ class HealthRepository
 				id,
 				operation,
 				status,
-				message,
+				error_message as message,
 				created_at,
 				tenant_id
 			FROM bridge_sync_logs 
@@ -211,14 +211,14 @@ class HealthRepository
 	{
 		$sql = "
 			SELECT 
-				message,
+				error_message as message,
 				COUNT(*) as count,
 				MAX(created_at) as last_occurrence
 			FROM bridge_sync_logs 
 			WHERE status = 'error' 
 			AND created_at > NOW() - INTERVAL '24 hours'
 		" . ($tenantId ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . "
-			GROUP BY message 
+			GROUP BY error_message 
 			ORDER BY count DESC 
 			LIMIT 5
 		";
