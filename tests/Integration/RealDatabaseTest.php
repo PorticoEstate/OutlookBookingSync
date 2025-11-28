@@ -175,4 +175,38 @@ class RealDatabaseTest extends BaseTestCase
         $deleteRequest = $deleteRequest->withHeader('X-CSRF-Token', 'test-csrf-token');
         $this->app->handle($deleteRequest);
     }
+
+    public function testGetHealthSyncStatusWithRealDb()
+    {
+        $request = $this->createRequest('GET', '/health/sync-status');
+        $response = $this->app->handle($request);
+
+        $body = json_decode((string)$response->getBody(), true);
+
+        if ($response->getStatusCode() !== 200) {
+            var_dump($body);
+        }
+
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->assertTrue($body['success']);
+        $this->assertArrayHasKey('sync_status', $body);
+        $this->assertArrayHasKey('overall_sync_health', $body['sync_status']);
+    }
+
+    public function testGetQueueStatsWithRealDb()
+    {
+        $request = $this->createRequest('GET', '/health/queue-stats');
+        $response = $this->app->handle($request);
+
+        $body = json_decode((string)$response->getBody(), true);
+
+        if ($response->getStatusCode() !== 200) {
+            var_dump($body);
+        }
+
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->assertTrue($body['success']);
+        $this->assertArrayHasKey('data', $body);
+        $this->assertArrayHasKey('webhook_queue', $body['data']);
+    }
 }

@@ -191,6 +191,7 @@ $container->set(\App\Services\HealthService::class, function () use ($container)
 {
     return new \App\Services\HealthService(
         $container->get(\App\Repository\HealthRepository::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get('logger')
     );
 });
@@ -578,7 +579,7 @@ $app->group('/admin/resources', function ($group)
 // IMPORTANT: These routes must come before the catch-all 404 route
 
 // Get detailed sync status for monitoring
-$app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getSyncStatusDetails']);
+$app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getSyncStatus']);
 
 // Get queue statistics for dashboard monitoring
 $app->get('/health/queue-stats', [\App\Controller\HealthController::class, 'getQueueStats']);

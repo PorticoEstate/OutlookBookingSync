@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Repository\HealthRepository;
+use App\Repository\BridgeQueueRepository;
 use Exception;
 
 /**
@@ -11,11 +12,13 @@ use Exception;
 class HealthService
 {
 	private $healthRepo;
+	private $queueRepo;
 	private $logger;
 
-	public function __construct(HealthRepository $healthRepo, $logger = null)
+	public function __construct(HealthRepository $healthRepo, BridgeQueueRepository $queueRepo, $logger = null)
 	{
 		$this->healthRepo = $healthRepo;
+		$this->queueRepo = $queueRepo;
 		$this->logger = $logger;
 	}
 
@@ -85,6 +88,52 @@ class HealthService
 			'performance_metrics' => $this->getPerformanceMetrics(),
 			'error_summary' => $this->healthRepo->getErrorSummary($tenantId),
 			'cron_status' => $this->getCronStatus()
+		];
+	}
+
+	/**
+	 * Get detailed sync status.
+	 *
+	 * @param string|null $tenantId
+	 * @return array
+	 */
+	public function getSyncStatus(?string $tenantId = null): array
+	{
+		$counts = $this->healthRepo->getSyncStatusCounts($tenantId);
+		$totalCount = array_sum($counts);
+		$errorCount = $counts['error'] ?? 0;
+		
+		$status = 'healthy';
+		if ($totalCount > 0) {
+			$errorRate = ($errorCount / $totalCount) * 100;
+			if ($errorRate > 10) {
+				$status = 'warning';
+			}
+			if ($errorRate > 25) {
+				$status = 'critical';
+			}
+		}
+
+		return [
+			'sync_status' => [
+				'overall_sync_health' => [
+					'status' => $status,
+					'breakdown' => $counts
+				]
+			]
+		];
+	}
+
+	/**
+	 * Get queue statistics.
+	 *
+	 * @param string|null $tenantId
+	 * @return array
+	 */
+	public function getQueueStats(?string $tenantId = null): array
+	{
+		return [
+			'data' => $this->queueRepo->getQueueStats($tenantId)
 		];
 	}
 

@@ -84,4 +84,43 @@ class BridgeQueueRepository
             ':id' => $id
         ]);
     }
+    
+    public function getQueueStats(?string $tenantId = null): array
+    {
+        $stats = [
+            'webhook_queue' => ['pending_count' => 0],
+            'deletion_queue' => ['pending_count' => 0],
+            'processing_health' => ['health_status' => 'healthy', 'stuck_items' => []],
+            'timestamp' => date('Y-m-d H:i:s')
+        ];
+
+        // Count pending items
+        $sql = "SELECT queue_type, COUNT(*) as count FROM bridge_queue WHERE status = 'pending'" . ($tenantId ? " AND tenant_id = :tenant_id" : "") . " GROUP BY queue_type";
+        $stmt = $this->db->prepare($sql);
+        if ($tenantId) {
+            $stmt->bindValue(':tenant_id', $tenantId);
+        }
+        $stmt->execute();
+        $counts = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+        $stats['webhook_queue']['pending_count'] = (int)($counts['webhook'] ?? 0);
+        $stats['deletion_queue']['pending_count'] = (int)($counts['deletion'] ?? 0);
+
+        // Check for stuck items (processing for > 10 minutes)
+        // Since we don't have updated_at, we use created_at for items that are still 'processing'
+        $sql = "SELECT id, queue_type, created_at FROM bridge_queue WHERE status = 'processing' AND created_at < NOW() - INTERVAL '10 minutes'" . ($tenantId ? " AND tenant_id = :tenant_id" : "");
+        $stmt = $this->db->prepare($sql);
+        if ($tenantId) {
+            $stmt->bindValue(':tenant_id', $tenantId);
+        }
+        $stmt->execute();
+        $stuckItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!empty($stuckItems)) {
+            $stats['processing_health']['health_status'] = 'warning';
+            $stats['processing_health']['stuck_items'] = $stuckItems;
+        }
+
+        return $stats;
+    }
 }

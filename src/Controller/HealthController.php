@@ -118,4 +118,64 @@ class HealthController
 			return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
 		}
 	}
+
+	/**
+	 * Get sync status statistics.
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args
+	 * @return Response
+	 */
+	public function getSyncStatus(Request $request, Response $response, $args)
+	{
+		try {
+			$tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+			$status = $this->healthService->getSyncStatus($tenantId !== '' ? $tenantId : null);
+
+			$response->getBody()->write(json_encode([
+				'success' => true,
+				'sync_status' => $status['sync_status']
+			], JSON_PRETTY_PRINT));
+
+			return $response->withHeader('Content-Type', 'application/json');
+
+		} catch (Exception $e) {
+			$response->getBody()->write(json_encode([
+				'success' => false,
+				'error' => 'Sync status retrieval failed: ' . $e->getMessage()
+			]));
+			return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+		}
+	}
+
+	/**
+	 * Get queue statistics.
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args
+	 * @return Response
+	 */
+	public function getQueueStats(Request $request, Response $response, $args)
+	{
+		try {
+			$tenantId = (string)($request->getAttribute('tenant_id') ?? '');
+			$stats = $this->healthService->getQueueStats($tenantId !== '' ? $tenantId : null);
+
+			$response->getBody()->write(json_encode([
+				'success' => true,
+				'data' => $stats['data']
+			], JSON_PRETTY_PRINT));
+
+			return $response->withHeader('Content-Type', 'application/json');
+
+		} catch (Exception $e) {
+			$response->getBody()->write(json_encode([
+				'success' => false,
+				'error' => 'Queue stats retrieval failed: ' . $e->getMessage()
+			]));
+			return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+		}
+	}
 }

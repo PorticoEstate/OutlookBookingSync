@@ -242,34 +242,7 @@ function renderMappingStatistics(syncStatusData) {
     const overallHealth = syncStatus.overall_sync_health;
     const breakdown = overallHealth.breakdown;
 
-    let html = `
-        <div class="card">
-            <h3>🔄 Mapping Sync Status ${getStatusBadge(overallHealth.status)}</h3>
-            <div class="metric">
-                <span class="metric-label">Total Mappings</span>
-                <span class="metric-value">${overallHealth.total_items}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Synced Mappings</span>
-                <span class="metric-value">${breakdown.synced || 0} (${((breakdown.synced || 0) / overallHealth.total_items * 100).toFixed(1)}%)</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Pending Mappings</span>
-                <span class="metric-value">${breakdown.pending || 0} (${overallHealth.pending_rate_percent}%)</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Error Mappings</span>
-                <span class="metric-value">${breakdown.error || 0} (${overallHealth.error_rate_percent}%)</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Cancelled Mappings</span>
-                <span class="metric-value">${breakdown.cancelled || 0}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Stuck Syncs</span>
-                <span class="metric-value">${overallHealth.stuck_syncs}</span>
-            </div>
-    `;
+    let html = ``;
 
     if (overallHealth.last_activity) {
         html += `
@@ -486,15 +459,16 @@ function renderSyncStatus(dashboardData) {
         `;
         
         dashboard.recent_activity.slice(0, 10).forEach(activity => {
-            const statusColor = activity.sync_status === 'synced' ? '#28a745' : 
-                               activity.sync_status === 'error' ? '#dc3545' : '#ffc107';
+            const statusColor = activity.status === 'success' ? '#28a745' : 
+                               activity.status === 'error' ? '#dc3545' : '#ffc107';
+            const direction = `${activity.source_bridge} → ${activity.target_bridge}`;
             html += `
                 <div class="activity-item" style="border-left-color: ${statusColor}">
                     <div class="activity-header">
-                        ${activity.reservation_type} - ${activity.sync_direction} - ${activity.sync_status}
+                        ${activity.operation} - ${direction} - ${activity.status}
                     </div>
                     <div class="activity-details">
-                        ${formatTimestamp(activity.updated_at)}
+                        ${formatTimestamp(activity.created_at)}
                         ${activity.error_message ? `<br>Error: ${activity.error_message}` : ''}
                     </div>
                 </div>

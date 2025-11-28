@@ -182,7 +182,9 @@ class HealthRepository
 				id,
 				operation,
 				status,
-				error_message as message,
+				source_bridge,
+				target_bridge,
+				error_message,
 				created_at,
 				tenant_id
 			FROM bridge_sync_logs 
