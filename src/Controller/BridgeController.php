@@ -391,15 +391,31 @@ class BridgeController
                     'timestamp' => date('c')
                 ];
 
-                $response->getBody()->write(json_encode($responseData));
-                $response = $response->withHeader('Content-Type', 'application/json');
+                // Build response
+                $jsonResponse = json_encode($responseData);
+                $response->getBody()->write($jsonResponse);
+                $response = $response->withHeader('Content-Type', 'application/json')
+                                   ->withHeader('Content-Length', (string)strlen($jsonResponse));
 
-                // Flush response to client
-                if (ob_get_level()) ob_end_flush();
-                flush();
-                fastcgi_finish_request();
-
-                // Process the queue immediately in background
+                // Manually emit the response to the client BEFORE fastcgi_finish_request
+                // This is necessary because Slim normally emits after controller returns
+                http_response_code($response->getStatusCode());
+                foreach ($response->getHeaders() as $name => $values)
+                {
+                    foreach ($values as $value)
+                    {
+                        header(sprintf('%s: %s', $name, $value), false);
+                    }
+                }
+                echo $response->getBody();
+                
+                // Now flush and close connection to client
+                if (function_exists('fastcgi_finish_request'))
+                {
+                    fastcgi_finish_request();
+                }
+                
+                // Process the queue in background after client received response
                 try
                 {
                     $this->webhookService->processWebhookQueueImmediate($tenantId, 50, 'sync');
