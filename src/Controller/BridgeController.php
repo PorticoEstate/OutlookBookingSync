@@ -217,9 +217,9 @@ class BridgeController
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
+            $jobsQueued = 0;
+            $jobsSkipped = 0;
             $allResults = [];
-            $totalSynced = 0;
-            $totalErrors = 0;
 
             foreach ($resourceMappings as $resourceMapping)
             {
@@ -243,10 +243,9 @@ class BridgeController
                     $targetCalendarId = $resourceMapping['source_calendar_id']; // booking system resource (now target)
                 }
 
-
                 try
                 {
-                    $this->logger->info('Syncing mapping', [
+                    $this->logger->info('Queueing mapping for sync', [
                         'mapping_id' => $resourceMapping['id'],
                         'mapping_tenant_id' => $mappingTenantId,
                         'request_tenant_id' => $tenantId,
@@ -258,119 +257,177 @@ class BridgeController
 
                     if ($options['dry_run'])
                     {
+                        // Dry run still executes synchronously
                         $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                        
+                        $allResults[] = [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_calendar' => $sourceCalendarId,
+                            'target_calendar' => $targetCalendarId,
+                            'results' => $results
+                        ];
                     }
                     else
                     {
-                        // Use tenant_id from the resource mapping record
-                        $options['tenant_id'] = $mappingTenantId;
-
-                        // Pass mapping configuration for ownership decisions
-                        $options['mapping_config'] = [
+                        // Queue-based processing: enqueue the sync operation
+                        $queuePayload = [
                             'mapping_id' => $resourceMapping['id'],
-                            'bridge_from' => $sourceBridge, //actual source bridge for this sync call
-                            'bridge_to' => $targetBridge, //actual target bridge for this sync call
+                            'source_bridge' => $sourceBridge,
+                            'target_bridge' => $targetBridge,
+                            'source_calendar_id' => $sourceCalendarId,
+                            'target_calendar_id' => $targetCalendarId,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                            'options' => $options,
+                            'tenant_id' => $mappingTenantId
                         ];
-                        
-                        $results = $this->syncOrchestrator->syncBetweenBridges(
+
+                        $queued = $this->queueRepository->enqueueIfNotExists(
+                            'sync',
                             $sourceBridge,
                             $targetBridge,
-                            $sourceCalendarId,
-                            $targetCalendarId,
-                            $startDate,
-                            $endDate,
-                            $options
+                            $queuePayload,
+                            3,
+                            $mappingTenantId
                         );
-                    }
 
-                    $allResults[] = [
-                        'mapping_id' => $resourceMapping['id'],
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
-                        'results' => $results
-                    ];
-
-                    // On successful HTTP sync (not dry-run), bump resource-level last_synced_at
-                    if (!$options['dry_run'])
-                    {
-                        try
+                        if ($queued)
                         {
-                            $failedEvents = $results['summary']['failed_events'] ?? 0;
-                            $hasSummary = isset($results['summary']);
-                            // Treat as success when there is no summary (legacy) or when failed_events == 0
-                            if (!$hasSummary || $failedEvents === 0)
-                            {
-                                $this->resourceRepository->updateLastSyncedAt((int)$resourceMapping['id']);
-                            }
-                        }
-                        catch (\Throwable $e)
-                        {
-                            // Log but do not fail the request if timestamp update fails
-                            $this->logger->warning('Failed to update resource last_synced_at after HTTP sync', [
+                            $jobsQueued++;
+                            $allResults[] = [
                                 'mapping_id' => $resourceMapping['id'],
-                                'error' => $e->getMessage()
-                            ]);
+                                'source_calendar' => $sourceCalendarId,
+                                'target_calendar' => $targetCalendarId,
+                                'status' => 'queued'
+                            ];
+                        }
+                        else
+                        {
+                            $jobsSkipped++;
+                            $allResults[] = [
+                                'mapping_id' => $resourceMapping['id'],
+                                'source_calendar' => $sourceCalendarId,
+                                'target_calendar' => $targetCalendarId,
+                                'status' => 'skipped_duplicate'
+                            ];
                         }
                     }
-
-                    // Calculate total synced events (created + updated)
-                    $syncedInThisMapping = ($results['created'] ?? 0) + ($results['updated'] ?? 0);
-                    $totalSynced += $syncedInThisMapping;
                 }
                 catch (\Exception $e)
                 {
-                    $totalErrors++;
                     $allResults[] = [
                         'mapping_id' => $resourceMapping['id'],
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
+                        'source_calendar' => $sourceCalendarId ?? null,
+                        'target_calendar' => $targetCalendarId ?? null,
+                        'status' => 'error',
                         'error' => $e->getMessage()
                     ];
 
-                    $this->logger->error('Mapping sync failed', [
+                    $this->logger->error('Failed to queue mapping sync', [
                         'mapping_id' => $resourceMapping['id'],
                         'error' => $e->getMessage()
                     ]);
                 }
             }
 
-            // Calculate totals across all mappings
-            $totalCreated = 0;
-            $totalUpdated = 0;
-            $totalDeleted = 0;
-            $totalSkipped = 0;
-            $totalSourceEvents = 0;
+            // Check if immediate processing is enabled and available
+            $immediateProcessing = $_ENV['SYNC_IMMEDIATE_PROCESSING'] ?? 'true';
+            $immediateProcessing = filter_var($immediateProcessing, FILTER_VALIDATE_BOOLEAN);
+            $phpFpmAvailable = function_exists('fastcgi_finish_request');
 
-            foreach ($allResults as $mappingResult)
+            if (!$options['dry_run'] && $jobsQueued > 0 && $immediateProcessing && $phpFpmAvailable)
             {
-                if (isset($mappingResult['results']) && !isset($mappingResult['error']))
-                {
-                    $results = $mappingResult['results'];
-                    $totalCreated += $results['created'] ?? 0;
-                    $totalUpdated += $results['updated'] ?? 0;
-                    $totalDeleted += $results['deleted'] ?? 0;
-                    $totalSkipped += $results['skipped'] ?? 0;
-                    $totalSourceEvents += $results['source_events_found'] ?? 0;
-                }
-            }
+                // Send response immediately, then process queue
+                $responseData = [
+                    'success' => true,
+                    'mode' => 'queue_with_immediate_processing',
+                    'jobs_queued' => $jobsQueued,
+                    'jobs_skipped' => $jobsSkipped,
+                    'processing_status' => 'processing_started',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ];
 
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'mappings_processed' => count($resourceMappings),
-                'total_synced' => $totalSynced,
-                'total_errors' => $totalErrors,
-                'summary' => [
-                    'total_source_events' => $totalSourceEvents,
-                    'created' => $totalCreated,
-                    'updated' => $totalUpdated,
-                    'deleted' => $totalDeleted,
-                    'skipped' => $totalSkipped,
-                    'errors' => $totalErrors,
-                    'success_rate' => $totalSourceEvents > 0 ? round((($totalCreated + $totalUpdated) / $totalSourceEvents) * 100, 2) : 100
-                ],
-                'sync_results' => $allResults,
-                'timestamp' => date('c')
-            ]));
+                $response->getBody()->write(json_encode($responseData));
+                $response = $response->withHeader('Content-Type', 'application/json');
+
+                // Flush response to client
+                if (ob_get_level()) ob_end_flush();
+                flush();
+                fastcgi_finish_request();
+
+                // Process the queue immediately in background
+                try
+                {
+                    $this->webhookService->processWebhookQueueImmediate($tenantId, 50, 'sync');
+                    $this->logger->info('Immediate queue processing completed', ['jobs_processed' => $jobsQueued]);
+                }
+                catch (\Exception $e)
+                {
+                    $this->logger->error('Immediate queue processing failed', ['error' => $e->getMessage()]);
+                }
+
+                return $response;
+            }
+            elseif (!$options['dry_run'] && $jobsQueued > 0)
+            {
+                // Queue-based processing without immediate execution
+                $this->logger->info('Sync jobs queued for cron processing', [
+                    'jobs_queued' => $jobsQueued,
+                    'immediate_processing_enabled' => $immediateProcessing,
+                    'php_fpm_available' => $phpFpmAvailable
+                ]);
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'queue_based',
+                    'jobs_queued' => $jobsQueued,
+                    'jobs_skipped' => $jobsSkipped,
+                    'processing_status' => 'queued_for_cron',
+                    'message' => 'Sync operations queued. They will be processed by the next cron job execution.',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
+
+            }
+            else
+            {
+                // Dry run results - return synchronous data
+                $totalCreated = 0;
+                $totalUpdated = 0;
+                $totalDeleted = 0;
+                $totalSkipped = 0;
+                $totalSourceEvents = 0;
+
+                foreach ($allResults as $mappingResult)
+                {
+                    if (isset($mappingResult['results']) && !isset($mappingResult['error']))
+                    {
+                        $results = $mappingResult['results'];
+                        $totalCreated += $results['created'] ?? 0;
+                        $totalUpdated += $results['updated'] ?? 0;
+                        $totalDeleted += $results['deleted'] ?? 0;
+                        $totalSkipped += $results['skipped'] ?? 0;
+                        $totalSourceEvents += $results['source_events_found'] ?? 0;
+                    }
+                }
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'dry_run',
+                    'mappings_processed' => count($resourceMappings),
+                    'summary' => [
+                        'total_source_events' => $totalSourceEvents,
+                        'created' => $totalCreated,
+                        'updated' => $totalUpdated,
+                        'deleted' => $totalDeleted,
+                        'skipped' => $totalSkipped,
+                        'success_rate' => $totalSourceEvents > 0 ? round((($totalCreated + $totalUpdated) / $totalSourceEvents) * 100, 2) : 100
+                    ],
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
+            }
 
             return $response->withHeader('Content-Type', 'application/json');
         }

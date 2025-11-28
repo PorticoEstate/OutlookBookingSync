@@ -526,6 +526,112 @@ class RealDatabaseTest extends BaseTestCase
         // Clean up
         $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-auto-retry'");
     }
+
+    public function testSyncQueueProcessing()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-sync-queue'");
+
+        // Enqueue a sync operation
+        $syncPayload = [
+            'mapping_id' => 1,
+            'source_bridge' => 'outlook',
+            'target_bridge' => 'booking_system',
+            'source_calendar_id' => 'cal123',
+            'target_calendar_id' => 'res456',
+            'start_date' => '2025-11-01',
+            'end_date' => '2025-11-30',
+            'options' => ['dry_run' => false],
+            'tenant_id' => 'test-sync-queue'
+        ];
+
+        $queued = $queueRepo->enqueueIfNotExists(
+            'sync',
+            'outlook',
+            'booking_system',
+            $syncPayload,
+            3,
+            'test-sync-queue'
+        );
+
+        $this->assertTrue($queued, 'Should queue sync operation');
+
+        // Verify it's in the queue
+        $items = $queueRepo->findPendingItems('sync', 10, 'test-sync-queue');
+        $this->assertCount(1, $items);
+        $this->assertEquals('sync', $items[0]['queue_type']);
+        $this->assertEquals('outlook', $items[0]['source_bridge']);
+        $this->assertEquals('booking_system', $items[0]['target_bridge']);
+
+        $payload = json_decode($items[0]['payload'], true);
+        $this->assertEquals(1, $payload['mapping_id']);
+        $this->assertEquals('cal123', $payload['source_calendar_id']);
+        $this->assertEquals('res456', $payload['target_calendar_id']);
+
+        // Test duplicate prevention for sync operations
+        $queued2 = $queueRepo->enqueueIfNotExists(
+            'sync',
+            'outlook',
+            'booking_system',
+            $syncPayload,
+            3,
+            'test-sync-queue'
+        );
+
+        $this->assertFalse($queued2, 'Should not queue duplicate sync operation');
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-sync-queue'");
+    }
+
+    public function testMixedQueueTypes()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-mixed-queue'");
+
+        // Enqueue webhook operation
+        $webhookPayload = [
+            'resource_id' => 'cal123',
+            'event_id' => 'evt789',
+            'change_type' => 'updated'
+        ];
+
+        $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $webhookPayload, 1, 'test-mixed-queue');
+
+        // Enqueue sync operation
+        $syncPayload = [
+            'mapping_id' => 1,
+            'source_calendar_id' => 'cal123',
+            'target_calendar_id' => 'res456',
+            'start_date' => '2025-11-01',
+            'end_date' => '2025-11-30'
+        ];
+
+        $queueRepo->enqueueIfNotExists('sync', 'outlook', 'booking_system', $syncPayload, 3, 'test-mixed-queue');
+
+        // Verify both are queued
+        $allItems = $queueRepo->findPendingItems('webhook', 100, 'test-mixed-queue');
+        $this->assertCount(1, $allItems, 'Should have 1 webhook item');
+
+        $syncItems = $queueRepo->findPendingItems('sync', 100, 'test-mixed-queue');
+        $this->assertCount(1, $syncItems, 'Should have 1 sync item');
+
+        // Verify queue type filtering works correctly
+        $webhookPayloadResult = json_decode($allItems[0]['payload'], true);
+        $this->assertArrayHasKey('resource_id', $webhookPayloadResult);
+
+        $syncPayloadResult = json_decode($syncItems[0]['payload'], true);
+        $this->assertArrayHasKey('mapping_id', $syncPayloadResult);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-mixed-queue'");
+    }
 }
 
 

@@ -144,17 +144,25 @@ class WebhookService
                     // Mark as processing
                     $this->queueRepository->markProcessing($item['id']);
 
-                    // Process the webhook payload
+                    // Process the payload based on queue type
                     $payload = json_decode($item['payload'], true);
                     $sourceBridge = $item['source_bridge'];
                     $targetBridge = $item['target_bridge'];
-                    $tenantId = $item['tenant_id'];
+                    $itemTenantId = $item['tenant_id'];
 
-                    // Process sync operation based on payload
-                    if ($payload && isset($payload['resource_id']))
+                    if ($queueType === 'webhook' && $payload && isset($payload['resource_id']))
                     {
-                        // This is a webhook event - process it
-                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId);
+                        // Webhook event processing
+                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $itemTenantId);
+                    }
+                    elseif ($queueType === 'sync' && $payload && isset($payload['mapping_id']))
+                    {
+                        // Sync operation processing
+                        $this->processSyncOperation($payload);
+                    }
+                    else
+                    {
+                        throw new \Exception("Invalid queue payload for queue_type: {$queueType}");
                     }
 
                     // Mark as completed
@@ -211,16 +219,20 @@ class WebhookService
                 // Mark as processing
                 $this->queueRepository->markProcessing($item['id']);
 
-                // Process the webhook payload
+                // Process the payload based on queue type
                 $payload = json_decode($item['payload'], true);
                 $sourceBridge = $item['source_bridge'];
                 $targetBridge = $item['target_bridge'];
                 $itemTenantId = $item['tenant_id'];
 
-                // Process sync operation based on payload
-                if ($payload && isset($payload['resource_id'])) {
-                    // This is a webhook event - process it
+                if ($queueType === 'webhook' && $payload && isset($payload['resource_id'])) {
+                    // Webhook event processing
                     $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $itemTenantId);
+                } elseif ($queueType === 'sync' && $payload && isset($payload['mapping_id'])) {
+                    // Sync operation processing
+                    $this->processSyncOperation($payload);
+                } else {
+                    throw new \Exception("Invalid queue payload for queue_type: {$queueType}");
                 }
 
                 // Mark as completed
@@ -927,4 +939,78 @@ class WebhookService
             ]
         ];
     }
+
+    /**
+     * Process a sync operation from the queue
+     * 
+     * @param array $payload Queue payload containing sync parameters
+     * @throws \Exception If sync fails
+     */
+    private function processSyncOperation(array $payload): void
+    {
+        $mappingId = $payload['mapping_id'];
+        $sourceBridge = $payload['source_bridge'];
+        $targetBridge = $payload['target_bridge'];
+        $sourceCalendarId = $payload['source_calendar_id'];
+        $targetCalendarId = $payload['target_calendar_id'];
+        $startDate = $payload['start_date'];
+        $endDate = $payload['end_date'];
+        $options = $payload['options'];
+        $tenantId = $payload['tenant_id'];
+
+        $this->logger->info('Processing queued sync operation', [
+            'mapping_id' => $mappingId,
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'source_calendar_id' => $sourceCalendarId,
+            'target_calendar_id' => $targetCalendarId,
+            'tenant_id' => $tenantId
+        ]);
+
+        // Execute the sync via SyncOrchestrator
+        $options['tenant_id'] = $tenantId;
+        $options['mapping_config'] = [
+            'mapping_id' => $mappingId,
+            'bridge_from' => $sourceBridge,
+            'bridge_to' => $targetBridge,
+        ];
+
+        $results = $this->syncOrchestrator->syncBetweenBridges(
+            $sourceBridge,
+            $targetBridge,
+            $sourceCalendarId,
+            $targetCalendarId,
+            $startDate,
+            $endDate,
+            $options
+        );
+
+        // Update last_synced_at timestamp on success
+        try
+        {
+            $failedEvents = $results['summary']['failed_events'] ?? 0;
+            $hasSummary = isset($results['summary']);
+            
+            if (!$hasSummary || $failedEvents === 0)
+            {
+                $this->resourceRepository->updateLastSyncedAt((int)$mappingId);
+            }
+        }
+        catch (\Throwable $e)
+        {
+            $this->logger->warning('Failed to update resource last_synced_at after queue sync', [
+                'mapping_id' => $mappingId,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        $this->logger->info('Queued sync operation completed', [
+            'mapping_id' => $mappingId,
+            'created' => $results['created'] ?? 0,
+            'updated' => $results['updated'] ?? 0,
+            'deleted' => $results['deleted'] ?? 0,
+            'skipped' => $results['skipped'] ?? 0
+        ]);
+    }
 }
+

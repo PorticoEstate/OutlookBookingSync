@@ -46,14 +46,18 @@ Refactor `BridgeController::syncBridges()` to use queue-based processing instead
   - [x] Add logging for retry/failure scenarios
   - [x] Added integration tests: `testRetryFailedItem()`, `testDeleteQueueItem()`, `testGetFailedItems()`, `testCleanupOldItems()`, `testAutoRetryLogic()`
 
-- [ ] **Step 2**: Modify syncBridges() to Use Queue-Based Processing
-  - [ ] Replace synchronous processing with `enqueueIfNotExists()` calls
-  - [ ] Add PHP-FPM detection (`function_exists('fastcgi_finish_request')`)
-  - [ ] Check `SYNC_IMMEDIATE_PROCESSING` environment variable
-  - [ ] If PHP-FPM available: send response, then call `processWebhookQueueImmediate()`
-  - [ ] If not available: log that cron will process
-  - [ ] Update response format (jobs_queued, jobs_skipped, processing status)
-  - [ ] Remove old synchronous processing code
+- [x] **Step 2**: Modify syncBridges() to Use Queue-Based Processing ✅
+  - [x] Replace synchronous processing with `enqueueIfNotExists()` calls
+  - [x] Add PHP-FPM detection (`function_exists('fastcgi_finish_request')`)
+  - [x] Check `SYNC_IMMEDIATE_PROCESSING` environment variable
+  - [x] If PHP-FPM available: send response, then call `processWebhookQueueImmediate()`
+  - [x] If not available: log that cron will process
+  - [x] Update response format (jobs_queued, jobs_skipped, processing status)
+  - [x] Maintain backward compatibility for dry_run mode
+  - [x] Added `processSyncOperation()` method to WebhookService
+  - [x] Updated queue processors to handle both 'webhook' and 'sync' types
+  - [x] Fixed `findPendingItems()` to include queue_type in SELECT
+  - [x] Added integration tests: `testSyncQueueProcessing()`, `testMixedQueueTypes()`
 
 - [ ] **Step 3**: Create Unified Queue Processor Endpoint
   - [ ] Add `processQueue()` method to `BridgeController`

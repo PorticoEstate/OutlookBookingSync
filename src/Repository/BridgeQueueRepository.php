@@ -106,7 +106,7 @@ class BridgeQueueRepository
     public function findPendingItems(string $queueType = 'webhook', int $limit = 50, ?string $tenantId = null, string $sortOrder = 'ASC'): array
     {
         $sql = "
-            SELECT id, tenant_id, source_bridge, target_bridge, payload, attempts, created_at
+            SELECT id, queue_type, tenant_id, source_bridge, target_bridge, payload, attempts, max_attempts, created_at
             FROM bridge_queue 
             WHERE queue_type = :queue_type 
             AND status = 'pending'
