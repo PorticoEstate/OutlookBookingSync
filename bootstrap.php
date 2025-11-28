@@ -539,10 +539,8 @@ $app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 
 // Process deletion check queue
 $app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController::class, 'processDeletionQueue']);
 
-// Process webhook queue (bridge_sync queue items)
-$app->post('/bridges/process-webhook-queue', [\App\Controller\BridgeController::class, 'processWebhookQueue']);
-
 // Unified queue processor - handles multiple queue types (webhook, sync, deletion)
+// This replaces the legacy /bridges/process-webhook-queue endpoint
 $app->post('/bridges/process-queue', [\App\Controller\BridgeController::class, 'processQueue']);
 
 // Queue Management API Routes
@@ -646,9 +644,8 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /bridges/{bridge}/subscriptions' => 'Create webhook subscriptions for a bridge (body: webhook_url, optional: calendar_ids[])',
                 'GET /bridges/{bridge}/subscriptions' => 'List webhook subscriptions (query: ?search=string&status=active|expired|expiring&limit=int&offset=int&stats_only=bool)',
                 'DELETE /bridges/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
-                'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
-                'POST /bridges/process-queue' => 'Unified queue processor - process multiple queue types (body: queue_types=["webhook","sync"], batch_size=int)',
-                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync, limit=100)',
+                'POST /bridges/process-queue' => 'Unified queue processor - process multiple queue types (body: queue_types=["webhook","sync","deletion"], batch_size=int)',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync|deletion, limit=100)',
                 'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
                 'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',

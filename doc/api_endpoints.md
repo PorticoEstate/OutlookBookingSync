@@ -45,7 +45,7 @@ Multi‑tenant deployments MUST also send `X-Tenant-Id: <tenantId>` (unless rely
 | Method | Path | Description | Notes |
 |--------|------|-------------|-------|
 | POST | /bridges/process-queue | **Unified queue processor** (webhook, sync, deletion) | Recommended: Body: `{ "queue_types": ["webhook", "sync"], "batch_size": 50 }` |
-| POST | /bridges/process-webhook-queue | Process webhook queue only | Legacy: Use `/bridges/process-queue` instead |
+
 | POST | /bridges/process-deletion-queue | Process deletion verification queue | Legacy: Use `/bridges/process-queue` instead |
 | GET | /bridges/queue/failed | Retrieve failed queue items | Query: `queue_type`, `limit`, `offset` |
 | POST | /bridges/queue/{id}/retry | Manually retry failed queue item | Resets attempts and status to pending |

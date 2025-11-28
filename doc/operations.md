@@ -21,7 +21,7 @@ Still supported for backward compatibility:
 | Reverse sync (outlook → booking) | `*/10 * * * *` | POST /bridges/sync/outlook/booking_system |
 | Deletion sweep | `*/5 * * * *` | POST /bridges/sync-deletions |
 | Deletion queue process | `*/5 * * * *` | POST /bridges/process-deletion-queue |
-| Webhook queue process | `*/5 * * * *` | POST /bridges/process-webhook-queue |
+| Queue process (webhook) | `*/5 * * * *` | POST /bridges/process-queue with queue_types=["webhook"] |
 
 ### Unified Queue Processor Configuration
 
@@ -167,7 +167,7 @@ Response (illustrative):
 1. Bridge issues Graph subscription create request with `notificationUrl` = `<WEBHOOK_BASE_URL>/bridges/webhook/outlook`.
 2. Microsoft Graph sends `GET` with `validationToken` query param.
 3. Bridge must echo the token (already implemented in the webhook controller) within 10 seconds.
-4. Subsequent notifications arrive as `POST` payloads, queued for processing (`/bridges/process-webhook-queue`).
+4. Subsequent notifications arrive as `POST` payloads, queued for processing (`/bridges/process-queue`).
 
 ### Renewal Lifecycle
 
@@ -182,7 +182,7 @@ Schedule: `*/30 * * * *` (see table above). Adjust more frequently if short-live
 ### Processing Notifications
 
 1. Inbound POST enqueued (lightweight validation & tenant lookup by subscription id).
-2. Batch processor (`/bridges/process-webhook-queue`) expands notification into targeted delta or event fetches.
+2. Batch processor (`/bridges/process-queue`) expands notification into targeted delta or event fetches.
 3. Normal sync pipelines apply ownership, dedupe, and persistence logic.
 
 ### Troubleshooting

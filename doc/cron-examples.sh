@@ -35,7 +35,7 @@ BASE_URL="http://localhost:8082"
 # Use these if you need fine-grained control over different queue types
 
 # Process webhook queue only (every 5 minutes)
-# */5 * * * * curl -X POST -H "X-API-Key: ${API_KEY}" -H "X-Tenant-Id: ${TENANT_ID}" -H "Content-Type: application/json" -d '{"batch_size":50}' ${BASE_URL}/bridges/process-webhook-queue
+# */5 * * * * curl -X POST -H "X-API-Key: ${API_KEY}" -H "X-Tenant-Id: ${TENANT_ID}" -H "Content-Type: application/json" -d '{"queue_types":["webhook"],"batch_size":50}' ${BASE_URL}/bridges/process-queue
 
 # Process sync queue only (every 5 minutes)
 # */5 * * * * curl -X POST -H "X-API-Key: ${API_KEY}" -H "X-Tenant-Id: ${TENANT_ID}" -H "Content-Type: application/json" -d '{"queue_types":["sync"],"batch_size":50}' ${BASE_URL}/bridges/process-queue

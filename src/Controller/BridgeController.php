@@ -1066,45 +1066,6 @@ class BridgeController
     }
 
     /**
-     * Process webhook queue (bridge_sync queue items).
-     * POST /bridges/process-webhook-queue
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args
-     * @return Response
-     */
-    public function processWebhookQueue(Request $request, Response $response, $args)
-    {
-        try
-        {
-            $body = json_decode($request->getBody()->getContents(), true) ?? [];
-            $batchSize = $body['batch_size'] ?? 50;
-            $tenantId = $request->getAttribute('tenant_id');
-
-            $result = $this->webhookService->processWebhookQueueBatch($batchSize, $tenantId);
-
-            $response->getBody()->write(json_encode(array_merge([
-                'success' => true,
-                'message' => 'Webhook queue processed'
-            ], $result)));
-
-            return $response->withHeader('Content-Type', 'application/json');
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Webhook queue processing failed', ['error' => $e->getMessage()]);
-
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => $e->getMessage()
-            ]));
-
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
-
-    /**
      * Process multiple queue types in a unified endpoint.
      * Accepts queue_types array and batch_size, processes each queue type sequentially.
      *

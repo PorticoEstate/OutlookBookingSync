@@ -170,7 +170,7 @@ Container cron (see `docker-entrypoint.sh` and `doc/cron-examples.sh`) triggers:
 - **Subscription Renewal**: `POST /maintenance/renew-subscriptions` (daily 4 AM) - renews expiring subscriptions
 
 ### Legacy Configuration (Separate Processors)
-- Webhook queue: `POST /bridges/process-webhook-queue`
+- Webhook queue: `POST /bridges/process-queue` with `queue_types=["webhook"]`
 - Deletion queue: `POST /bridges/process-deletion-queue`
 - Individual processing per queue type (still supported for backward compatibility)
 

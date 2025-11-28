@@ -844,7 +844,7 @@ async function viewBridgesList() {
 async function processWebhookQueue() {
     setActionStatus('Processing webhook queue...', 'info');
     try {
-        const response = await fetch('/bridges/process-webhook-queue', { 
+        const response = await fetch('/bridges/process-queue', { 
             method: 'POST',
             headers: { 
                 ...authHeaders(),
