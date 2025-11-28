@@ -541,6 +541,9 @@ $app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController:
 // Process webhook queue (bridge_sync queue items)
 $app->post('/bridges/process-webhook-queue', [\App\Controller\BridgeController::class, 'processWebhookQueue']);
 
+// Unified queue processor - handles multiple queue types (webhook, sync, deletion)
+$app->post('/bridges/process-queue', [\App\Controller\BridgeController::class, 'processQueue']);
+
 // Resource Mapping API Routes
 
 // Get all resource mappings
@@ -638,6 +641,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'GET /bridges/{bridge}/subscriptions' => 'List webhook subscriptions (query: ?search=string&status=active|expired|expiring&limit=int&offset=int&stats_only=bool)',
                 'DELETE /bridges/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
                 'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
+                'POST /bridges/process-queue' => 'Unified queue processor - process multiple queue types (body: queue_types=["webhook","sync"], batch_size=int)',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
                 'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
                 'GET /bridges/health' => 'Get health status of all bridges'

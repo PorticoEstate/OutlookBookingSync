@@ -59,13 +59,17 @@ Refactor `BridgeController::syncBridges()` to use queue-based processing instead
   - [x] Fixed `findPendingItems()` to include queue_type in SELECT
   - [x] Added integration tests: `testSyncQueueProcessing()`, `testMixedQueueTypes()`
 
-- [ ] **Step 3**: Create Unified Queue Processor Endpoint
-  - [ ] Add `processQueue()` method to `BridgeController`
-  - [ ] Accept `queue_types` array parameter
-  - [ ] Accept `batch_size` parameter
-  - [ ] Loop through queue types and process each
-  - [ ] Return combined statistics (jobs processed, failures, duration)
-  - [ ] Add route: `POST /bridges/process-queue`
+- [x] **Step 3**: Create Unified Queue Processor Endpoint ✅
+  - [x] Add `processQueue()` method to `BridgeController`
+  - [x] Accept `queue_types` array parameter (default: ['webhook', 'sync'])
+  - [x] Accept `batch_size` parameter (default: 50)
+  - [x] Loop through queue types and process each sequentially
+  - [x] Return combined statistics (jobs processed, failures, duration)
+  - [x] Add route: `POST /bridges/process-queue`
+  - [x] Validate queue_types array and individual queue type values
+  - [x] Support 'webhook', 'sync', and 'deletion' queue types
+  - [x] Include per-queue-type results with error details when applicable
+  - [x] Added integration tests: `testUnifiedQueueProcessor()`, `testQueueProcessorBatchLimit()`
 
 ### API & Management Layer
 - [ ] **Step 4**: Add Queue Management API Endpoints

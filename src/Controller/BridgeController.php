@@ -1028,6 +1028,129 @@ class BridgeController
         }
     }
 
+    /**
+     * Process multiple queue types in a unified endpoint.
+     * Accepts queue_types array and batch_size, processes each queue type sequentially.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
+     */
+    public function processQueue(Request $request, Response $response, $args)
+    {
+        $startTime = microtime(true);
+        
+        try
+        {
+            $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $queueTypes = $body['queue_types'] ?? ['webhook', 'sync'];
+            $batchSize = $body['batch_size'] ?? 50;
+            $tenantId = $request->getAttribute('tenant_id');
+
+            // Validate queue_types is an array
+            if (!is_array($queueTypes))
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'queue_types must be an array'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Validate queue types
+            $validQueueTypes = ['webhook', 'sync', 'deletion'];
+            foreach ($queueTypes as $queueType)
+            {
+                if (!in_array($queueType, $validQueueTypes))
+                {
+                    $response->getBody()->write(json_encode([
+                        'success' => false,
+                        'error' => "Invalid queue_type: {$queueType}. Valid types: " . implode(', ', $validQueueTypes)
+                    ]));
+                    return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                }
+            }
+
+            $this->logger->info('Processing unified queue', [
+                'queue_types' => $queueTypes,
+                'batch_size' => $batchSize,
+                'tenant_id' => $tenantId
+            ]);
+
+            $results = [];
+            $totalProcessed = 0;
+            $totalErrors = 0;
+
+            // Process each queue type
+            foreach ($queueTypes as $queueType)
+            {
+                try
+                {
+                    $queueResult = $this->webhookService->processWebhookQueueBatch($batchSize, $tenantId, $queueType);
+                    
+                    $results[$queueType] = [
+                        'processed' => $queueResult['processed'] ?? 0,
+                        'errors' => $queueResult['errors'] ?? 0,
+                        'total_items' => $queueResult['total_items'] ?? 0
+                    ];
+                    
+                    // Only include error_details if there are errors
+                    if (!empty($queueResult['error_details']))
+                    {
+                        $results[$queueType]['error_details'] = $queueResult['error_details'];
+                    }
+                    
+                    $totalProcessed += $queueResult['processed'] ?? 0;
+                    $totalErrors += $queueResult['errors'] ?? 0;
+                }
+                catch (\Exception $e)
+                {
+                    $results[$queueType] = [
+                        'processed' => 0,
+                        'errors' => 1,
+                        'error' => $e->getMessage()
+                    ];
+                    $totalErrors++;
+                    
+                    $this->logger->error('Failed to process queue type', [
+                        'queue_type' => $queueType,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            $duration = round(microtime(true) - $startTime, 3);
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Queue processing completed',
+                'queue_types_processed' => $queueTypes,
+                'summary' => [
+                    'total_processed' => $totalProcessed,
+                    'total_errors' => $totalErrors,
+                    'duration_seconds' => $duration
+                ],
+                'results' => $results,
+                'timestamp' => date('c')
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Unified queue processing failed', ['error' => $e->getMessage()]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'duration_seconds' => round(microtime(true) - $startTime, 3)
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
 
 
     /**

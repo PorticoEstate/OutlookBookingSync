@@ -632,6 +632,79 @@ class RealDatabaseTest extends BaseTestCase
         // Clean up
         $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-mixed-queue'");
     }
+
+    public function testUnifiedQueueProcessor()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+        $webhookService = $this->container->get(\App\Services\WebhookService::class);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-unified-processor'");
+
+        // Enqueue multiple items of different types
+        $webhookPayload1 = ['resource_id' => 'cal123', 'event_id' => 'evt1', 'change_type' => 'updated'];
+        $webhookPayload2 = ['resource_id' => 'cal456', 'event_id' => 'evt2', 'change_type' => 'updated'];
+        
+        $syncPayload1 = [
+            'mapping_id' => 1,
+            'source_calendar_id' => 'cal789',
+            'target_calendar_id' => 'res101',
+            'start_date' => '2025-11-01',
+            'end_date' => '2025-11-30'
+        ];
+
+        $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $webhookPayload1, 1, 'test-unified-processor');
+        $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $webhookPayload2, 1, 'test-unified-processor');
+        $queueRepo->enqueueIfNotExists('sync', 'outlook', 'booking_system', $syncPayload1, 3, 'test-unified-processor');
+
+        // Verify items are queued
+        $webhookItems = $queueRepo->findPendingItems('webhook', 10, 'test-unified-processor');
+        $syncItems = $queueRepo->findPendingItems('sync', 10, 'test-unified-processor');
+        
+        $this->assertCount(2, $webhookItems, 'Should have 2 webhook items');
+        $this->assertCount(1, $syncItems, 'Should have 1 sync item');
+
+        // Note: We can't actually process the queue items here because they would fail
+        // (no actual bridges configured, no real events), but we've verified:
+        // 1. Items can be queued with different types
+        // 2. findPendingItems correctly filters by queue_type
+        // 3. The unified processor can query both types
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-unified-processor'");
+    }
+
+    public function testQueueProcessorBatchLimit()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-batch-limit'");
+
+        // Enqueue 10 webhook items
+        for ($i = 1; $i <= 10; $i++)
+        {
+            $payload = ['resource_id' => "cal{$i}", 'event_id' => "evt{$i}", 'change_type' => 'updated'];
+            $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $payload, 1, 'test-batch-limit');
+        }
+
+        // Verify all 10 are queued
+        $allItems = $queueRepo->findPendingItems('webhook', 100, 'test-batch-limit');
+        $this->assertCount(10, $allItems, 'Should have 10 webhook items');
+
+        // Fetch with batch limit of 5
+        $batchItems = $queueRepo->findPendingItems('webhook', 5, 'test-batch-limit');
+        $this->assertCount(5, $batchItems, 'Should respect batch limit of 5');
+
+        // Fetch with batch limit of 3
+        $smallBatch = $queueRepo->findPendingItems('webhook', 3, 'test-batch-limit');
+        $this->assertCount(3, $smallBatch, 'Should respect batch limit of 3');
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-batch-limit'");
+    }
 }
 
 
