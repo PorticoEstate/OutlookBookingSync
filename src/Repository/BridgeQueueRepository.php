@@ -29,7 +29,81 @@ class BridgeQueueRepository
         ]);
     }
 
-    public function findPendingItems(string $queueType, int $limit, ?string $tenantId = null, string $sortOrder = 'ASC'): array
+    /**
+     * Enqueue an item only if it doesn't already exist in pending/processing state.
+     * Prevents duplicate queue items for the same sync operation.
+     * 
+     * @param string $queueType
+     * @param string $sourceBridge
+     * @param string|null $targetBridge
+     * @param array $payload
+     * @param int $priority
+     * @param string|null $tenantId
+     * @return bool True if enqueued, false if duplicate exists
+     */
+    public function enqueueIfNotExists(
+        string $queueType,
+        string $sourceBridge,
+        ?string $targetBridge,
+        array $payload,
+        int $priority = 5,
+        ?string $tenantId = null
+    ): bool {
+        // Extract key identifiers from payload for uniqueness check
+        $payloadFilter = [];
+        if (isset($payload['source_calendar_id'])) {
+            $payloadFilter['source_calendar_id'] = $payload['source_calendar_id'];
+        }
+        if (isset($payload['target_calendar_id'])) {
+            $payloadFilter['target_calendar_id'] = $payload['target_calendar_id'];
+        }
+        if (isset($payload['event_id'])) {
+            $payloadFilter['event_id'] = $payload['event_id'];
+        }
+        if (isset($payload['source_event_id'])) {
+            $payloadFilter['source_event_id'] = $payload['source_event_id'];
+        }
+        if (isset($payload['resource_id'])) {
+            $payloadFilter['resource_id'] = $payload['resource_id'];
+        }
+        
+        // Check for existing pending/processing items with same criteria
+        $sql = "SELECT COUNT(*) FROM bridge_queue 
+                WHERE queue_type = :queue_type 
+                AND source_bridge = :source_bridge 
+                AND target_bridge = :target_bridge
+                AND status IN ('pending', 'processing')
+                AND tenant_id = :tenant_id";
+        
+        // Add payload-specific uniqueness check if we have filter criteria
+        if (!empty($payloadFilter)) {
+            $sql .= " AND payload::jsonb @> :payload_filter::jsonb";
+        }
+        
+        $stmt = $this->db->prepare($sql);
+        $params = [
+            ':queue_type' => $queueType,
+            ':source_bridge' => $sourceBridge,
+            ':target_bridge' => $targetBridge,
+            ':tenant_id' => $tenantId
+        ];
+        
+        if (!empty($payloadFilter)) {
+            $params[':payload_filter'] = json_encode($payloadFilter);
+        }
+        
+        $stmt->execute($params);
+        
+        if ($stmt->fetchColumn() > 0) {
+            return false; // Duplicate exists, skip enqueue
+        }
+        
+        // No duplicate found, proceed with enqueue
+        $this->enqueue($queueType, $sourceBridge, $targetBridge, $payload, $priority, $tenantId);
+        return true;
+    }
+
+    public function findPendingItems(string $queueType = 'webhook', int $limit = 50, ?string $tenantId = null, string $sortOrder = 'ASC'): array
     {
         $sql = "
             SELECT id, tenant_id, source_bridge, target_bridge, payload, attempts, created_at

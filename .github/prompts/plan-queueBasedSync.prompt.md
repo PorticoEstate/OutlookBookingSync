@@ -19,6 +19,132 @@ Refactor `BridgeController::syncBridges()` to use queue-based processing instead
 4. Maintain backward compatibility with immediate sync option
 5. Reuse existing queue infrastructure (no new tables needed)
 
+## Implementation Checklist
+
+### Core Queue Infrastructure
+- [x] **Step 0**: Add Duplicate Prevention to Queue Repository
+  - [x] Create `enqueueIfNotExists()` method in `BridgeQueueRepository`
+  - [x] Implement PostgreSQL JSONB containment check (`@>`)
+  - [x] Add uniqueness check for: tenant_id, queue_type, bridges, calendar_ids, event_ids
+  - [x] Return boolean (true=queued, false=duplicate)
+  
+- [x] **Step 1**: Extend Queue Processors to Handle Multiple Queue Types
+  - [x] Add `$queueType` parameter to `processWebhookQueueBatch()` (default: 'webhook')
+  - [x] Add `$queueType` parameter to `processWebhookQueueImmediate()` (default: 'webhook')
+  - [x] Update repository calls to pass `$queueType`
+  - [x] Test with both 'webhook' and 'sync' queue types
+  - [x] Update `queueSyncOperation()` to use `enqueueIfNotExists()`
+
+- [ ] **Step 1.5**: Add Auto-Retry and Failure Handling Logic
+  - [ ] Modify `WebhookService` to check `attempts < 3` on failure
+  - [ ] Mark as 'pending' if attempts < 3 (auto-retry)
+  - [ ] Mark as 'failed' if attempts >= 3 (permanent failure)
+  - [ ] Add `retryFailedItem()` method to `BridgeQueueRepository`
+  - [ ] Add `deleteQueueItem()` method to `BridgeQueueRepository`
+  - [ ] Add `cleanupOldItems()` method to `BridgeQueueRepository`
+  - [ ] Add `getFailedItems()` method to `BridgeQueueRepository`
+  - [ ] Add logging for retry/failure scenarios
+
+- [ ] **Step 2**: Modify syncBridges() to Use Queue-Based Processing
+  - [ ] Replace synchronous processing with `enqueueIfNotExists()` calls
+  - [ ] Add PHP-FPM detection (`function_exists('fastcgi_finish_request')`)
+  - [ ] Check `SYNC_IMMEDIATE_PROCESSING` environment variable
+  - [ ] If PHP-FPM available: send response, then call `processWebhookQueueImmediate()`
+  - [ ] If not available: log that cron will process
+  - [ ] Update response format (jobs_queued, jobs_skipped, processing status)
+  - [ ] Remove old synchronous processing code
+
+- [ ] **Step 3**: Create Unified Queue Processor Endpoint
+  - [ ] Add `processQueue()` method to `BridgeController`
+  - [ ] Accept `queue_types` array parameter
+  - [ ] Accept `batch_size` parameter
+  - [ ] Loop through queue types and process each
+  - [ ] Return combined statistics (jobs processed, failures, duration)
+  - [ ] Add route: `POST /bridges/process-queue`
+
+### API & Management Layer
+- [ ] **Step 4**: Add Queue Management API Endpoints
+  - [ ] Add `getFailedQueueItems()` method to `BridgeController`
+  - [ ] Add `retryFailedQueueItem()` method to `BridgeController`
+  - [ ] Add `deleteQueueItem()` method to `BridgeController`
+  - [ ] Add route: `GET /bridges/queue/failed`
+  - [ ] Add route: `POST /bridges/queue/{id}/retry`
+  - [ ] Add route: `DELETE /bridges/queue/{id}`
+  - [ ] Test all three endpoints with valid/invalid IDs
+
+- [ ] **Step 5**: Add Queue Cleanup to Maintenance Controller
+  - [ ] Add `cleanupOldQueueItems()` method to `MaintenanceController`
+  - [ ] Accept `days` query parameter (default: 30)
+  - [ ] Call `queueRepository->cleanupOldItems()`
+  - [ ] Return deleted count
+  - [ ] Add route: `POST /maintenance/cleanup-queue`
+  - [ ] Add dependency injection for `BridgeQueueRepository` in `MaintenanceController`
+
+### Configuration & Deployment
+- [ ] **Step 6**: Update Configuration and Routes
+  - [ ] Add `SYNC_IMMEDIATE_PROCESSING=true` to `.env.example`
+  - [ ] Add `SYNC_IMMEDIATE_PROCESSING=true` to `.env`
+  - [ ] Add all new routes to `bootstrap.php`:
+    - [ ] `/bridges/process-queue`
+    - [ ] `/bridges/queue/failed`
+    - [ ] `/bridges/queue/{id}/retry`
+    - [ ] `/bridges/queue/{id}`
+    - [ ] `/maintenance/cleanup-queue`
+  - [ ] Mark `/bridges/process-webhook-queue` as deprecated in docs
+
+- [ ] **Step 7**: Update Cron Job Configuration
+  - [ ] Update cron to call `/bridges/process-queue` with both queue types
+  - [ ] Add daily cleanup cron at 2 AM
+  - [ ] Test cron jobs manually
+  - [ ] Document cron configuration in deployment docs
+
+### Testing
+- [ ] **Unit Tests**
+  - [ ] Test `enqueueIfNotExists()` duplicate detection
+  - [ ] Test `processWebhookQueueBatch()` with different queue types
+  - [ ] Test auto-retry logic (attempts < 3 vs >= 3)
+  - [ ] Test `retryFailedItem()`, `deleteQueueItem()`, `cleanupOldItems()`
+  - [ ] Test `syncBridges()` queue-based processing
+
+- [ ] **Integration Tests**
+  - [ ] Test full sync flow: enqueue → process → verify synced
+  - [ ] Test mixed queue processing (webhook + sync)
+  - [ ] Test auto-retry flow (fail → retry → fail → permanent failure)
+  - [ ] Test duplicate prevention (concurrent requests)
+  - [ ] Test queue cleanup (old items removed)
+  - [ ] Test PHP-FPM detection in different environments
+
+- [ ] **Manual Testing**
+  - [ ] Trigger manual sync → verify jobs queued
+  - [ ] Call `/bridges/process-queue` → verify processing
+  - [ ] Simulate failure → verify auto-retry (3 attempts)
+  - [ ] Check failed items via `GET /bridges/queue/failed`
+  - [ ] Retry failed item via `POST /bridges/queue/{id}/retry`
+  - [ ] Delete queue item via `DELETE /bridges/queue/{id}`
+  - [ ] Trigger webhook → verify queued and processed
+  - [ ] Call `/maintenance/cleanup-queue` → verify cleanup
+  - [ ] Test in PHP-FPM environment (immediate processing)
+  - [ ] Test in non-PHP-FPM environment (cron fallback)
+
+### Documentation
+- [ ] Update `doc/api_endpoints.md` with new endpoints
+- [ ] Update `doc/operations.md` with cron job configuration
+- [ ] Update `doc/architecture.md` with queue-based sync architecture
+- [ ] Document auto-retry behavior and failure handling
+- [ ] Document duplicate prevention logic
+- [ ] Update `CHANGELOG.md` with breaking changes (if any)
+- [ ] Add troubleshooting guide for queue issues
+
+### Deployment Preparation
+- [ ] Review all code changes
+- [ ] Run full test suite
+- [ ] Update `.env.example` with all new variables
+- [ ] Prepare rollback plan documentation
+- [ ] Monitor dashboard shows queue stats correctly
+- [ ] Verify logs show queue processing activities
+- [ ] Performance test with high queue volume
+- [ ] Security review (API key validation on new endpoints)
+
 ## Implementation Steps
 
 ### Step 0: Add Duplicate Prevention to Queue Repository

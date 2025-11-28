@@ -209,4 +209,116 @@ class RealDatabaseTest extends BaseTestCase
         $this->assertArrayHasKey('data', $body);
         $this->assertArrayHasKey('webhook_queue', $body['data']);
     }
+
+    public function testEnqueueIfNotExists_DuplicatePrevention()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up any existing test data
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-duplicate-check'");
+
+        $payload = [
+            'source_calendar_id' => 'test-cal-123',
+            'target_calendar_id' => 'test-cal-456',
+            'event_id' => 'test-evt-789'
+        ];
+
+        // First enqueue should succeed
+        $result1 = $queueRepo->enqueueIfNotExists(
+            'webhook',
+            'outlook',
+            'booking_system',
+            $payload,
+            5,
+            'test-duplicate-check'
+        );
+        $this->assertTrue($result1, 'First enqueue should succeed');
+
+        // Second enqueue (duplicate) should fail
+        $result2 = $queueRepo->enqueueIfNotExists(
+            'webhook',
+            'outlook',
+            'booking_system',
+            $payload,
+            5,
+            'test-duplicate-check'
+        );
+        $this->assertFalse($result2, 'Duplicate enqueue should be prevented');
+
+        // Verify only one item exists
+        $stmt = $db->prepare("SELECT COUNT(*) FROM bridge_queue WHERE tenant_id = 'test-duplicate-check' AND status = 'pending'");
+        $stmt->execute();
+        $count = $stmt->fetchColumn();
+        $this->assertEquals(1, $count, 'Only one pending item should exist');
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-duplicate-check'");
+    }
+
+    public function testEnqueueIfNotExists_DifferentEventsAllowed()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-different-events'");
+
+        $payload1 = [
+            'source_calendar_id' => 'test-cal-123',
+            'target_calendar_id' => 'test-cal-456',
+            'event_id' => 'test-evt-111'
+        ];
+
+        $payload2 = [
+            'source_calendar_id' => 'test-cal-123',
+            'target_calendar_id' => 'test-cal-456',
+            'event_id' => 'test-evt-222' // Different event
+        ];
+
+        // Both should succeed
+        $result1 = $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $payload1, 5, 'test-different-events');
+        $result2 = $queueRepo->enqueueIfNotExists('webhook', 'outlook', 'booking_system', $payload2, 5, 'test-different-events');
+
+        $this->assertTrue($result1);
+        $this->assertTrue($result2);
+
+        // Verify two items exist
+        $stmt = $db->prepare("SELECT COUNT(*) FROM bridge_queue WHERE tenant_id = 'test-different-events' AND status = 'pending'");
+        $stmt->execute();
+        $count = $stmt->fetchColumn();
+        $this->assertEquals(2, $count, 'Two different events should be enqueued');
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-different-events'");
+    }
+
+    public function testFindPendingItems_QueueTypeFiltering()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-queue-types'");
+
+        // Enqueue items with different queue types
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['type' => 'webhook'], 5, 'test-queue-types');
+        $queueRepo->enqueue('sync', 'outlook', 'booking_system', ['type' => 'sync'], 5, 'test-queue-types');
+
+        // Find webhook items
+        $webhookItems = $queueRepo->findPendingItems('webhook', 10, 'test-queue-types');
+        $this->assertCount(1, $webhookItems, 'Should find 1 webhook item');
+        $payload1 = json_decode($webhookItems[0]['payload'], true);
+        $this->assertEquals('webhook', $payload1['type']);
+
+        // Find sync items
+        $syncItems = $queueRepo->findPendingItems('sync', 10, 'test-queue-types');
+        $this->assertCount(1, $syncItems, 'Should find 1 sync item');
+        $payload2 = json_decode($syncItems[0]['payload'], true);
+        $this->assertEquals('sync', $payload2['type']);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-queue-types'");
+    }
 }
+

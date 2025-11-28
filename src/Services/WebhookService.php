@@ -111,9 +111,10 @@ class WebhookService
      *
      * @param string|null $tenantId
      * @param int $batchSize
+     * @param string $queueType Queue type to process (webhook, sync, etc.)
      * @return void
      */
-    public function processWebhookQueueImmediate(?string $tenantId = null, int $batchSize = 1): void
+    public function processWebhookQueueImmediate(?string $tenantId = null, int $batchSize = 1, string $queueType = 'webhook'): void
     {
         try
         {
@@ -121,7 +122,7 @@ class WebhookService
             $startTime = time();
             
             // Get the most recent pending item for this tenant
-            $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId, 'DESC');
+            $queueItems = $this->queueRepository->findPendingItems($queueType, $batchSize, $tenantId, 'DESC');
 
             $processed = 0;
             $errors = 0;
@@ -188,12 +189,13 @@ class WebhookService
      *
      * @param int $batchSize
      * @param string|null $tenantId
+     * @param string $queueType Queue type to process (webhook, sync, etc.)
      * @return array Processing statistics
      */
-    public function processWebhookQueueBatch(int $batchSize = 50, ?string $tenantId = null): array
+    public function processWebhookQueueBatch(int $batchSize = 50, ?string $tenantId = null, string $queueType = 'webhook'): array
     {
         // Get pending webhook queue items
-        $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId);
+        $queueItems = $this->queueRepository->findPendingItems($queueType, $batchSize, $tenantId);
 
         $processed = 0;
         $errors = 0;
@@ -338,14 +340,22 @@ class WebhookService
     private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         try {
-            $this->queueRepository->enqueue(
-                'bridge_sync',
+            $queued = $this->queueRepository->enqueueIfNotExists(
+                'webhook',
                 $sourceBridge,
                 $targetBridge,
                 $webhookData,
                 1,
                 $tenantId
             );
+            
+            if (!$queued) {
+                $this->logger->info('Duplicate webhook operation skipped', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'tenant_id' => $tenantId
+                ]);
+            }
         } catch (\Exception $e) {
             $this->logger->error('Failed to enqueue sync operation', [
                 'error' => $e->getMessage(),
