@@ -219,6 +219,7 @@ class BridgeController
 
             $jobsQueued = 0;
             $jobsSkipped = 0;
+            $eventsFound = 0;
             $allResults = [];
 
             foreach ($resourceMappings as $resourceMapping)
@@ -245,7 +246,7 @@ class BridgeController
 
                 try
                 {
-                    $this->logger->info('Queueing mapping for sync', [
+                    $this->logger->info('Processing mapping for sync', [
                         'mapping_id' => $resourceMapping['id'],
                         'mapping_tenant_id' => $mappingTenantId,
                         'request_tenant_id' => $tenantId,
@@ -254,6 +255,33 @@ class BridgeController
                         'original_bridge_from' => $resourceMapping['bridge_from'],
                         'original_bridge_to' => $resourceMapping['bridge_to']
                     ]);
+
+                    // Get source bridge instance and fetch events
+                    $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($mappingTenantId ?: 'default', $sourceBridge);
+                    $sourceEvents = $sourceBridgeInstance->getEvents($sourceCalendarId, $startDate, $endDate);
+
+                    if (empty($sourceEvents))
+                    {
+                        $this->logger->debug('No events found for mapping', [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_calendar' => $sourceCalendarId,
+                            'date_range' => [$startDate, $endDate]
+                        ]);
+
+                        $allResults[] = [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_calendar' => $sourceCalendarId,
+                            'target_calendar' => $targetCalendarId,
+                            'events_found' => 0,
+                            'events_queued' => 0,
+                            'status' => 'no_events'
+                        ];
+                        continue;
+                    }
+
+                    $eventsFound += count($sourceEvents);
+                    $mappingEventsQueued = 0;
+                    $mappingEventsSkipped = 0;
 
                     if ($options['dry_run'])
                     {
@@ -269,48 +297,61 @@ class BridgeController
                     }
                     else
                     {
-                        // Queue-based processing: enqueue the sync operation
-                        $queuePayload = [
+                        // Queue each event individually (event-level granularity)
+                        foreach ($sourceEvents as $event)
+                        {
+                            $eventId = $event['id'] ?? $event['event_id'] ?? null;
+                            if (!$eventId)
+                            {
+                                $this->logger->warning('Event missing ID, skipping', [
+                                    'mapping_id' => $resourceMapping['id'],
+                                    'event' => $event
+                                ]);
+                                continue;
+                            }
+
+                            $queuePayload = [
+                                'mapping_id' => $resourceMapping['id'],
+                                'source_bridge' => $sourceBridge,
+                                'target_bridge' => $targetBridge,
+                                'source_calendar_id' => $sourceCalendarId,
+                                'target_calendar_id' => $targetCalendarId,
+                                'source_event_id' => $eventId,
+                                'event_data' => $event,
+                                'options' => $options,
+                                'tenant_id' => $mappingTenantId
+                            ];
+
+                            $queued = $this->queueRepository->enqueueIfNotExists(
+                                'sync',
+                                $sourceBridge,
+                                $targetBridge,
+                                $queuePayload,
+                                3,
+                                $mappingTenantId
+                            );
+
+                            if ($queued)
+                            {
+                                $jobsQueued++;
+                                $mappingEventsQueued++;
+                            }
+                            else
+                            {
+                                $jobsSkipped++;
+                                $mappingEventsSkipped++;
+                            }
+                        }
+
+                        $allResults[] = [
                             'mapping_id' => $resourceMapping['id'],
-                            'source_bridge' => $sourceBridge,
-                            'target_bridge' => $targetBridge,
-                            'source_calendar_id' => $sourceCalendarId,
-                            'target_calendar_id' => $targetCalendarId,
-                            'start_date' => $startDate,
-                            'end_date' => $endDate,
-                            'options' => $options,
-                            'tenant_id' => $mappingTenantId
+                            'source_calendar' => $sourceCalendarId,
+                            'target_calendar' => $targetCalendarId,
+                            'events_found' => count($sourceEvents),
+                            'events_queued' => $mappingEventsQueued,
+                            'events_skipped' => $mappingEventsSkipped,
+                            'status' => $mappingEventsQueued > 0 ? 'queued' : 'all_duplicates'
                         ];
-
-                        $queued = $this->queueRepository->enqueueIfNotExists(
-                            'sync',
-                            $sourceBridge,
-                            $targetBridge,
-                            $queuePayload,
-                            3,
-                            $mappingTenantId
-                        );
-
-                        if ($queued)
-                        {
-                            $jobsQueued++;
-                            $allResults[] = [
-                                'mapping_id' => $resourceMapping['id'],
-                                'source_calendar' => $sourceCalendarId,
-                                'target_calendar' => $targetCalendarId,
-                                'status' => 'queued'
-                            ];
-                        }
-                        else
-                        {
-                            $jobsSkipped++;
-                            $allResults[] = [
-                                'mapping_id' => $resourceMapping['id'],
-                                'source_calendar' => $sourceCalendarId,
-                                'target_calendar' => $targetCalendarId,
-                                'status' => 'skipped_duplicate'
-                            ];
-                        }
                     }
                 }
                 catch (\Exception $e)
@@ -323,7 +364,7 @@ class BridgeController
                         'error' => $e->getMessage()
                     ];
 
-                    $this->logger->error('Failed to queue mapping sync', [
+                    $this->logger->error('Failed to process mapping sync', [
                         'mapping_id' => $resourceMapping['id'],
                         'error' => $e->getMessage()
                     ]);
@@ -341,8 +382,10 @@ class BridgeController
                 $responseData = [
                     'success' => true,
                     'mode' => 'queue_with_immediate_processing',
-                    'jobs_queued' => $jobsQueued,
-                    'jobs_skipped' => $jobsSkipped,
+                    'events_found' => $eventsFound,
+                    'events_queued' => $jobsQueued,
+                    'events_skipped' => $jobsSkipped,
+                    'mappings_processed' => count($resourceMappings),
                     'processing_status' => 'processing_started',
                     'sync_results' => $allResults,
                     'timestamp' => date('c')
@@ -360,7 +403,7 @@ class BridgeController
                 try
                 {
                     $this->webhookService->processWebhookQueueImmediate($tenantId, 50, 'sync');
-                    $this->logger->info('Immediate queue processing completed', ['jobs_processed' => $jobsQueued]);
+                    $this->logger->info('Immediate queue processing completed', ['events_processed' => $jobsQueued]);
                 }
                 catch (\Exception $e)
                 {
@@ -372,8 +415,9 @@ class BridgeController
             elseif (!$options['dry_run'] && $jobsQueued > 0)
             {
                 // Queue-based processing without immediate execution
-                $this->logger->info('Sync jobs queued for cron processing', [
-                    'jobs_queued' => $jobsQueued,
+                $this->logger->info('Sync events queued for cron processing', [
+                    'events_queued' => $jobsQueued,
+                    'events_found' => $eventsFound,
                     'immediate_processing_enabled' => $immediateProcessing,
                     'php_fpm_available' => $phpFpmAvailable
                 ]);
@@ -381,14 +425,30 @@ class BridgeController
                 $response->getBody()->write(json_encode([
                     'success' => true,
                     'mode' => 'queue_based',
-                    'jobs_queued' => $jobsQueued,
-                    'jobs_skipped' => $jobsSkipped,
+                    'events_found' => $eventsFound,
+                    'events_queued' => $jobsQueued,
+                    'events_skipped' => $jobsSkipped,
+                    'mappings_processed' => count($resourceMappings),
                     'processing_status' => 'queued_for_cron',
-                    'message' => 'Sync operations queued. They will be processed by the next cron job execution.',
+                    'message' => 'Sync events queued. They will be processed by the next cron job execution.',
                     'sync_results' => $allResults,
                     'timestamp' => date('c')
                 ]));
 
+            }
+            elseif (!$options['dry_run'] && $eventsFound === 0)
+            {
+                // No events found in any mapping
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'queue_based',
+                    'events_found' => 0,
+                    'events_queued' => 0,
+                    'mappings_processed' => count($resourceMappings),
+                    'message' => 'No events found in date range for any mapping.',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
             }
             else
             {

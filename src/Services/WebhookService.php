@@ -228,8 +228,8 @@ class WebhookService
                 if ($queueType === 'webhook' && $payload && isset($payload['resource_id'])) {
                     // Webhook event processing
                     $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $itemTenantId);
-                } elseif ($queueType === 'sync' && $payload && isset($payload['mapping_id'])) {
-                    // Sync operation processing
+                } elseif ($queueType === 'sync' && $payload && isset($payload['source_event_id'])) {
+                    // Sync operation processing (event-level)
                     $this->processSyncOperation($payload);
                 } else {
                     throw new \Exception("Invalid queue payload for queue_type: {$queueType}");
@@ -946,15 +946,23 @@ class WebhookService
      * @param array $payload Queue payload containing sync parameters
      * @throws \Exception If sync fails
      */
+    /**
+     * Process a queued sync operation (event-level granularity).
+     * 
+     * @param array $payload Queue payload containing event data
+     * @return void
+     * @throws \Exception on sync failure
+     */
     private function processSyncOperation(array $payload): void
     {
+        // Event-level sync payload
         $mappingId = $payload['mapping_id'];
         $sourceBridge = $payload['source_bridge'];
         $targetBridge = $payload['target_bridge'];
         $sourceCalendarId = $payload['source_calendar_id'];
         $targetCalendarId = $payload['target_calendar_id'];
-        $startDate = $payload['start_date'];
-        $endDate = $payload['end_date'];
+        $sourceEventId = $payload['source_event_id'];
+        $eventData = $payload['event_data'];
         $options = $payload['options'];
         $tenantId = $payload['tenant_id'];
 
@@ -962,12 +970,11 @@ class WebhookService
             'mapping_id' => $mappingId,
             'source_bridge' => $sourceBridge,
             'target_bridge' => $targetBridge,
-            'source_calendar_id' => $sourceCalendarId,
-            'target_calendar_id' => $targetCalendarId,
+            'source_event_id' => $sourceEventId,
             'tenant_id' => $tenantId
         ]);
 
-        // Execute the sync via SyncOrchestrator
+        // Execute the sync via SyncOrchestrator (single event)
         $options['tenant_id'] = $tenantId;
         $options['mapping_config'] = [
             'mapping_id' => $mappingId,
@@ -975,26 +982,54 @@ class WebhookService
             'bridge_to' => $targetBridge,
         ];
 
-        $results = $this->syncOrchestrator->syncBetweenBridges(
+        $syncResults = $this->syncOrchestrator->processSingleEventSync(
             $sourceBridge,
             $targetBridge,
             $sourceCalendarId,
             $targetCalendarId,
-            $startDate,
-            $endDate,
+            $eventData,
             $options
         );
 
-        // Update last_synced_at timestamp on success
+        if (!$syncResults['success']) {
+            throw new \Exception("Sync operation failed: " . ($syncResults['error'] ?? 'Unknown error'));
+        }
+
+        // Update or create mapping for this event
+        $totalCreated = $syncResults['created'] ?? 0;
+        $totalUpdated = $syncResults['updated'] ?? 0;
+        $targetEventId = $syncResults['target_event_id'] ?? null;
+
+        if ($totalCreated > 0) {
+            // Event was created - insert new mapping
+            $this->mappingRepository->createOrUpdateWithTargetEventId([
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $sourceEventId,
+                'sync_status' => 'completed',
+                'tenant_id' => $tenantId,
+                'target_event_id' => $targetEventId
+            ]);
+        } elseif ($totalUpdated > 0) {
+            // Event was updated - update existing mapping
+            $this->mappingRepository->updateStatusAndTargetEventId([
+                'sync_status' => 'completed',
+                'target_event_id' => $targetEventId,
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $sourceEventId,
+                'tenant_id' => $tenantId
+            ]);
+        }
+
+        // Update last_synced_at timestamp on resource mapping
         try
         {
-            $failedEvents = $results['summary']['failed_events'] ?? 0;
-            $hasSummary = isset($results['summary']);
-            
-            if (!$hasSummary || $failedEvents === 0)
-            {
-                $this->resourceRepository->updateLastSyncedAt((int)$mappingId);
-            }
+            $this->resourceRepository->updateLastSyncedAt((int)$mappingId);
         }
         catch (\Throwable $e)
         {
@@ -1006,10 +1041,10 @@ class WebhookService
 
         $this->logger->info('Queued sync operation completed', [
             'mapping_id' => $mappingId,
-            'created' => $results['created'] ?? 0,
-            'updated' => $results['updated'] ?? 0,
-            'deleted' => $results['deleted'] ?? 0,
-            'skipped' => $results['skipped'] ?? 0
+            'source_event_id' => $sourceEventId,
+            'target_event_id' => $targetEventId,
+            'created' => $totalCreated,
+            'updated' => $totalUpdated
         ]);
     }
 }

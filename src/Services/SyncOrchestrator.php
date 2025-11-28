@@ -777,6 +777,14 @@ class SyncOrchestrator
 
     private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options)
     {
+        // Provide default date range if not specified (used for single event syncs)
+        if ($startDate === null) {
+            $startDate = date('Y-m-d', strtotime('-30 days'));
+        }
+        if ($endDate === null) {
+            $endDate = date('Y-m-d', strtotime('+90 days'));
+        }
+        
         return $this->mappingRepository->findMappings(
             $sourceBridge,
             $targetBridge,
