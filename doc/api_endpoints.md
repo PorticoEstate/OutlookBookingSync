@@ -40,13 +40,22 @@ Multi‑tenant deployments MUST also send `X-Tenant-Id: <tenantId>` (unless rely
 
 *Webhook endpoints bypass API key to allow external providers. Harden at reverse proxy layer (IP allow list, secret validation) where possible.
 
-## Deletion & Queue Processing
+## Queue Processing
+
+| Method | Path | Description | Notes |
+|--------|------|-------------|-------|
+| POST | /bridges/process-queue | **Unified queue processor** (webhook, sync, deletion) | Recommended: Body: `{ "queue_types": ["webhook", "sync"], "batch_size": 50 }` |
+| POST | /bridges/process-webhook-queue | Process webhook queue only | Legacy: Use `/bridges/process-queue` instead |
+| POST | /bridges/process-deletion-queue | Process deletion verification queue | Legacy: Use `/bridges/process-queue` instead |
+| GET | /bridges/queue/failed | Retrieve failed queue items | Query: `queue_type`, `limit`, `offset` |
+| POST | /bridges/queue/{id}/retry | Manually retry failed queue item | Resets attempts and status to pending |
+| DELETE | /bridges/queue/{id} | Permanently delete queue item | Use for irrecoverable failures |
+
+## Deletion & Sync Operations
 
 | Method | Path | Description | Notes |
 |--------|------|-------------|-------|
 | POST | /bridges/sync-deletions | Detect & reconcile deletions/cancellations | Booking inactive ↔ Outlook deletion |
-| POST | /bridges/process-deletion-queue | Process deletion verification queue | Batch body: `{ "batch_size": 25 }` |
-| POST | /bridges/process-webhook-queue | Process raw webhook sync queue | Batch body optional |
 | POST | /bridges/process-pending-syncs[/{bridgeName}] | Process events awaiting sync | Ownership enforced |
 | POST | /bridges/re-enable-failed[/{bridgeName}] | Re-enable failed events | Resets status for retry |
 
@@ -86,10 +95,11 @@ Multi‑tenant deployments MUST also send `X-Tenant-Id: <tenantId>` (unless rely
 
 ## Maintenance
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | /maintenance/cleanup-logs | Prune old sync logs |
-| POST | /maintenance/renew-subscriptions | Renew expiring subscriptions |
+| Method | Path | Description | Notes |
+|--------|------|-------------|-------|
+| POST | /maintenance/cleanup-logs | Prune old sync logs | Query: `days` (default: 90) |
+| POST | /maintenance/cleanup-queue | Remove old queue items | Query: `days` (default: 30) |
+| POST | /maintenance/renew-subscriptions | Renew expiring subscriptions | Checks subscription expiry window |
 
 ## Admin (Tenancy & Config)
 

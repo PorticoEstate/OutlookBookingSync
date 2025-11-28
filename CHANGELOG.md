@@ -12,6 +12,50 @@ All notable changes to this project will be documented in this file. This projec
 - Rate limiting & adaptive backoff policy
 - Structured OpenTelemetry tracing spans
 
+## [2025-11-28] Queue-Based Sync Architecture
+
+### Added
+
+- **Unified Queue Processor**: Single endpoint `POST /bridges/process-queue` handles webhook, sync, and deletion queues
+- **Queue Management API**: 
+  - `GET /bridges/queue/failed` - retrieve failed queue items with filtering
+  - `POST /bridges/queue/{id}/retry` - manually retry failed items
+  - `DELETE /bridges/queue/{id}` - permanently delete queue items
+- **Auto-Retry Logic**: Queue items automatically retry up to 3 attempts before permanent failure
+- **Duplicate Prevention**: JSONB containment operators prevent duplicate queue items for same operation
+- **Queue Cleanup**: `POST /maintenance/cleanup-queue` removes old completed/failed items (30+ days default)
+- **Immediate Processing**: Optional PHP-FPM immediate processing after webhook response via `fastcgi_finish_request()`
+- **Comprehensive Documentation**: 
+  - `doc/cron-examples.sh` - 100+ lines of cron configuration examples
+  - Updated `doc/operations.md` with unified processor approach
+  - Queue architecture documented in `doc/architecture.md`
+
+### Changed
+
+- **`POST /bridges/sync/{source}/{target}`**: Now queue-based instead of synchronous processing
+- **Queue Processing**: Unified processor replaces separate webhook/deletion queue endpoints (legacy endpoints still supported)
+- **Cron Configuration**: Simplified from 5+ separate jobs to single unified processor job (recommended)
+- **Database Schema**: `bridge_queue` table supports multiple queue types: 'webhook', 'sync', 'deletion'
+- **Error Handling**: Consistent retry/failure handling across all queue types
+
+### Fixed
+
+- Race conditions from concurrent sync operations eliminated via queue-based processing
+- Duplicate webhook processing prevented by enqueue-time duplicate detection
+- Better error isolation - single failed item doesn't block entire batch
+
+### Performance
+
+- Reduced cron job overhead (single unified processor vs multiple separate jobs)
+- Configurable batch sizes per queue type for resource optimization
+- Immediate webhook processing reduces latency when PHP-FPM available
+
+### Security
+
+- Queue management endpoints require API key authentication
+- Failed queue items don't expose sensitive data in error messages
+- Automatic cleanup prevents queue table bloat
+
 ## [2025-09-22] Documentation Consolidation & Multi‑Tenant Enhancements
 
 ### Added (Deletion & Cancellation)

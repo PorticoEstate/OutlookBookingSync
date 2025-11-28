@@ -45,10 +45,40 @@ Notes:
 
 ## Queues & Processing
 
-1. Webhook → queued (bridge_queue)
-2. Batch processing (process-webhook-queue) → materialize sync tasks
-3. Pending sync flush (process-pending-syncs) → perform CRUD via bridges
-4. Deletion sweep (sync-deletions / process-deletion-queue) → confirm & propagate removal
+### Queue Types
+
+| Type | Purpose | Enqueued By | Processed By |
+|------|---------|-------------|-------------|
+| webhook | Inbound provider notifications | WebhookService | Unified processor or webhook-specific |
+| sync | Manual/scheduled sync operations | BridgeController::syncBridges() | Unified processor |
+| deletion | Deletion verification | DeletionSyncService | Unified processor or deletion-specific |
+
+### Processing Flow
+
+1. **Enqueue**: Events queued via `BridgeQueueRepository::enqueueIfNotExists()` with duplicate prevention
+2. **Immediate Processing** (optional): If PHP-FPM available, process after `fastcgi_finish_request()`
+3. **Batch Processing**: Unified queue processor handles multiple types in single cron job
+4. **Auto-Retry**: Failed items retry up to 3 attempts, then marked permanently failed
+5. **Manual Intervention**: Failed items can be retried/deleted via API endpoints
+6. **Cleanup**: Old completed/failed items removed after 30 days (configurable)
+
+### Unified Queue Processor (Recommended)
+
+**Endpoint**: `POST /bridges/process-queue`
+
+**Body**:
+```json
+{
+  "queue_types": ["webhook", "sync", "deletion"],
+  "batch_size": 50
+}
+```
+
+**Benefits**:
+- Single cron job instead of multiple separate jobs
+- Consistent error handling across queue types
+- Better resource utilization
+- Simplified operations
 
  
  
@@ -57,10 +87,20 @@ Notes:
 
 | Scenario | Strategy |
 |----------|----------|
-| Transient provider failure | Mark failed, retry via pending sync batch |
+| Transient provider failure | Auto-retry up to 3 attempts, then mark permanently failed |
+| Permanent failure (3+ attempts) | Manual retry via `POST /bridges/queue/{id}/retry` or delete via `DELETE /bridges/queue/{id}` |
 | Ownership violation | Logged as skip (no retry) |
 | Rate limit (429) | Backoff (future enhancement) |
 | Webhook validation | Allow unauthenticated GET with validationToken |
+| Duplicate queue items | Prevented via JSONB containment check on enqueue |
+
+### Auto-Retry Logic
+
+1. Queue item fails → increment `attempts` counter
+2. If `attempts < 3` → status remains `pending` (auto-retry on next batch)
+3. If `attempts >= 3` → status changes to `failed` (permanent)
+4. Failed items retrievable via `GET /bridges/queue/failed`
+5. Manual retry resets `attempts` to 0 and status to `pending`
 
 ## Multi-Tenancy
 
@@ -119,14 +159,22 @@ Middleware order (Slim LIFO application; these run in reverse of add order):
  
 ## Jobs & Maintenance
 
-Container cron (see `docker-entrypoint.sh`) triggers:
+Container cron (see `docker-entrypoint.sh` and `doc/cron-examples.sh`) triggers:
 
-- Periodic sync passes (booking_system ↔ outlook)
-- Webhook queue processing: `POST /bridges/process-webhook-queue`
-- Deletion/cancellation sweep: `POST /bridges/sync-deletions`
-- Deletion verification queue: `POST /bridges/process-deletion-queue`
-- Log cleanup: `POST /maintenance/cleanup-logs`
-- Subscription renewal: `POST /maintenance/renew-subscriptions`
+### Recommended Configuration (Unified Processor)
+- **Queue Processing**: `POST /bridges/process-queue` (every 5 min) - handles webhook, sync, deletion queues
+- **Sync Operations**: `POST /bridges/sync/{source}/{target}` (every 30 min) - enqueues sync operations
+- **Deletion Sweep**: `POST /bridges/sync-deletions` (every hour) - enqueues deletion verifications
+- **Queue Cleanup**: `POST /maintenance/cleanup-queue` (daily 2 AM) - removes old items (30+ days)
+- **Log Cleanup**: `POST /maintenance/cleanup-logs` (daily 3 AM) - removes old logs (90+ days)
+- **Subscription Renewal**: `POST /maintenance/renew-subscriptions` (daily 4 AM) - renews expiring subscriptions
+
+### Legacy Configuration (Separate Processors)
+- Webhook queue: `POST /bridges/process-webhook-queue`
+- Deletion queue: `POST /bridges/process-deletion-queue`
+- Individual processing per queue type (still supported for backward compatibility)
+
+See `doc/cron-examples.sh` for complete configuration examples.
 
  
  
