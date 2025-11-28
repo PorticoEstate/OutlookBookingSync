@@ -320,5 +320,212 @@ class RealDatabaseTest extends BaseTestCase
         // Clean up
         $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-queue-types'");
     }
+
+    public function testRetryFailedItem()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-retry'");
+
+        // Enqueue an item
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => 'data'], 3, 'test-retry');
+        
+        // Get the item
+        $items = $queueRepo->findPendingItems('webhook', 1, 'test-retry');
+        $this->assertCount(1, $items);
+        $itemId = $items[0]['id'];
+        
+        // Simulate failure by updating status to failed with attempts
+        $db->exec("UPDATE bridge_queue SET status = 'failed', attempts = 3, error_message = 'Test error' WHERE id = $itemId");
+        
+        // Verify it's failed
+        $stmt = $db->prepare("SELECT status, attempts, error_message FROM bridge_queue WHERE id = :id");
+        $stmt->execute([':id' => $itemId]);
+        $result = $stmt->fetch();
+        $this->assertEquals('failed', $result['status']);
+        $this->assertEquals(3, $result['attempts']);
+        
+        // Retry the failed item
+        $retried = $queueRepo->retryFailedItem($itemId);
+        $this->assertTrue($retried, 'Should successfully retry failed item');
+        
+        // Verify status is reset
+        $stmt->execute([':id' => $itemId]);
+        $result = $stmt->fetch();
+        $this->assertEquals('pending', $result['status']);
+        $this->assertEquals(0, $result['attempts']);
+        $this->assertNull($result['error_message']);
+        
+        // Try to retry a non-failed item (should fail)
+        $retried = $queueRepo->retryFailedItem($itemId);
+        $this->assertFalse($retried, 'Should not retry non-failed item');
+        
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-retry'");
+    }
+
+    public function testDeleteQueueItem()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-delete'");
+
+        // Enqueue an item
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => 'data'], 3, 'test-delete');
+        
+        // Get the item
+        $items = $queueRepo->findPendingItems('webhook', 1, 'test-delete');
+        $this->assertCount(1, $items);
+        $itemId = $items[0]['id'];
+        
+        // Delete the item
+        $deleted = $queueRepo->deleteQueueItem($itemId);
+        $this->assertTrue($deleted, 'Should successfully delete item');
+        
+        // Verify it's gone
+        $items = $queueRepo->findPendingItems('webhook', 1, 'test-delete');
+        $this->assertCount(0, $items);
+        
+        // Try to delete non-existent item
+        $deleted = $queueRepo->deleteQueueItem($itemId);
+        $this->assertFalse($deleted, 'Should return false for non-existent item');
+        
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-delete'");
+    }
+
+    public function testGetFailedItems()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id IN ('test-failed-1', 'test-failed-2')");
+
+        // Enqueue items for different tenants
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => '1'], 3, 'test-failed-1');
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => '2'], 3, 'test-failed-1');
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => '3'], 3, 'test-failed-2');
+        
+        // Get items for our test tenants and mark as failed
+        $items = $queueRepo->findPendingItems('webhook', 10, 'test-failed-1');
+        foreach ($items as $item)
+        {
+            $db->exec("UPDATE bridge_queue SET status = 'failed', attempts = 3, error_message = 'Test error' WHERE id = {$item['id']}");
+        }
+        
+        $items = $queueRepo->findPendingItems('webhook', 10, 'test-failed-2');
+        foreach ($items as $item)
+        {
+            $db->exec("UPDATE bridge_queue SET status = 'failed', attempts = 3, error_message = 'Test error' WHERE id = {$item['id']}");
+        }
+        
+        // Get failed items for tenant 1
+        $failedItems = $queueRepo->getFailedItems('test-failed-1');
+        $this->assertCount(2, $failedItems, 'Should find 2 failed items for tenant 1');
+        $this->assertNotEmpty($failedItems[0]['error_message'], 'Should have error message');
+        
+        // Get failed items for tenant 2
+        $failedItems2 = $queueRepo->getFailedItems('test-failed-2');
+        $this->assertCount(1, $failedItems2, 'Should find 1 failed item for tenant 2');
+        
+        // Test limit on tenant-specific query
+        $limitedItems = $queueRepo->getFailedItems('test-failed-1', 1);
+        $this->assertCount(1, $limitedItems, 'Should respect limit parameter');
+        
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id IN ('test-failed-1', 'test-failed-2')");
+    }
+
+    public function testCleanupOldItems()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-cleanup'");
+
+        // Enqueue items
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => '1'], 3, 'test-cleanup');
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => '2'], 3, 'test-cleanup');
+        
+        // Get items and mark as completed/failed with old created_at
+        $items = $queueRepo->findPendingItems('webhook', 10, 'test-cleanup');
+        $this->assertCount(2, $items);
+        
+        // Mark first as completed 40 days ago
+        $db->exec("UPDATE bridge_queue SET status = 'completed', created_at = NOW() - INTERVAL '40 days' WHERE id = {$items[0]['id']}");
+        
+        // Mark second as failed 35 days ago
+        $db->exec("UPDATE bridge_queue SET status = 'failed', created_at = NOW() - INTERVAL '35 days' WHERE id = {$items[1]['id']}");
+        
+        // Cleanup items older than 30 days
+        $cleaned = $queueRepo->cleanupOldItems(30, 'test-cleanup');
+        $this->assertEquals(2, $cleaned, 'Should clean up 2 old items');
+        
+        // Verify they're gone
+        $stmt = $db->query("SELECT COUNT(*) FROM bridge_queue WHERE tenant_id = 'test-cleanup'");
+        $count = $stmt->fetchColumn();
+        $this->assertEquals(0, $count, 'All old items should be removed');
+        
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-cleanup'");
+    }
+
+    public function testAutoRetryLogic()
+    {
+        $db = $this->container->get('db');
+        $queueRepo = new \App\Repository\BridgeQueueRepository($db);
+
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-auto-retry'");
+
+        // Enqueue an item with max_attempts = 3
+        $queueRepo->enqueue('webhook', 'outlook', 'booking_system', ['test' => 'retry'], 3, 'test-auto-retry');
+        
+        // Get the item
+        $items = $queueRepo->findPendingItems('webhook', 1, 'test-auto-retry');
+        $this->assertCount(1, $items);
+        $itemId = $items[0]['id'];
+        
+        // Simulate first failure (attempts: 0 -> 1, status: pending)
+        $queueRepo->updateStatus($itemId, 'pending', 'Error 1');
+        $stmt = $db->prepare("SELECT attempts, status FROM bridge_queue WHERE id = :id");
+        $stmt->execute([':id' => $itemId]);
+        $result = $stmt->fetch();
+        $this->assertEquals(1, $result['attempts']);
+        $this->assertEquals('pending', $result['status']);
+        
+        // Simulate second failure (attempts: 1 -> 2, status: pending)
+        $queueRepo->updateStatus($itemId, 'pending', 'Error 2');
+        $stmt->execute([':id' => $itemId]);
+        $result = $stmt->fetch();
+        $this->assertEquals(2, $result['attempts']);
+        $this->assertEquals('pending', $result['status']);
+        
+        // Simulate third failure (attempts: 2 -> 3, status: failed)
+        $queueRepo->updateStatus($itemId, 'failed', 'Error 3');
+        $stmt->execute([':id' => $itemId]);
+        $result = $stmt->fetch();
+        $this->assertEquals(3, $result['attempts']);
+        $this->assertEquals('failed', $result['status']);
+        
+        // Item should now be in failed state permanently
+        $items = $queueRepo->findPendingItems('webhook', 1, 'test-auto-retry');
+        $this->assertCount(0, $items, 'Failed item should not appear in pending queue');
+        
+        // Verify it's in failed items
+        $failedItems = $queueRepo->getFailedItems('test-auto-retry');
+        $this->assertCount(1, $failedItems);
+        $this->assertEquals(3, $failedItems[0]['attempts']);
+        
+        // Clean up
+        $db->exec("DELETE FROM bridge_queue WHERE tenant_id = 'test-auto-retry'");
+    }
 }
+
 

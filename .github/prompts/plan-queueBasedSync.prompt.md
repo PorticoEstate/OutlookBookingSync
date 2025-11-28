@@ -35,15 +35,16 @@ Refactor `BridgeController::syncBridges()` to use queue-based processing instead
   - [x] Test with both 'webhook' and 'sync' queue types
   - [x] Update `queueSyncOperation()` to use `enqueueIfNotExists()`
 
-- [ ] **Step 1.5**: Add Auto-Retry and Failure Handling Logic
-  - [ ] Modify `WebhookService` to check `attempts < 3` on failure
-  - [ ] Mark as 'pending' if attempts < 3 (auto-retry)
-  - [ ] Mark as 'failed' if attempts >= 3 (permanent failure)
-  - [ ] Add `retryFailedItem()` method to `BridgeQueueRepository`
-  - [ ] Add `deleteQueueItem()` method to `BridgeQueueRepository`
-  - [ ] Add `cleanupOldItems()` method to `BridgeQueueRepository`
-  - [ ] Add `getFailedItems()` method to `BridgeQueueRepository`
-  - [ ] Add logging for retry/failure scenarios
+- [x] **Step 1.5**: Add Auto-Retry and Failure Handling Logic ✅
+  - [x] Modify `WebhookService` to check `attempts < 3` on failure
+  - [x] Mark as 'pending' if attempts < 3 (auto-retry)
+  - [x] Mark as 'failed' if attempts >= 3 (permanent failure)
+  - [x] Add `retryFailedItem()` method to `BridgeQueueRepository`
+  - [x] Add `deleteQueueItem()` method to `BridgeQueueRepository`
+  - [x] Add `cleanupOldItems()` method to `BridgeQueueRepository`
+  - [x] Add `getFailedItems()` method to `BridgeQueueRepository`
+  - [x] Add logging for retry/failure scenarios
+  - [x] Added integration tests: `testRetryFailedItem()`, `testDeleteQueueItem()`, `testGetFailedItems()`, `testCleanupOldItems()`, `testAutoRetryLogic()`
 
 - [ ] **Step 2**: Modify syncBridges() to Use Queue-Based Processing
   - [ ] Replace synchronous processing with `enqueueIfNotExists()` calls

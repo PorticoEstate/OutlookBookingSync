@@ -165,14 +165,19 @@ class WebhookService
                 catch (\Exception $e)
                 {
                     $errors++;
-                    // Mark as failed if max attempts reached, otherwise back to pending
+                    // Check if max attempts will be reached after incrementing
                     $maxAttempts = 3;
-                    $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                    $nextAttemptCount = $item['attempts'] + 1;
+                    $newStatus = $nextAttemptCount >= $maxAttempts ? 'failed' : 'pending';
                     
                     $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
                     $this->logger->error('Failed to process immediate webhook queue item', [
                         'queue_id' => $item['id'],
+                        'current_attempts' => $item['attempts'],
+                        'next_attempt_count' => $nextAttemptCount,
+                        'max_attempts' => $maxAttempts,
+                        'new_status' => $newStatus,
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -230,15 +235,17 @@ class WebhookService
                     'error' => $e->getMessage()
                 ];
 
-                // Mark as failed if max attempts reached, otherwise back to pending
+                // Check if max attempts will be reached after incrementing
                 $maxAttempts = 3;
-                $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                $nextAttemptCount = $item['attempts'] + 1;
+                $newStatus = $nextAttemptCount >= $maxAttempts ? 'failed' : 'pending';
                 
                 $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
                 $this->logger->error('Failed to process webhook queue item', [
                     'queue_id' => $item['id'],
-                    'attempts' => $item['attempts'] + 1,
+                    'current_attempts' => $item['attempts'],
+                    'next_attempt_count' => $nextAttemptCount,
                     'max_attempts' => $maxAttempts,
                     'new_status' => $newStatus,
                     'error' => $e->getMessage()

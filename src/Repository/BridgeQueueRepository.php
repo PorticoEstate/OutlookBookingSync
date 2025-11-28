@@ -150,7 +150,11 @@ class BridgeQueueRepository
 
     public function updateStatus(int $id, string $status, ?string $errorMessage = null): void
     {
-        $sql = "UPDATE bridge_queue SET status = :status, error_message = :error_message WHERE id = :id";
+        $sql = "UPDATE bridge_queue 
+                SET status = :status, 
+                    error_message = :error_message, 
+                    attempts = attempts + 1 
+                WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':status' => $status,
@@ -196,5 +200,107 @@ class BridgeQueueRepository
         }
 
         return $stats;
+    }
+
+    /**
+     * Retry a failed queue item by resetting attempts and status to pending
+     * 
+     * @param int $id Queue item ID
+     * @return bool True if item was reset, false if not found or not in failed status
+     */
+    public function retryFailedItem(int $id): bool
+    {
+        $sql = "UPDATE bridge_queue 
+                SET status = 'pending', 
+                    attempts = 0, 
+                    error_message = NULL 
+                WHERE id = :id 
+                AND status = 'failed'";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([':id' => $id]);
+        
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Permanently delete a queue item
+     * 
+     * @param int $id Queue item ID
+     * @return bool True if item was deleted, false if not found
+     */
+    public function deleteQueueItem(int $id): bool
+    {
+        $sql = "DELETE FROM bridge_queue WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([':id' => $id]);
+        
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Clean up old completed or failed queue items
+     * 
+     * @param int $daysOld Number of days to retain items (default: 30)
+     * @param string|null $tenantId Optional tenant filter
+     * @return int Number of items deleted
+     */
+    public function cleanupOldItems(int $daysOld = 30, ?string $tenantId = null): int
+    {
+        // Build the interval string directly (can't bind INTERVAL parameter)
+        $sql = "DELETE FROM bridge_queue 
+                WHERE status IN ('completed', 'failed') 
+                AND created_at < NOW() - INTERVAL '" . intval($daysOld) . " days'";
+        
+        if ($tenantId)
+        {
+            $sql .= " AND tenant_id = :tenant_id";
+        }
+        
+        $stmt = $this->db->prepare($sql);
+        
+        if ($tenantId)
+        {
+            $stmt->bindValue(':tenant_id', $tenantId);
+        }
+        
+        $stmt->execute();
+        
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Get failed queue items for manual review
+     * 
+     * @param string|null $tenantId Optional tenant filter
+     * @param int $limit Maximum number of items to return (default: 100)
+     * @return array Array of failed queue items with details
+     */
+    public function getFailedItems(?string $tenantId = null, int $limit = 100): array
+    {
+        $sql = "SELECT id, queue_type, source_bridge, target_bridge, 
+                       payload, attempts, max_attempts, error_message, 
+                       created_at, tenant_id 
+                FROM bridge_queue 
+                WHERE status = 'failed'";
+        
+        if ($tenantId)
+        {
+            $sql .= " AND tenant_id = :tenant_id";
+        }
+        
+        $sql .= " ORDER BY created_at DESC LIMIT :limit";
+        
+        $stmt = $this->db->prepare($sql);
+        
+        if ($tenantId)
+        {
+            $stmt->bindValue(':tenant_id', $tenantId);
+        }
+        
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
