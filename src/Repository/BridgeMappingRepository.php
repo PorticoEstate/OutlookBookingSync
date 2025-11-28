@@ -561,12 +561,17 @@ class BridgeMappingRepository
         string $sourceEventId,
         ?string $tenantId = null
     ): ?array {
+        // Check both directions (same logic as findMappings)
+        $baseWhere = "(source_bridge = :source_bridge AND target_bridge = :target_bridge AND source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)";
+        $reverseWhere = "(source_bridge = :target_bridge AND target_bridge = :source_bridge AND source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id)";
+        $tenantPredicate = $tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "";
+        
         $sql = "SELECT * FROM bridge_mappings 
-                WHERE source_bridge = :source_bridge 
-                AND target_bridge = :target_bridge 
-                AND source_calendar_id = :source_calendar_id 
-                AND target_calendar_id = :target_calendar_id
-                AND source_event_id = :source_event_id";
+                WHERE $baseWhere AND source_event_id = :source_event_id$tenantPredicate
+                UNION ALL
+                SELECT * FROM bridge_mappings 
+                WHERE $reverseWhere AND target_event_id = :source_event_id$tenantPredicate
+                LIMIT 1";
         
         $params = [
             ':source_bridge' => $sourceBridge,
@@ -577,7 +582,6 @@ class BridgeMappingRepository
         ];
 
         if ($tenantId !== null) {
-            $sql .= " AND tenant_id IS NOT DISTINCT FROM :tenant_id";
             $params[':tenant_id'] = $tenantId;
         }
 
@@ -587,7 +591,14 @@ class BridgeMappingRepository
         $mapping = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($mapping) {
-            $mapping['normalized_reversed'] = false; // Direct lookup implies direct direction
+            // Determine if this is the forward or reverse direction (same logic as findMappings)
+            $isCurrentDirection =
+                $mapping['source_bridge'] === $sourceBridge &&
+                $mapping['target_bridge'] === $targetBridge &&
+                $mapping['source_calendar_id'] === $sourceCalendarId &&
+                $mapping['target_calendar_id'] === $targetCalendarId;
+
+            $mapping['normalized_reversed'] = !$isCurrentDirection;
         }
         
         return $mapping ?: null;

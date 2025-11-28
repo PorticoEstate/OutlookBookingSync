@@ -298,6 +298,11 @@ class SyncOrchestrator
 
                 $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
+                //if the sync is reversed, and original event is cancelled, we should mark the mapping as cancelled
+                //and the target event which is the source in this case, should be cancelled / deleted as well
+
+                $source->deleteEvent($sourceCalendarId, $sourceEvent['source_event_id']);
+
                 $ownershipReason = $this->getOwnershipExplanation($syncDirection, $isReversed, $mappingConfig);
                 $this->logger->debug('Skipping sync due to ownership policy', [
                     'source_event_id' => $sourceEvent['id'],
@@ -309,10 +314,10 @@ class SyncOrchestrator
                 
                 return [
                     'success' => true,
-                    'action' => 'skipped',
+                    'action' => 'deleted',
                     'source_event_id' => $sourceEvent['id'],
                     'target_event_id' => $isReversed ? $mapping['source_event_id'] : $mapping['target_event_id'],
-                    'reason' => 'ownership_policy_violation',
+                    'reason' => 'deleted due to ownership policy',
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed
                 ];
