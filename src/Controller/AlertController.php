@@ -12,17 +12,14 @@ use Exception;
  */
 class AlertController
 {
-    private $db;
-    private $logger;
+    private $alertService;
 
     /**
-     * @param PDO $db
-     * @param mixed|null $logger
+     * @param AlertService $alertService
      */
-    public function __construct(PDO $db, $logger = null)
+    public function __construct(AlertService $alertService)
     {
-        $this->db = $db;
-        $this->logger = $logger;
+        $this->alertService = $alertService;
     }
 
     /**
@@ -36,8 +33,7 @@ class AlertController
     public function runAlertChecks(Request $request, Response $response, $args)
     {
         try {
-            $alertService = new AlertService($this->db, $this->logger);
-            $result = $alertService->checkAndAlert();
+            $result = $this->alertService->checkAndAlert();
 
             $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
             return $response->withHeader('Content-Type', 'application/json');
@@ -65,8 +61,7 @@ class AlertController
             $queryParams = $request->getQueryParams();
             $hours = isset($queryParams['hours']) ? intval($queryParams['hours']) : 24;
             
-            $alertService = new AlertService($this->db, $this->logger);
-            $result = $alertService->getRecentAlerts($hours);
+            $result = $this->alertService->getRecentAlerts($hours);
 
             $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
             return $response->withHeader('Content-Type', 'application/json');
@@ -103,16 +98,9 @@ class AlertController
                 return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
             }
 
-            $stmt = $this->db->prepare("
-                UPDATE outlook_sync_alerts 
-                SET acknowledged_at = NOW(), acknowledged_by = ?
-                WHERE id = ? AND acknowledged_at IS NULL
-            ");
-            $stmt->execute([$acknowledgedBy, $alertId]);
+            $success = $this->alertService->acknowledgeAlert($alertId, $acknowledgedBy);
 
-            $affectedRows = $stmt->rowCount();
-
-            if ($affectedRows > 0) {
+            if ($success) {
                 $response->getBody()->write(json_encode([
                     'success' => true,
                     'message' => 'Alert acknowledged successfully'
@@ -150,8 +138,7 @@ class AlertController
             $queryParams = $request->getQueryParams();
             $days = isset($queryParams['days']) ? intval($queryParams['days']) : 7;
             
-            $alertService = new AlertService($this->db, $this->logger);
-            $result = $alertService->clearOldAlerts($days);
+            $result = $this->alertService->clearOldAlerts($days);
 
             $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
             return $response->withHeader('Content-Type', 'application/json');
@@ -179,38 +166,13 @@ class AlertController
             $queryParams = $request->getQueryParams();
             $hours = isset($queryParams['hours']) ? intval($queryParams['hours']) : 24;
 
-            $stmt = $this->db->prepare("
-                SELECT 
-                    severity,
-                    alert_type,
-                    COUNT(*) as count,
-                    MAX(created_at) as latest_occurrence
-                FROM outlook_sync_alerts 
-                WHERE created_at > NOW() - INTERVAL '{$hours} hours'
-                GROUP BY severity, alert_type
-                ORDER BY severity DESC, count DESC
-            ");
-            $stmt->execute();
-            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Get summary stats
-            $summaryStmt = $this->db->prepare("
-                SELECT 
-                    COUNT(*) as total_alerts,
-                    COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_alerts,
-                    COUNT(CASE WHEN severity = 'warning' THEN 1 END) as warning_alerts,
-                    COUNT(CASE WHEN acknowledged_at IS NOT NULL THEN 1 END) as acknowledged_alerts
-                FROM outlook_sync_alerts 
-                WHERE created_at > NOW() - INTERVAL '{$hours} hours'
-            ");
-            $summaryStmt->execute();
-            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
+            $stats = $this->alertService->getAlertStats($hours);
 
             $response->getBody()->write(json_encode([
                 'success' => true,
-                'hours' => $hours,
-                'summary' => $summary,
-                'breakdown' => $results
+                'hours' => $stats['hours'],
+                'summary' => $stats['summary'],
+                'breakdown' => $stats['breakdown']
             ], JSON_PRETTY_PRINT));
 
             return $response->withHeader('Content-Type', 'application/json');

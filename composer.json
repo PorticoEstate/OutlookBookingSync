@@ -16,6 +16,11 @@
             "App\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
     "authors": [
         {
             "name": "Sigurd Nes",
@@ -27,5 +32,9 @@
             "php-http/discovery": true,
             "tbachert/spi": true
         }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.4",
+        "mockery/mockery": "^1.6"
     }
 }

@@ -66,4 +66,18 @@ class SyncLogService
 			':tenant_id' => $tenantId,
 		]);
 	}
+
+	/**
+	 * Cleanup old bridge sync logs.
+	 *
+	 * @param int $days Number of days to keep
+	 * @return int Number of deleted rows
+	 */
+	public function cleanupOldLogs(int $days): int
+	{
+		$stmt = $this->db->prepare("SELECT cleanup_old_bridge_logs(:days) AS deleted_count");
+		$stmt->execute([':days' => $days]);
+		$row = $stmt->fetch(PDO::FETCH_ASSOC);
+		return $row ? (int)$row['deleted_count'] : 0;
+	}
 }

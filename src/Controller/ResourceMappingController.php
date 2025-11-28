@@ -4,18 +4,21 @@ namespace App\Controller;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
-use PDO;
+use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeQueueRepository;
 
 /**
  * ResourceMappingController handles resource mapping between booking system and calendar systems.
  */
 class ResourceMappingController
 {
-	private PDO $db;
+	private BridgeMappingRepository $repository;
+	private BridgeQueueRepository $queueRepository;
 
-	public function __construct(PDO $db)
+	public function __construct(BridgeMappingRepository $repository, BridgeQueueRepository $queueRepository)
 	{
-		$this->db = $db;
+		$this->repository = $repository;
+		$this->queueRepository = $queueRepository;
 	}
 
 	/**
@@ -31,58 +34,16 @@ class ResourceMappingController
 		try
 		{
 			$queryParams = $request->getQueryParams();
-			$bridgeFrom = $queryParams['bridge_from'] ?? null;
-			$bridgeTo = $queryParams['bridge_to'] ?? null;
-			$sourceCalendarId = $queryParams['source_calendar_id'] ?? null;
-			$targetCalendarId = $queryParams['target_calendar_id'] ?? null;
-			$activeOnly = ($queryParams['active_only'] ?? 'true') === 'true';
+			$filters = [
+				'bridge_from' => $queryParams['bridge_from'] ?? null,
+				'bridge_to' => $queryParams['bridge_to'] ?? null,
+				'source_calendar_id' => $queryParams['source_calendar_id'] ?? null,
+				'target_calendar_id' => $queryParams['target_calendar_id'] ?? null,
+				'active_only' => ($queryParams['active_only'] ?? 'true') === 'true',
+				'tenant_id' => $request->getAttribute('tenant_id')
+			];
 
-			$sql = "SELECT * FROM v_active_resource_mappings WHERE 1=1";
-			$params = [];
-
-			// Optional tenant scoping
-			$tenantId = $request->getAttribute('tenant_id');
-			if ($tenantId)
-			{
-				$sql .= " AND (tenant_id = :tenant_id OR tenant_id IS NULL)";
-				$params['tenant_id'] = $tenantId;
-			}
-
-			if ($bridgeFrom)
-			{
-				$sql .= " AND bridge_from = :bridge_from";
-				$params['bridge_from'] = $bridgeFrom;
-			}
-
-			if ($bridgeTo)
-			{
-				$sql .= " AND bridge_to = :bridge_to";
-				$params['bridge_to'] = $bridgeTo;
-			}
-
-			// Handle legacy source_calendar_id parameter - search both source and target
-			if ($sourceCalendarId)
-			{
-				$sql .= " AND (source_calendar_id = :source_calendar_id OR target_calendar_id = :source_calendar_id)";
-				$params['source_calendar_id'] = $sourceCalendarId;
-			}
-
-			if ($targetCalendarId)
-			{
-				$sql .= " AND target_calendar_id = :target_calendar_id";
-				$params['target_calendar_id'] = $targetCalendarId;
-			}
-
-			if ($activeOnly)
-			{
-				$sql .= " AND is_active = true AND sync_enabled = true";
-			}
-
-			$sql .= " ORDER BY created_at DESC";
-
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute($params);
-			$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+			$mappings = $this->repository->findAllResourceMappings($filters);
 
 			foreach ($mappings as &$mapping)
 			{
@@ -165,23 +126,13 @@ class ResourceMappingController
 			}
 
 			// Check if mapping already exists (active or inactive)
-			$checkSql = "SELECT id, is_active FROM bridge_resource_mappings 
-                        WHERE bridge_from = :bridge_from 
-                        AND bridge_to = :bridge_to 
-                        AND source_calendar_id = :source_calendar_id 
-						AND target_calendar_id = :target_calendar_id
-						AND (tenant_id = :tenant_id OR (tenant_id IS NULL AND :tenant_id IS NULL))";
-
-			$checkStmt = $this->db->prepare($checkSql);
-			$checkStmt->execute([
-				'bridge_from' => $data['bridge_from'],
-				'bridge_to' => $data['bridge_to'],
-				'source_calendar_id' => $data['source_calendar_id'],
-				'target_calendar_id' => $data['target_calendar_id'],
-				'tenant_id' => $request->getAttribute('tenant_id')
-			]);
-
-			$existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
+			$existingMapping = $this->repository->findResourceMapping(
+				$data['bridge_from'],
+				$data['bridge_to'],
+				$data['source_calendar_id'],
+				$data['target_calendar_id'],
+				$request->getAttribute('tenant_id')
+			);
 
 			if ($existingMapping)
 			{
@@ -196,18 +147,10 @@ class ResourceMappingController
 				else
 				{
 					// Reactivate the existing mapping
-					$reactivateSql = "UPDATE bridge_resource_mappings 
-									 SET is_active = true, 
-										 sync_enabled = true,
-										 sync_direction = :sync_direction,
-										 updated_at = CURRENT_TIMESTAMP
-									 WHERE id = :id";
-
-					$reactivateStmt = $this->db->prepare($reactivateSql);
-					$reactivateStmt->execute([
-						'id' => $existingMapping['id'],
-						'sync_direction' => $data['sync_direction'] ?? 'bidirectional'
-					]);
+					$this->repository->reactivateResourceMapping(
+						$existingMapping['id'],
+						$data['sync_direction'] ?? 'bidirectional'
+					);
 
 					$response->getBody()->write(json_encode([
 						'success' => true,
@@ -221,15 +164,7 @@ class ResourceMappingController
 			}
 
 			// Create new mapping
-			$sql = "INSERT INTO bridge_resource_mappings 
-                    (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
-			source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled, tenant_id) 
-                    VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
-				:source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled, :tenant_id)
-                    RETURNING id";
-
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
+			$mappingId = $this->repository->createResourceMapping([
 				'bridge_from' => $data['bridge_from'],
 				'bridge_to' => $data['bridge_to'],
 				'source_calendar_id' => $data['source_calendar_id'],
@@ -241,8 +176,6 @@ class ResourceMappingController
 				'sync_enabled' => $data['sync_enabled'] ?? true,
 				'tenant_id' => $request->getAttribute('tenant_id')
 			]);
-
-			$mappingId = $stmt->fetchColumn();
 
 			$response->getBody()->write(json_encode([
 				'success' => true,
@@ -281,10 +214,7 @@ class ResourceMappingController
 			$data = json_decode($request->getBody()->getContents(), true);
 
 			// Check if mapping exists
-			$checkSql = "SELECT * FROM bridge_resource_mappings WHERE id = :id";
-			$checkStmt = $this->db->prepare($checkSql);
-			$checkStmt->execute(['id' => $mappingId]);
-			$existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+			$existing = $this->repository->findResourceMappingById($mappingId);
 
 			if (!$existing)
 			{
@@ -297,7 +227,7 @@ class ResourceMappingController
 
 			// Build update query dynamically
 			$updateFields = [];
-			$params = ['id' => $mappingId];
+			$params = [];
 
 			$allowedFields = [
 				'source_calendar_name',
@@ -354,11 +284,7 @@ class ResourceMappingController
 				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
 			}
 
-			$updateFields[] = "updated_at = CURRENT_TIMESTAMP";
-
-			$sql = "UPDATE bridge_resource_mappings SET " . implode(', ', $updateFields) . " WHERE id = :id";
-			$stmt = $this->db->prepare($sql);
-			if ($stmt->execute($params))
+			if ($this->repository->updateResourceMapping($mappingId, $updateFields, $params))
 			{
 				$response->getBody()->write(json_encode([
 					'success' => true,
@@ -368,12 +294,9 @@ class ResourceMappingController
 			}
 			else
 			{
-				//write the actual error message to the response
-				$errorInfo = $stmt->errorInfo();
 				$response->getBody()->write(json_encode([
 					'success' => false,
-					'error' => 'Failed to update resource mapping',
-					'details' => $errorInfo
+					'error' => 'Failed to update resource mapping'
 				]));
 			}
 
@@ -427,26 +350,12 @@ class ResourceMappingController
 
 			// Check if mapping exists before deletion (try both directions for backward compatibility), scoped by tenant when provided
 			$tenantId = $request->getAttribute('tenant_id');
-			$checkSql = "SELECT id, bridge_from, bridge_to, source_calendar_id, target_calendar_id, source_calendar_name, target_calendar_name, tenant_id
-						FROM bridge_resource_mappings 
-						WHERE bridge_from = :bridge_from 
-						AND ((source_calendar_id = :source_calendar_id AND target_calendar_id = :target_calendar_id)
-							 OR (source_calendar_id = :target_calendar_id AND target_calendar_id = :source_calendar_id))
-						AND is_active = true" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-
-			$checkStmt = $this->db->prepare($checkSql);
-			$params = [
-				'bridge_from' => $bridgeFrom,
-				'source_calendar_id' => $sourceCalendarId,
-				'target_calendar_id' => $targetCalendarId
-			];
-			if ($tenantId !== null)
-			{
-				$params['tenant_id'] = (string)$tenantId;
-			}
-			$checkStmt->execute($params);
-
-			$existingMapping = $checkStmt->fetch(PDO::FETCH_ASSOC);
+			$existingMapping = $this->repository->findResourceMappingByCompositeKey(
+				$bridgeFrom,
+				$sourceCalendarId,
+				$targetCalendarId,
+				$tenantId
+			);
 
 			if (!$existingMapping)
 			{
@@ -467,44 +376,26 @@ class ResourceMappingController
 			$dependents = 0;
 			if ($bridgeTo !== null)
 			{
-				$depSql = "SELECT COUNT(*) FROM bridge_mappings 
-						   WHERE (
-							 (source_bridge = :bridge_from AND target_bridge = :bridge_to AND source_calendar_id = :source_id AND target_calendar_id = :target_id)
-							 OR
-							 (source_bridge = :bridge_to AND target_bridge = :bridge_from AND source_calendar_id = :target_id AND target_calendar_id = :source_id)
-						   )" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-				$depStmt = $this->db->prepare($depSql);
-				$depParams = [
-					'bridge_from' => $bridgeFrom,
-					'bridge_to' => $bridgeTo,
-					'source_id' => $existingMapping['source_calendar_id'],
-					'target_id' => $existingMapping['target_calendar_id']
-				];
-				if ($tenantId !== null)
-				{
-					$depParams['tenant_id'] = (string)$tenantId;
-				}
-				$depStmt->execute($depParams);
-				$dependents = (int)$depStmt->fetchColumn();
+				$dependents = $this->repository->countDependentMappings(
+					$bridgeFrom,
+					$bridgeTo,
+					$existingMapping['source_calendar_id'],
+					$existingMapping['target_calendar_id'],
+					$tenantId
+				);
 			}
 
 			// If there are no dependent rows, hard delete; otherwise, soft delete
 			if ($dependents === 0)
 			{
-				$deleteSql = "DELETE FROM bridge_resource_mappings WHERE id = :id";
-				$deleteStmt = $this->db->prepare($deleteSql);
-				$result = $deleteStmt->execute(['id' => $existingMapping['id']]);
+				$result = $this->repository->deleteResourceMapping($existingMapping['id']);
 			}
 			else
 			{
-				$deleteSql = "UPDATE bridge_resource_mappings 
-							 SET is_active = false, updated_at = CURRENT_TIMESTAMP
-							 WHERE id = :id";
-				$deleteStmt = $this->db->prepare($deleteSql);
-				$result = $deleteStmt->execute(['id' => $existingMapping['id']]);
+				$result = $this->repository->softDeleteResourceMapping($existingMapping['id']);
 			}
 
-			if ($result && $deleteStmt->rowCount() > 0)
+			if ($result)
 			{
 				$response->getBody()->write(json_encode([
 					'success' => true,
@@ -559,19 +450,7 @@ class ResourceMappingController
 			$queryParams = $request->getQueryParams();
 			$bridgeFrom = $queryParams['bridge_from'] ?? 'booking_system';
 
-			$sql = "SELECT * FROM bridge_resource_mappings
-                    WHERE source_calendar_id = :source_calendar_id
-                    AND bridge_from = :bridge_from
-                    AND is_active = true 
-                    ORDER BY created_at DESC";
-
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute([
-				'source_calendar_id' => $sourceCalendarId,
-				'bridge_from' => $bridgeFrom
-			]);
-
-			$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+			$mappings = $this->repository->findResourceMappingsByResource($sourceCalendarId, $bridgeFrom);
 
 			$response->getBody()->write(json_encode([
 				'success' => true,
@@ -610,12 +489,9 @@ class ResourceMappingController
 			$mappingId = $args['id'];
 
 			// Get mapping details
-			$sql = "SELECT * FROM bridge_resource_mappings WHERE id = :id AND is_active = true";
-			$stmt = $this->db->prepare($sql);
-			$stmt->execute(['id' => $mappingId]);
-			$mapping = $stmt->fetch(PDO::FETCH_ASSOC);
+			$mapping = $this->repository->findResourceMappingById($mappingId);
 
-			if (!$mapping)
+			if (!$mapping || !$mapping['is_active'])
 			{
 				$response->getBody()->write(json_encode([
 					'success' => false,
@@ -625,21 +501,19 @@ class ResourceMappingController
 			}
 
 			// Add sync job to queue
-			$queueSql = "INSERT INTO bridge_queue (queue_type, source_bridge, target_bridge, payload, priority, tenant_id)
-						VALUES ('resource_sync', :source_bridge, :target_bridge, :payload, 1, :tenant_id)";
-
-			$queueStmt = $this->db->prepare($queueSql);
-			$queueStmt->execute([
-				'source_bridge' => $mapping['bridge_from'],
-				'target_bridge' => $mapping['bridge_to'],
-				'payload' => json_encode([
+			$this->queueRepository->enqueue(
+				'resource_sync',
+				$mapping['bridge_from'],
+				$mapping['bridge_to'],
+				[
 					'mapping_id' => $mappingId,
 					'source_calendar_id' => $mapping['source_calendar_id'],
 					'target_calendar_id' => $mapping['target_calendar_id'],
 					'sync_direction' => $mapping['sync_direction']
-				]),
-				'tenant_id' => $request->getAttribute('tenant_id')
-			]);
+				],
+				1,
+				$request->getAttribute('tenant_id')
+			);
 
 			// Note: last_synced_at will be updated by the queue worker upon successful completion
 

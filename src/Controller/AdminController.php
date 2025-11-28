@@ -4,33 +4,33 @@ namespace App\Controller;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use App\Services\TenantService;
-use PDO;
+use App\Repository\BridgeConfigRepository;
 
 /**
  * AdminController: CRUD tenants, rotate API keys, and manage per-tenant bridge configs.
  */
 class AdminController
 {
-    private PDO $db;
+    private TenantService $tenantService;
+    private BridgeConfigRepository $configRepository;
 
-    public function __construct(PDO $db)
+    public function __construct(TenantService $tenantService, BridgeConfigRepository $configRepository)
     {
-        $this->db = $db;
+        $this->tenantService = $tenantService;
+        $this->configRepository = $configRepository;
     }
 
     public function listTenants(Request $request, Response $response): Response
     {
-        $service = new TenantService($this->db);
         $includeInactive = filter_var($request->getQueryParams()['include_inactive'] ?? 'true', FILTER_VALIDATE_BOOLEAN);
-        $result = $service->listTenants($includeInactive);
+        $result = $this->tenantService->listTenants($includeInactive);
         $response->getBody()->write(json_encode(['tenants' => $result], JSON_PRETTY_PRINT));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
     public function getTenant(Request $request, Response $response, array $args): Response
     {
-        $service = new TenantService($this->db);
-        $tenant = $service->getTenant($args['tenantId']);
+        $tenant = $this->tenantService->getTenant($args['tenantId']);
         if (!$tenant) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -51,8 +51,7 @@ class AdminController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        $service = new TenantService($this->db);
-        $result = $service->createTenant($id, $name, $active);
+        $result = $this->tenantService->createTenant($id, $name, $active);
         $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     }
@@ -63,8 +62,7 @@ class AdminController
         $name = $payload['name'] ?? null;
         $active = array_key_exists('active', $payload) ? (bool)$payload['active'] : null;
 
-        $service = new TenantService($this->db);
-        $result = $service->updateTenant($args['tenantId'], $name, $active);
+        $result = $this->tenantService->updateTenant($args['tenantId'], $name, $active);
         if (!$result) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -75,8 +73,7 @@ class AdminController
 
     public function deleteTenant(Request $request, Response $response, array $args): Response
     {
-        $service = new TenantService($this->db);
-        $ok = $service->deleteTenant($args['tenantId']);
+        $ok = $this->tenantService->deleteTenant($args['tenantId']);
         if (!$ok) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -86,16 +83,14 @@ class AdminController
 
     public function rotateApiKey(Request $request, Response $response, array $args): Response
     {
-        $service = new TenantService($this->db);
-        $result = $service->rotateApiKey($args['tenantId']);
+        $result = $this->tenantService->rotateApiKey($args['tenantId']);
         $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
     public function getKeyMetadata(Request $request, Response $response, array $args): Response
     {
-        $service = new TenantService($this->db);
-        $meta = $service->getKeyMetadata($args['tenantId']);
+        $meta = $this->tenantService->getKeyMetadata($args['tenantId']);
         if (!$meta) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -108,16 +103,16 @@ class AdminController
     {
         $payload = json_decode($request->getBody()->getContents(), true) ?: [];
         if (!is_array($payload)) { $payload = []; }
-        $service = new TenantService($this->db);
-        $result = $service->upsertBridgeConfig($args['tenantId'], $args['bridgeName'], $payload);
-        $response->getBody()->write(json_encode($result, JSON_PRETTY_PRINT));
+        
+        $this->configRepository->upsert($args['tenantId'], $args['bridgeName'], $payload);
+        
+        $response->getBody()->write(json_encode(['success' => true], JSON_PRETTY_PRINT));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
     public function getBridgeConfig(Request $request, Response $response, array $args): Response
     {
-        $service = new TenantService($this->db);
-        $result = $service->getBridgeConfig($args['tenantId'], $args['bridgeName']);
+        $result = $this->configRepository->findFullConfigByTenantAndName($args['tenantId'], $args['bridgeName']);
         if (!$result) {
             $response->getBody()->write(json_encode(['error' => 'Not Found']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');

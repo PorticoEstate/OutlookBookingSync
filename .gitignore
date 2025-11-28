@@ -10,3 +10,6 @@ copilot-instructions.md
 !/storage/logs/.gitkeep
 /storage/sessions/*
 !/storage/sessions/.gitkeep
+
+# PHPUnit cache
+.phpunit.result.cache

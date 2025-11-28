@@ -2,7 +2,8 @@
 
 namespace App\Services;
 
-use PDO;
+use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeQueueRepository;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -10,25 +11,42 @@ use Psr\Log\LoggerInterface;
  */
 class DeletionSyncService
 {
-	 /** @var PDO Database connection */
-	 private PDO $db;
 	 /** @var LoggerInterface Logger instance */
 	 private LoggerInterface $logger;
 	 /** @var mixed BridgeManager orchestrator */
 	 private $bridgeManager;
 
+	 /** @var BridgeQueueRepository Queue repository */
+	 private $queueRepository;
+
+	 /** @var BridgeMappingRepository Mapping repository */
+	 private $mappingRepository;
+
+	 /** @var SyncLogService Sync log service */
+	 private $syncLogService;
+
 	 /**
 	  * Constructor.
 	  *
-	  * @param PDO $db Database connection
 	  * @param LoggerInterface $logger Logger
 	  * @param mixed $bridgeManager BridgeManager instance
+	  * @param BridgeQueueRepository $queueRepository Queue repository
+	  * @param BridgeMappingRepository $mappingRepository Mapping repository
+	  * @param SyncLogService $syncLogService Sync log service
 	  */
-	public function __construct(PDO $db, LoggerInterface $logger, $bridgeManager)
+	public function __construct(
+		LoggerInterface $logger, 
+		$bridgeManager, 
+		BridgeQueueRepository $queueRepository,
+		BridgeMappingRepository $mappingRepository,
+		SyncLogService $syncLogService
+	)
 	{
-		$this->db = $db;
 		$this->logger = $logger;
 		$this->bridgeManager = $bridgeManager;
+		$this->queueRepository = $queueRepository;
+		$this->mappingRepository = $mappingRepository;
+		$this->syncLogService = $syncLogService;
 	}
 
 	/**
@@ -48,12 +66,15 @@ class DeletionSyncService
 		try
 		{
 			// Get pending deletion checks from queue
-			$checks = $this->getDeletionChecks($tenantId);
+			$checks = $this->queueRepository->findPendingItems('deletion_check', 50, $tenantId);
 
 			foreach ($checks as $check)
 			{
 				try
 				{
+                    // Mark as processing
+                    $this->queueRepository->markProcessing($check['id']);
+
 					$checkData = json_decode($check['payload'], true);
 					$mappingTenantId = $check['tenant_id'];
 
@@ -65,7 +86,7 @@ class DeletionSyncService
 					$results['processed']++;
 
 					// Mark queue item as processed
-					$this->markQueueItemProcessed($check['id']);
+					$this->queueRepository->markCompleted($check['id']);
 				}
 				catch (\Exception $e)
 				{
@@ -74,7 +95,7 @@ class DeletionSyncService
 						'error' => $e->getMessage()
 					];
 
-					$this->markQueueItemFailed($check['id'], $e->getMessage());
+					$this->queueRepository->updateStatus($check['id'], 'failed', $e->getMessage());
 				}
 			}
 		}
@@ -112,66 +133,28 @@ class DeletionSyncService
 
 		try
 		{
-			// Attempt to get the specific event
-			$event = $this->getOutlookEvent($outlookBridge, $calendarId, $eventId);
-
-			if ($event === null)
+			// Attempt to get the specific event using the public bridge interface
+			// This will throw an exception if the event is not found (404)
+			$event = $outlookBridge->getEvent($calendarId, $eventId);
+			
+			// If we get here, the event exists
+			return false;
+		}
+		catch (\Exception $e)
+		{
+			// Check if it's a "not found" error
+			if (
+				strpos($e->getMessage(), '404') !== false ||
+				strpos($e->getMessage(), 'not found') !== false ||
+				strpos($e->getMessage(), 'Event not found') !== false
+			)
 			{
 				// Event doesn't exist in Outlook anymore - it was deleted
 				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
 				return true;
 			}
 
-			// Event still exists, no deletion detected
-			return false;
-		}
-		catch (\Exception $e)
-		{
-			// If we get a 404 or similar error, the event was likely deleted
-			if (
-				strpos($e->getMessage(), '404') !== false ||
-				strpos($e->getMessage(), 'not found') !== false
-			)
-			{
-
-				$this->handleDeletedOutlookEvent($calendarId, $eventId, $tenantId);
-				return true;
-			}
-
 			// Other errors should be re-thrown
-			throw $e;
-		}
-	}
-
-	/**
-	 * Get a specific event from Outlook.
-	 *
-	 * @param mixed $outlookBridge Outlook bridge instance
-	 * @param string $calendarId Outlook user or calendar ID
-	 * @param string $eventId Outlook event ID
-	 * @return array|null Event data if found, null if 404/not found
-	 * @throws \Exception On non-404 errors from Graph
-	 */
-	private function getOutlookEvent($outlookBridge, $calendarId, $eventId)
-	{
-		$graphBaseUrl = 'https://graph.microsoft.com/v1.0';
-		$url = "{$graphBaseUrl}/users/{$calendarId}/calendar/events/{$eventId}";
-
-		try
-		{
-			// Use reflection to access the private makeGraphRequest method
-			$reflection = new \ReflectionClass($outlookBridge);
-			$method = $reflection->getMethod('makeGraphRequest');
-			$method->setAccessible(true);
-
-			return $method->invoke($outlookBridge, 'GET', $url);
-		}
-		catch (\Exception $e)
-		{
-			if (strpos($e->getMessage(), '404') !== false)
-			{
-				return null; // Event not found
-			}
 			throw $e;
 		}
 	}
@@ -266,17 +249,7 @@ class DeletionSyncService
 	 */
 	private function findMappingsForOutlookEvent($calendarId, $eventId, ?string $tenantId = null): array
 	{
-		$sql = "SELECT * FROM bridge_mappings 
-				WHERE source_bridge = 'outlook' 
-				AND source_calendar_id = :calendar_id 
-				AND source_event_id = :event_id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-
-		$stmt = $this->db->prepare($sql);
-		$params = [ ':calendar_id' => $calendarId, ':event_id' => $eventId ];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
-
-		return $stmt->fetchAll(PDO::FETCH_ASSOC);
+		return $this->mappingRepository->findMappingsByEvent('outlook', $calendarId, $eventId, $tenantId);
 	}
 
 	/**
@@ -288,11 +261,7 @@ class DeletionSyncService
 	 */
 	private function deleteBridgeMapping($mappingId, ?string $tenantId = null)
 	{
-		$sql = "DELETE FROM bridge_mappings WHERE id = :id" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-		$stmt = $this->db->prepare($sql);
-		$params = [':id' => $mappingId];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
+		$this->mappingRepository->deleteMappingById($mappingId, $tenantId);
 	}
 
 	/**
@@ -308,76 +277,20 @@ class DeletionSyncService
 	 */
 	private function logSyncOperation($operation, $sourceBridge, $targetBridge, $status, $details = [], ?string $tenantId = null)
 	{
-		$sql = "INSERT INTO bridge_sync_logs 
-				(source_bridge, target_bridge, operation, status, details, tenant_id) 
-				VALUES (:source, :target, :operation, :status, :details, :tenant_id)";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':source' => $sourceBridge,
-			':target' => $targetBridge,
-			':operation' => $operation,
-			':status' => $status,
-			':details' => json_encode($details),
-			':tenant_id' => $tenantId
-		]);
+		$this->syncLogService->write(
+			$operation,
+			$sourceBridge,
+			$targetBridge,
+			$status,
+			0, // eventCount
+			$details,
+			null, // durationMs
+			null, // errorMessage
+			$tenantId
+		);
 	}
 
-	/**
-	 * Get pending deletion checks from queue.
-	 *
-	 * @param string|null $tenantId Tenant identifier to filter by
-	 * @return array<int,array<string,mixed>> Queue rows
-	 */
-	private function getDeletionChecks(?string $tenantId = null): array
-	{
-		$sql = "SELECT * FROM bridge_queue 
-				WHERE queue_type = 'deletion_check' 
-				AND status = 'pending' " . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "") . "
-				ORDER BY scheduled_at ASC 
-				LIMIT 50";
-		$stmt = $this->db->prepare($sql);
-		$params = [];
-		if ($tenantId !== null) { $params[':tenant_id'] = (string)$tenantId; }
-		$stmt->execute($params);
-		return $stmt->fetchAll(PDO::FETCH_ASSOC);
-	}
 
-	/**
-	 * Mark queue item as processed.
-	 *
-	 * @param int $queueId Queue row ID
-	 * @return void
-	 */
-	private function markQueueItemProcessed($queueId)
-	{
-		$sql = "UPDATE bridge_queue 
-                SET status = 'completed', processed_at = CURRENT_TIMESTAMP 
-                WHERE id = :id";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([':id' => $queueId]);
-	}
-
-	/**
-	 * Mark queue item as failed.
-	 *
-	 * @param int $queueId Queue row ID
-	 * @param string $errorMessage Error message
-	 * @return void
-	 */
-	private function markQueueItemFailed($queueId, $errorMessage)
-	{
-		$sql = "UPDATE bridge_queue 
-                SET status = 'failed', error_message = :error, processed_at = CURRENT_TIMESTAMP 
-                WHERE id = :id";
-
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':id' => $queueId,
-			':error' => $errorMessage
-		]);
-	}
 
 	/**
 	 * Manual deletion sync - check all recent mappings for deleted Outlook events.
@@ -389,23 +302,12 @@ class DeletionSyncService
 	{
 		$results = [
 			'checked' => 0,
-			'deleted' => 0,
+			'queued' => 0,
 			'errors' => []
 		];
 
 		// Get all recent Outlook to booking system mappings
-		$sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
-					FROM bridge_mappings 
-					WHERE source_bridge = 'outlook' 
-			AND last_synced_at > NOW() - INTERVAL '7 days'" . ($tenantId !== null ? " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)" : "");
-		$stmt = $this->db->prepare($sql);
-		$params = [];
-		if ($tenantId !== null)
-		{
-			$params[':tenant_id'] = (string)$tenantId;
-		}
-		$stmt->execute($params);
-		$mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+		$mappings = $this->mappingRepository->findRecentOutlookMappings(7, $tenantId);
 
 		foreach ($mappings as $mapping)
 		{
@@ -417,11 +319,16 @@ class DeletionSyncService
 					'event_id' => $mapping['source_event_id']
 				];
 
-				if ($this->processOutlookDeletionCheck($checkData, $mappingTenantId))
-				{
-					$results['deleted']++;
-				}
+                $this->queueRepository->enqueue(
+                    'deletion_check',
+                    'outlook',
+                    null,
+                    $checkData,
+                    5,
+                    $mappingTenantId
+                );
 
+				$results['queued']++;
 				$results['checked']++;
 			}
 			catch (\Exception $e)

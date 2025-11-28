@@ -579,7 +579,11 @@ class OutlookBridge extends AbstractCalendarBridge
 			$this->graphServiceClient->subscriptions()->bySubscriptionId($subscriptionId)->delete()->wait();
 
 			// Remove subscription from database
-			$this->removeSubscription($subscriptionId);
+			$this->subscriptionRepository->delete(
+				$subscriptionId, 
+				$this->getBridgeType(), 
+				(string)($this->config['context_tenant_id'] ?? 'default')
+			);
 
 			return true;
 		}
@@ -597,7 +601,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * @param string $extendInterval DateInterval spec string (default P1D = +1 day)
 	 * @return array{success:bool, subscription_id:string, new_expires_at?:string, error?:string}
 	 */
-	public function renewSubscription($subscriptionId, $extendInterval = 'P1D'): array
+	public function renewSubscription(string $subscriptionId, $extendInterval = 'P1D'): array
 	{
 		$this->logOperation('renew_subscription', ['subscription_id' => $subscriptionId]);
 
@@ -922,21 +926,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	}
 
 
-	/**
-	 * Remove a subscription record from the database.
-	 *
-	 * @param string $subscriptionId
-	 * @return void
-	 */
-	private function removeSubscription($subscriptionId)
-	{
-		$sql = "DELETE FROM bridge_subscriptions WHERE subscription_id = :subscription_id AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
-		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':subscription_id' => $subscriptionId,
-			':tenant_id' => (string)($this->config['context_tenant_id'] ?? 'default')
-		]);
-	}
+
 
 
 	/**
@@ -1726,7 +1716,7 @@ class OutlookBridge extends AbstractCalendarBridge
 	 * @param array $eventIds Optional list of event IDs to scope; empty for all
 	 * @return array Summary with re_enabled_count and any errors
 	 */
-	public function reEnableFailedEvents(array $eventIds = []): array
+	public function reEnableFailedEvents($eventIds = []): array
 	{
 		$results = [
 			're_enabled_count' => 0,

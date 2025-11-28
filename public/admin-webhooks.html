@@ -21,7 +21,8 @@
                 <a href="/admin-mappings">Resource Mappings</a> ·
                 <a href="/admin-resources">Admin Resources</a> ·
                 <a href="/admin-webhooks" class="active">Webhook Management</a> ·
-                <a href="/admin-migrations">DB Migrations</a>
+                <a href="/admin-migrations">DB Migrations</a>·
+                <a href="/admin-logs" >Log Viewer</a>
             </div>
         </nav>
 
@@ -531,6 +532,12 @@
         // Modal functions
         function showCreateModal()
         {
+            if (!currentTenantId)
+            {
+                alert('Please select a tenant first.');
+                return;
+            }
+
             document.getElementById('createModal').style.display = 'block';
             
             // Set default webhook URL based on selected bridge and tenant ID
@@ -602,7 +609,16 @@
                 if (response.ok)
                 {
                     const result = await response.json();
-                    alert(`Created ${result.subscriptions ? result.subscriptions.length : 0} subscriptions`);
+                    const subs = result.subscriptions || [];
+                    const created = subs.filter(s => s.status === 'created').length;
+                    const existing = subs.filter(s => s.status === 'existing').length;
+                    
+                    let msg = `Processed ${subs.length} calendars.`;
+                    if (created > 0) msg += `\nCreated: ${created}`;
+                    if (existing > 0) msg += `\nExisting (skipped): ${existing}`;
+                    if (result.errors && result.errors.length > 0) msg += `\nErrors: ${result.errors.length}`;
+                    
+                    alert(msg);
                     closeCreateModal();
                     refreshData();
                 }
@@ -877,9 +893,8 @@
             
             try
             {
-                // Use the selected bridge filter, default to 'outlook' if none selected
-                const bridgeFilter = document.getElementById('bridgeFilter').value || 'outlook';
-                const response = await fetch(`/bridges/${bridgeFilter}/subscriptions/${subscriptionId}`, {
+                // Use the new endpoint that doesn't require bridge name
+                const response = await fetch(`/bridges/subscriptions/${subscriptionId}`, {
                     method: 'DELETE',
                     headers: getHeaders(false)
                 });

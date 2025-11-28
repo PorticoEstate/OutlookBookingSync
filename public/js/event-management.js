@@ -80,13 +80,17 @@
 
             // Tenant selection handler - update bridge timezone when tenant changes
             document.getElementById('tenantSelect').addEventListener('change', function() {
-                const bridgeName = document.getElementById('bridgeSelect').value;
-                if (bridgeName) {
-                    getBridgeTimezone(bridgeName); // Refresh timezone for new tenant
-                }
+                // Reload bridges for the new tenant
+                loadBridges();
+                
                 // Reset pagination when changing tenant
                 currentPage = 1;
                 document.getElementById('paginationContainer').style.display = 'none';
+                
+                // Clear events container
+                document.getElementById('eventsContainer').innerHTML = '<p class="muted">Select a bridge and resource, then click "Load Events" to see events.</p>';
+                document.getElementById('eventCount').textContent = '(0)';
+                currentEvents = [];
             });
             
             // Add Enter key support for pagination input
@@ -135,7 +139,8 @@
 
         async function loadBridges() {
             try {
-                const data = await adminAuth.authenticatedFetch('/bridges');
+                const tenantId = document.getElementById('tenantSelect').value;
+                const data = await adminAuth.authenticatedFetch('/bridges', {}, tenantId);
                 
                 const select = document.getElementById('bridgeSelect');
                 select.innerHTML = '<option value="">Select Bridge</option>';
