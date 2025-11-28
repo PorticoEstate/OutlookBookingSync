@@ -1151,6 +1151,174 @@ class BridgeController
         }
     }
 
+    /**
+     * Get failed queue items for manual review.
+     * Query params: queue_type (optional), limit (optional, default 100)
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
+     */
+    public function getFailedQueueItems(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $queryParams = $request->getQueryParams();
+            $queueType = $queryParams['queue_type'] ?? null;
+            $limit = isset($queryParams['limit']) ? max(1, min(500, (int)$queryParams['limit'])) : 100;
+            $tenantId = $request->getAttribute('tenant_id');
+
+            $failedItems = $this->queueRepository->getFailedItems($tenantId, $limit);
+
+            // Filter by queue_type if specified
+            if ($queueType)
+            {
+                $failedItems = array_filter($failedItems, function($item) use ($queueType) {
+                    return $item['queue_type'] === $queueType;
+                });
+                $failedItems = array_values($failedItems); // Re-index array
+            }
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'count' => count($failedItems),
+                'items' => $failedItems,
+                'filters' => [
+                    'queue_type' => $queueType,
+                    'limit' => $limit,
+                    'tenant_id' => $tenantId
+                ],
+                'timestamp' => date('c')
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get failed queue items', ['error' => $e->getMessage()]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Retry a failed queue item by resetting its attempts and status.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include 'id'
+     * @return Response
+     */
+    public function retryFailedQueueItem(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $id = (int)$args['id'];
+
+            $retried = $this->queueRepository->retryFailedItem($id);
+
+            if ($retried)
+            {
+                $this->logger->info('Queue item retried', ['queue_id' => $id]);
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Queue item reset to pending status',
+                    'queue_id' => $id,
+                    'timestamp' => date('c')
+                ]));
+
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Queue item not found or not in failed status',
+                    'queue_id' => $id
+                ]));
+
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to retry queue item', [
+                'queue_id' => $args['id'] ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Delete a queue item permanently.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include 'id'
+     * @return Response
+     */
+    public function deleteQueueItem(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $id = (int)$args['id'];
+
+            $deleted = $this->queueRepository->deleteQueueItem($id);
+
+            if ($deleted)
+            {
+                $this->logger->info('Queue item deleted', ['queue_id' => $id]);
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Queue item deleted',
+                    'queue_id' => $id,
+                    'timestamp' => date('c')
+                ]));
+
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Queue item not found',
+                    'queue_id' => $id
+                ]));
+
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to delete queue item', [
+                'queue_id' => $args['id'] ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
 
 
     /**

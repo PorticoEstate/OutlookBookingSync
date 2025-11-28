@@ -223,6 +223,7 @@ $container->set(\App\Controller\MaintenanceController::class, function () use ($
     return new \App\Controller\MaintenanceController(
         $container->get('syncLog'),
         $container->get(\App\Services\WebhookService::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get('logger')
     );
 });
@@ -544,6 +545,11 @@ $app->post('/bridges/process-webhook-queue', [\App\Controller\BridgeController::
 // Unified queue processor - handles multiple queue types (webhook, sync, deletion)
 $app->post('/bridges/process-queue', [\App\Controller\BridgeController::class, 'processQueue']);
 
+// Queue Management API Routes
+$app->get('/bridges/queue/failed', [\App\Controller\BridgeController::class, 'getFailedQueueItems']);
+$app->post('/bridges/queue/{id}/retry', [\App\Controller\BridgeController::class, 'retryFailedQueueItem']);
+$app->delete('/bridges/queue/{id}', [\App\Controller\BridgeController::class, 'deleteQueueItem']);
+
 // Resource Mapping API Routes
 
 // Get all resource mappings
@@ -642,6 +648,13 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'DELETE /bridges/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
                 'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
                 'POST /bridges/process-queue' => 'Unified queue processor - process multiple queue types (body: queue_types=["webhook","sync"], batch_size=int)',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync, limit=100)',
+                'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
+                'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
+                'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync, limit=100)',
+                'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
+                'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
                 'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
                 'GET /bridges/health' => 'Get health status of all bridges'
@@ -688,6 +701,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             ],
             'maintenance' => [
                 'POST /maintenance/cleanup-logs' => 'Cleanup old sync logs (optional query: ?days=int, default 30)',
+                'POST /maintenance/cleanup-queue' => 'Cleanup old completed/failed queue items (query: days=30)',
                 'POST /maintenance/renew-subscriptions' => 'Renew expiring webhook subscriptions (query: ?bridge=outlook&renew_before_minutes=int&limit=int)'
             ]
         ],
