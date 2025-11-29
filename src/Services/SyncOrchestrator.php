@@ -1031,7 +1031,7 @@ class SyncOrchestrator
                 $mappingEventsQueued = 0;
                 $mappingEventsSkipped = 0;
 
-                if ($options['dry_run']) {
+                if ($options['dry_run'] ?? false) {
                     $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
                     
                     $allResults[] = [
