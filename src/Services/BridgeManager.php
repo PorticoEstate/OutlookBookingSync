@@ -162,6 +162,7 @@ class BridgeManager
 	 */
 	public function getAllBridgesInfo(?string $tenantId = null): array
 	{
+		// get 'HTTP_X_TENANT_ID' from headers if tenantId is not provided
 		$info = [];
 
 		foreach (array_keys($this->bridges) as $name)
