@@ -1114,8 +1114,15 @@ class SyncOrchestrator
         ];
     }
 
-    private function performDryRun(string $tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
-    {
+    private function performDryRun(
+        string $tenantId,
+        string $sourceBridge,
+        string $targetBridge,
+        string $sourceCalendarId,
+        string $targetCalendarId,
+        string $startDate,
+        string $endDate
+    ): array {
         $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
         $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
