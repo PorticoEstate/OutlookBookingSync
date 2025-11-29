@@ -509,24 +509,25 @@ function renderSyncStatus(dashboardData) {
     // Performance Metrics
     if (dashboard.performance_metrics) {
         const perf = dashboard.performance_metrics;
+        // Convert bytes to MB (1024*1024 = 1048576)
+        const currentMb = perf.memory_usage ? (perf.memory_usage / 1048576).toFixed(2) : '0.00';
+        const peakMb = perf.peak_memory_usage ? (perf.peak_memory_usage / 1048576).toFixed(2) : '0.00';
+        const cpuLoad = Array.isArray(perf.cpu_load) ? perf.cpu_load[0].toFixed(2) : 'N/A';
+
         html += `
             <div class="card">
                 <h3>⚡ Performance Metrics</h3>
                 <div class="metric">
                     <span class="metric-label">Current Memory</span>
-                    <span class="metric-value">${perf.memory_usage?.current_mb || 0}MB</span>
+                    <span class="metric-value">${currentMb} MB</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Peak Memory</span>
-                    <span class="metric-value">${perf.memory_usage?.peak_mb || 0}MB</span>
+                    <span class="metric-value">${peakMb} MB</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">DB Connections</span>
-                    <span class="metric-value">${perf.database_connections || 0}</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Syncs/Hour</span>
-                    <span class="metric-value">${perf.sync_throughput?.syncs_last_hour || 0}</span>
+                    <span class="metric-label">CPU Load (1m)</span>
+                    <span class="metric-value">${cpuLoad}</span>
                 </div>
             </div>
         `;
