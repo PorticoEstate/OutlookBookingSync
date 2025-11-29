@@ -136,8 +136,9 @@ $container->set('db', function ()
     catch (PDOException $e)
     {
         error_log("Database connection failed: " . $e->getMessage());
-        // For dashboard/health endpoints, we can return null and handle gracefully
-        return null;
+        // Throw exception instead of returning null to prevent TypeErrors in repositories
+        // that expect a valid PDO instance.
+        throw new \RuntimeException("Database connection failed: " . $e->getMessage(), 0, $e);
     }
 });
 
@@ -438,6 +439,8 @@ $container->set(\App\Services\SyncOrchestrator::class, function () use ($contain
     return new \App\Services\SyncOrchestrator(
         $container->get('bridgeManager'),
         $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get('syncLog'),
         $container->get('logger')
     );

@@ -23,7 +23,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - portico_internal
+      - internal
 #
 #  cloudflared:
 #    image: cloudflare/cloudflared:latest
@@ -32,12 +32,13 @@ services:
 #    env_file:
 #      - .env.compose
 #    networks:
-#      - portico_internal
+#      - internal
 #    depends_on:
 #      - portico_outlook
 #    profiles:
 #      - cloudflare
 
 networks:
-  portico_internal:
-    external: true  # Reference the existing external network
+    internal:
+        name: portico_internal
+        external: true

@@ -195,181 +195,29 @@ class BridgeController
 
         try
         {
-            $this->logger->info('Bridge sync requested', [
-                'source_bridge' => $sourceBridge,
-                'target_bridge' => $targetBridge,
-                'date_range' => [$startDate, $endDate],
-                'options' => $options
-            ]);
-
-            // Get all active mappings between these bridges (handle bidirectional)
             $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-            $resourceMappings = $this->resourceRepository->findActiveMappings($sourceBridge, $targetBridge, $tenantId ?: null);
+            
+            // Delegate to orchestrator
+            $result = $this->syncOrchestrator->processSyncRequest(
+                $sourceBridge,
+                $targetBridge,
+                $startDate,
+                $endDate,
+                $options,
+                $tenantId ?: null
+            );
 
-            if (empty($resourceMappings))
-            {
-                $response->getBody()->write(json_encode([
-                    'success' => false,
-                    'error' => "No active mappings found between {$sourceBridge} and {$targetBridge}",
-                    'suggestion' => "Create resource mappings first using the /mappings/resources endpoint"
-                ]));
-
+            if (isset($result['success']) && !$result['success']) {
+                $response->getBody()->write(json_encode($result));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
-            $jobsQueued = 0;
-            $jobsSkipped = 0;
-            $eventsFound = 0;
-            $allResults = [];
-
-            foreach ($resourceMappings as $resourceMapping)
-            {
-                // Use tenant_id from the resource mapping record for proper isolation
-                $mappingTenantId = $resourceMapping['tenant_id'];
-
-                // Determine the correct source and target calendar IDs based on sync direction
-                // The database columns are semantic: source_calendar_id is always the booking system resource
-                // and target_calendar_id is always the Outlook calendar
-
-                if ($sourceBridge === $resourceMapping['bridge_from'] && $targetBridge === $resourceMapping['bridge_to'])
-                {
-                    // Forward direction: booking_system → outlook
-                    $sourceCalendarId = $resourceMapping['source_calendar_id']; // booking system resource
-                    $targetCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar
-                }
-                else
-                {
-                    // Reverse direction: outlook → booking_system
-                    $sourceCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar (now source)
-                    $targetCalendarId = $resourceMapping['source_calendar_id']; // booking system resource (now target)
-                }
-
-                try
-                {
-                    $this->logger->info('Processing mapping for sync', [
-                        'mapping_id' => $resourceMapping['id'],
-                        'mapping_tenant_id' => $mappingTenantId,
-                        'request_tenant_id' => $tenantId,
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
-                        'original_bridge_from' => $resourceMapping['bridge_from'],
-                        'original_bridge_to' => $resourceMapping['bridge_to']
-                    ]);
-
-                    // Get source bridge instance and fetch events
-                    $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($mappingTenantId ?: 'default', $sourceBridge);
-                    $sourceEvents = $sourceBridgeInstance->getEvents($sourceCalendarId, $startDate, $endDate);
-
-                    if (empty($sourceEvents))
-                    {
-                        $this->logger->debug('No events found for mapping', [
-                            'mapping_id' => $resourceMapping['id'],
-                            'source_calendar' => $sourceCalendarId,
-                            'date_range' => [$startDate, $endDate]
-                        ]);
-
-                        $allResults[] = [
-                            'mapping_id' => $resourceMapping['id'],
-                            'source_calendar' => $sourceCalendarId,
-                            'target_calendar' => $targetCalendarId,
-                            'events_found' => 0,
-                            'events_queued' => 0,
-                            'status' => 'no_events'
-                        ];
-                        continue;
-                    }
-
-                    $eventsFound += count($sourceEvents);
-                    $mappingEventsQueued = 0;
-                    $mappingEventsSkipped = 0;
-
-                    if ($options['dry_run'])
-                    {
-                        // Dry run still executes synchronously
-                        $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
-                        
-                        $allResults[] = [
-                            'mapping_id' => $resourceMapping['id'],
-                            'source_calendar' => $sourceCalendarId,
-                            'target_calendar' => $targetCalendarId,
-                            'results' => $results
-                        ];
-                    }
-                    else
-                    {
-                        // Queue each event individually (event-level granularity)
-                        foreach ($sourceEvents as $event)
-                        {
-                            $eventId = $event['id'] ?? $event['event_id'] ?? null;
-                            if (!$eventId)
-                            {
-                                $this->logger->warning('Event missing ID, skipping', [
-                                    'mapping_id' => $resourceMapping['id'],
-                                    'event' => $event
-                                ]);
-                                continue;
-                            }
-
-                            $queuePayload = [
-                                'mapping_id' => $resourceMapping['id'],
-                                'source_bridge' => $sourceBridge,
-                                'target_bridge' => $targetBridge,
-                                'source_calendar_id' => $sourceCalendarId,
-                                'target_calendar_id' => $targetCalendarId,
-                                'source_event_id' => $eventId,
-                                'event_data' => $event,
-                                'options' => $options,
-                                'tenant_id' => $mappingTenantId
-                            ];
-
-                            $queued = $this->queueRepository->enqueueIfNotExists(
-                                'sync',
-                                $sourceBridge,
-                                $targetBridge,
-                                $queuePayload,
-                                3,
-                                $mappingTenantId
-                            );
-
-                            if ($queued)
-                            {
-                                $jobsQueued++;
-                                $mappingEventsQueued++;
-                            }
-                            else
-                            {
-                                $jobsSkipped++;
-                                $mappingEventsSkipped++;
-                            }
-                        }
-
-                        $allResults[] = [
-                            'mapping_id' => $resourceMapping['id'],
-                            'source_calendar' => $sourceCalendarId,
-                            'target_calendar' => $targetCalendarId,
-                            'events_found' => count($sourceEvents),
-                            'events_queued' => $mappingEventsQueued,
-                            'events_skipped' => $mappingEventsSkipped,
-                            'status' => $mappingEventsQueued > 0 ? 'queued' : 'all_duplicates'
-                        ];
-                    }
-                }
-                catch (\Exception $e)
-                {
-                    $allResults[] = [
-                        'mapping_id' => $resourceMapping['id'],
-                        'source_calendar' => $sourceCalendarId ?? null,
-                        'target_calendar' => $targetCalendarId ?? null,
-                        'status' => 'error',
-                        'error' => $e->getMessage()
-                    ];
-
-                    $this->logger->error('Failed to process mapping sync', [
-                        'mapping_id' => $resourceMapping['id'],
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
+            // Unpack results for response handling
+            $jobsQueued = $result['jobs_queued'];
+            $jobsSkipped = $result['jobs_skipped'];
+            $eventsFound = $result['events_found'];
+            $allResults = $result['sync_results'];
+            $mappingsProcessed = $result['mappings_processed'];
 
             // Check if immediate processing is enabled and available
             $immediateProcessing = $_ENV['SYNC_IMMEDIATE_PROCESSING'] ?? 'true';
@@ -385,7 +233,7 @@ class BridgeController
                     'events_found' => $eventsFound,
                     'events_queued' => $jobsQueued,
                     'events_skipped' => $jobsSkipped,
-                    'mappings_processed' => count($resourceMappings),
+                    'mappings_processed' => $mappingsProcessed,
                     'processing_status' => 'processing_started',
                     'sync_results' => $allResults,
                     'timestamp' => date('c')
@@ -444,7 +292,7 @@ class BridgeController
                     'events_found' => $eventsFound,
                     'events_queued' => $jobsQueued,
                     'events_skipped' => $jobsSkipped,
-                    'mappings_processed' => count($resourceMappings),
+                    'mappings_processed' => $mappingsProcessed,
                     'processing_status' => 'queued_for_cron',
                     'message' => 'Sync events queued. They will be processed by the next cron job execution.',
                     'sync_results' => $allResults,
@@ -460,7 +308,7 @@ class BridgeController
                     'mode' => 'queue_based',
                     'events_found' => 0,
                     'events_queued' => 0,
-                    'mappings_processed' => count($resourceMappings),
+                    'mappings_processed' => $mappingsProcessed,
                     'message' => 'No events found in date range for any mapping.',
                     'sync_results' => $allResults,
                     'timestamp' => date('c')
@@ -491,7 +339,7 @@ class BridgeController
                 $response->getBody()->write(json_encode([
                     'success' => true,
                     'mode' => 'dry_run',
-                    'mappings_processed' => count($resourceMappings),
+                    'mappings_processed' => $mappingsProcessed,
                     'summary' => [
                         'total_source_events' => $totalSourceEvents,
                         'created' => $totalCreated,
@@ -932,32 +780,7 @@ class BridgeController
         }
     }
 
-    /**
-     * Perform dry run sync to see what would happen.
-     *
-     * @param string $tenantId Tenant identifier
-     * @param string $sourceBridge Source bridge name
-     * @param string $targetBridge Target bridge name
-     * @param string $sourceCalendarId Source calendar/resource ID
-     * @param string $targetCalendarId Target calendar/resource ID
-     * @param string $startDate ISO date
-     * @param string $endDate ISO date
-     * @return array
-     */
-    private function performDryRun(string $tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
-    {
-        $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
-        $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
-        return [
-            'dry_run' => true,
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge,
-            'source_events_found' => count($sourceEvents),
-            'events_to_process' => $sourceEvents,
-            'note' => 'This is a dry run - no actual changes were made'
-        ];
-    }
 
 
 
@@ -1724,7 +1547,7 @@ class BridgeController
             else
             {
                 // Process for all bridges
-                $configuredBridges = $this->bridgeManager->get_configured_bridges();
+                $configuredBridges = $this->bridgeManager->getConfiguredBridges();
                 
                 foreach ($configuredBridges as $tId => $bridges)
                 {
@@ -1808,7 +1631,7 @@ class BridgeController
             }
             else
             {
-                $configuredBridges = $this->bridgeManager->get_configured_bridges();
+                $configuredBridges = $this->bridgeManager->getConfiguredBridges();
                 foreach ($configuredBridges as $tId => $bridges)
                 {
                     if ($tenantId && $tenantId !== 'default' && $tenantId !== $tId)
