@@ -297,9 +297,9 @@ class BridgeManager
 		$allStats = [];
 
 		$configuredBridges = $this->getConfiguredBridges();
-		foreach ($configuredBridges as $tenantId => $Bridges)
+		foreach ($configuredBridges as $tenantId => $bridges)
 		{
-			foreach (array_keys($Bridges) as $bridgeName)
+			foreach (array_keys($bridges) as $bridgeName)
 			{
 				try
 				{
