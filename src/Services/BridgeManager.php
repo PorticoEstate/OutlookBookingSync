@@ -169,6 +169,7 @@ class BridgeManager
 		$info = [];
 
 		foreach (array_keys($this->bridges) as $name)
+		{
 			try
 			{
 				$info[$name] = $this->getBridgeInfo($name, $tenantId);
