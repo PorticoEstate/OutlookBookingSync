@@ -536,12 +536,6 @@ $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealt
 // Session diagnostics for debugging
 $app->get('/bridges/{bridgeName}/session-debug', [\App\Controller\BridgeController::class, 'getSessionDiagnostics']);
 
-// Manual deletion sync
-$app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 'syncDeletions']);
-
-// Process deletion check queue
-$app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController::class, 'processDeletionQueue']);
-
 // Unified queue processor - handles multiple queue types (webhook, sync, deletion)
 // This replaces the legacy /bridges/process-webhook-queue endpoint
 $app->post('/bridges/process-queue', [\App\Controller\BridgeController::class, 'processQueue']);
@@ -652,11 +646,9 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
                 'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
-                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync, limit=100)',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync|deletion, limit=100)',
                 'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
                 'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
-                'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
-                'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
                 'GET /bridges/health' => 'Get health status of all bridges'
             ],
             'sync_status_management' => [

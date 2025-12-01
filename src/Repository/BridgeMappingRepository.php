@@ -898,26 +898,4 @@ class BridgeMappingRepository
         $stmt->execute($params);
     }
 
-    /**
-     * Find recent Outlook mappings for deletion check.
-     */
-    public function findRecentOutlookMappings(int $days, ?string $tenantId = null): array
-    {
-        $sql = "SELECT DISTINCT tenant_id, source_calendar_id, source_event_id 
-                FROM bridge_mappings 
-                WHERE source_bridge = 'outlook' 
-                AND last_synced_at > NOW() - INTERVAL '$days days'";
-        
-        $params = [];
-
-        if ($tenantId !== null) {
-            $sql .= " AND (tenant_id IS NOT DISTINCT FROM :tenant_id)";
-            $params[':tenant_id'] = $tenantId;
-        }
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
 }

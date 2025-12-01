@@ -636,41 +636,7 @@ async function triggerSync(sourceBridge, targetBridge) {
     }
 }
 
-async function triggerDeletionSync() {
-    setActionStatus('Processing deletions...', 'info');
-    try {
-        const response = await fetch('/bridges/sync-deletions', { 
-            method: 'POST',
-            headers: { ...authHeaders() }
-        });
-        const result = await response.json();
-        if (result.success) {
-            setActionStatus('✅ Deletion sync completed', 'success');
-        } else {
-            setActionStatus('❌ Deletion sync failed: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Deletion sync failed: ' + error.message, 'error');
-    }
-}
 
-async function detectCancellations() {
-    setActionStatus('Detecting cancellations...', 'info');
-    try {
-        const response = await fetch('/bridges/sync-deletions', { 
-            method: 'POST',
-            headers: { ...authHeaders() }
-        });
-        const result = await response.json();
-        if (result.success) {
-            setActionStatus(`✅ Found ${result.results.deleted || 0} cancellations`, 'success');
-        } else {
-            setActionStatus('❌ Cancellation detection failed: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Cancellation detection failed: ' + error.message, 'error');
-    }
-}
 
 function setActionStatus(message, type) {
     const statusDiv = document.getElementById('actionStatus');
@@ -847,11 +813,6 @@ function renderSyncActions() {
                 <button class="action-button" onclick="processWebhookQueue()">📬 Process Webhook Queue</button>
                 <button class="action-button" onclick="processPendingSyncs()">⏳ Process Pending Syncs</button>
                 <button class="action-button" onclick="reEnableFailedEvents()">🔄 Re-enable Failed Events</button>
-            </div>
-            <div style="margin-bottom: 15px;">
-                <h4>Deletion & Cancellation:</h4>
-                <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
-                <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
                 <button class="action-button" onclick="viewCancelledEvents()">📋 View Cancelled Events</button>
             </div>
             <div style="margin-bottom: 15px;">
