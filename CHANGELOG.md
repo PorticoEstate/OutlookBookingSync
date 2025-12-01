@@ -62,8 +62,8 @@ All notable changes to this project will be documented in this file. This projec
 
 - Consolidated documentation set: `architecture.md`, `usage.md`, `configuration.md`, `operations.md`, `development.md` replacing 11 fragmented guides.
 - Multi-tenant tenant resolution (header `X-Tenant-Id`) and admin tenant CRUD endpoints (see `AdminController`).
-- Webhook queue + deletion queue processing endpoints (`/bridges/process-webhook-queue`, `/bridges/process-deletion-queue`).
-- Sync status management endpoints (`/bridges/sync-stats`, `/bridges/cancelled-events`, `/bridges/process-pending-syncs`, `/bridges/re-enable-failed`, `/health/sync-status`, `/health/queue-stats`).
+- Webhook queue + deletion queue processing endpoints.
+- Sync status management endpoints (`/bridges/sync-stats`, `/bridges/cancelled-events`, `/bridges/re-enable-failed`, `/health/sync-status`, `/health/queue-stats`).
 - Per-tenant API key rotation & storage (hashed) via new admin endpoints.
 
 ### Changed

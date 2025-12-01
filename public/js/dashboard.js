@@ -653,67 +653,21 @@ function setActionStatus(message, type) {
     }
 }
 
-// Process webhook queue action
-async function processWebhookQueue() {
-    setActionStatus('Processing webhook queue...', 'info');
-    try {
-        const response = await fetch('/bridges/process-queue', { 
-            method: 'POST',
-            headers: { 
-                ...authHeaders(),
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ batch_size: 50 })
-        });
-        const result = await response.json();
-        if (result.success) {
-            const processed = result.processed || 0;
-            const errors = result.errors || 0;
-            const totalItems = result.total_items || 0;
-            
-            let message = `📬 Processed ${processed}/${totalItems} webhook queue items`;
-            if (errors > 0) {
-                message += ` (${errors} errors)`;
-                setActionStatus(message, 'warning');
-            } else if (processed === 0) {
-                message = '📬 No webhook queue items to process';
-                setActionStatus(message, 'info');
-            } else {
-                setActionStatus(message, 'success');
-            }
-            
-            // Refresh dashboard to show updated queue stats
-            setTimeout(() => loadDashboard(), 1000);
-        } else {
-            setActionStatus('❌ Failed to process webhook queue: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Error processing webhook queue: ' + error.message, 'error');
-    }
-}
-
 // New sync status action functions
 async function processPendingSyncs() {
     setActionStatus('Processing pending syncs...', 'info');
     try {
-        const response = await fetch('/bridges/process-pending-syncs', { 
+        const response = await fetch('/bridges/process-queue', { 
             method: 'POST',
-            headers: { ...authHeaders() }
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queue_types: ['sync'], batch_size: 50 })
         });
         const result = await response.json();
         if (result.success) {
-            let totalProcessed = 0;
-            let totalErrors = 0;
-            
-            if (result.results) {
-                Object.values(result.results).forEach(bridgeResult => {
-                    totalProcessed += bridgeResult.processed || 0;
-                    totalErrors += bridgeResult.errors || 0;
-                });
-            }
-            
-            const processed = result.processed || totalProcessed;
-            const errors = result.errors || totalErrors;
+            // Extract from unified queue response format
+            const syncResult = result.results?.sync || {};
+            const processed = syncResult.processed || result.summary?.total_processed || 0;
+            const errors = syncResult.errors || result.summary?.total_errors || 0;
             
             let message = `✅ Processed ${processed} pending syncs`;
             if (errors > 0) {
@@ -810,7 +764,6 @@ function renderSyncActions() {
             </div>
             <div style="margin-bottom: 15px;">
                 <h4>Sync Status Management:</h4>
-                <button class="action-button" onclick="processWebhookQueue()">📬 Process Webhook Queue</button>
                 <button class="action-button" onclick="processPendingSyncs()">⏳ Process Pending Syncs</button>
                 <button class="action-button" onclick="reEnableFailedEvents()">🔄 Re-enable Failed Events</button>
                 <button class="action-button" onclick="viewCancelledEvents()">📋 View Cancelled Events</button>

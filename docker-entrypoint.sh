@@ -52,8 +52,7 @@ cat >> /tmp/crontab << 'EOF'
 */10 * * * * START_DATE=$(date +\%Y-\%m-\%d); END_DATE=$(date -d "+30 days" +\%Y-\%m-\%d); curl -s -X POST "http://localhost/bridges/sync/outlook/booking_system?sync_method=cron&handle_deletions=1&start_date=$START_DATE&end_date=$END_DATE" -H "X-API-Key: $API_KEY" | sed 's/.*/[outlook-to-booking] &/' >> /var/www/html/storage/logs/bridge-cron.log 2>&1 && echo "" >> /var/www/html/storage/logs/bridge-cron.log
 
 # 3. PENDING OPERATIONS
-# Process pending sync operations (includes deletion handling)
-*/10 * * * * curl -s -X POST "http://localhost/bridges/process-pending-syncs" -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" -d '{"batch_size":50}' | sed 's/.*/[pending-syncs] &/' >> /var/www/html/storage/logs/bridge-cron.log 2>&1 && echo "" >> /var/www/html/storage/logs/bridge-cron.log
+# Note: Pending sync operations are handled by the unified queue processor above (every 5 min with queue_types=["sync"])
 
 # 4. SYSTEM HEALTH & MONITORING
 # Check bridge health every 10 minutes

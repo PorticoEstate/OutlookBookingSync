@@ -51,12 +51,11 @@ Multi‑tenant deployments MUST also send `X-Tenant-Id: <tenantId>` (unless rely
 | POST | /bridges/queue/{id}/retry | Manually retry failed queue item | Resets attempts and status to pending |
 | DELETE | /bridges/queue/{id} | Permanently delete queue item | Use for irrecoverable failures |
 
-## Deletion & Sync Operations
+## Sync Operations & Monitoring
 
 | Method | Path | Description | Notes |
 |--------|------|-------------|-------|
-| POST | /bridges/sync-deletions | Detect & reconcile deletions/cancellations | Booking inactive ↔ Outlook deletion |
-| POST | /bridges/process-pending-syncs[/{bridgeName}] | Process events awaiting sync | Ownership enforced |
+| POST | /bridges/process-queue | Unified queue processor | Process webhook, sync, deletion queues (body: queue_types, batch_size) |
 | POST | /bridges/re-enable-failed[/{bridgeName}] | Re-enable failed events | Resets status for retry |
 
 ## Sync Statistics & Monitoring
