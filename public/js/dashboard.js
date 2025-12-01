@@ -563,134 +563,6 @@ function renderSyncStatus(dashboardData) {
 }
 
 /**
- * Render resource management section
- * @returns {string} - HTML for resource management
- */
-function renderResourceManagement() {
-    return `
-        <div class="card">
-            <h3>🔗 Resource Management</h3>
-            <div style="margin-bottom: 15px;">
-                <button class="action-button" onclick="viewResourceMappings()">📋 View Resource Mappings</button>
-                <button class="action-button" onclick="viewAvailableResources()">🏢 View Available Resources</button>
-                <button class="action-button" onclick="viewAvailableGroups()">👥 View Available Groups</button>
-            </div>
-            <div id="resourceContent" style="max-height: 300px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px; background: #f8f9fa;">
-                <p style="text-align: center; color: #666; margin: 20px 0;">Select an option above to view resource information</p>
-            </div>
-        </div>
-    `;
-}
-
-// Resource management functions
-async function viewResourceMappings() {
-    setResourceContent('Loading resource mappings...', 'info');
-    try {
-        const data = await fetchData('/mappings/resources');
-        if (data.success && data.mappings) {
-            let html = '<h4>Current Resource Mappings:</h4>';
-            if (data.mappings.length === 0) {
-                html += '<p>No resource mappings found.</p>';
-            } else {
-                data.mappings.forEach(mapping => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>ID:</strong> ${mapping.id}<br>
-                            <strong>From:</strong> ${mapping.bridge_from} (${mapping.source_calendar_id || mapping.source_calendar_name || 'N/A'})<br>
-                            <strong>To:</strong> ${mapping.bridge_to} (${mapping.target_calendar_id || mapping.target_calendar_name || 'N/A'})<br>
-                            <strong>Status:</strong> <span class="status-badge status-${mapping.sync_status}">${mapping.sync_status}</span><br>
-                            <strong>Last Sync:</strong> ${mapping.last_sync_time ? formatTimestamp(mapping.last_sync_time) : 'Never'}
-                        </div>
-                    `;
-                });
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load resource mappings: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading resource mappings: ' + error.message, 'error');
-    }
-}
-
-async function viewAvailableResources() {
-    setResourceContent('Loading available resources...', 'info');
-    try {
-        const data = await fetchData('/bridges/outlook/available-resources?limit=20');
-        if (data.success && data.resources) {
-            let html = '<h4>Available Outlook Resources:</h4>';
-            if (data.resources.length === 0) {
-                html += '<p>No resources found.</p>';
-            } else {
-                data.resources.forEach(resource => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>${resource.displayName || resource.name}</strong><br>
-                            <small>ID: ${resource.id}</small><br>
-                            ${resource.emailAddress ? `<small>Email: ${resource.emailAddress}</small><br>` : ''}
-                            ${resource.capacity ? `<small>Capacity: ${resource.capacity}</small>` : ''}
-                        </div>
-                    `;
-                });
-                if (data.metadata && data.metadata.total_records) {
-                    html += `<p><small>Showing ${data.resources.length} of ${data.metadata.total_records} total resources</small></p>`;
-                }
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load resources: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading resources: ' + error.message, 'error');
-    }
-}
-
-async function viewAvailableGroups() {
-    setResourceContent('Loading available groups...', 'info');
-    try {
-        const data = await fetchData('/bridges/outlook/available-groups?limit=20');
-        if (data.success && data.groups) {
-            let html = '<h4>Available Outlook Groups:</h4>';
-            if (data.groups.length === 0) {
-                html += '<p>No groups found.</p>';
-            } else {
-                data.groups.forEach(group => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>${group.displayName || group.name}</strong><br>
-                            <small>ID: ${group.id}</small><br>
-                            ${group.description ? `<small>Description: ${group.description}</small><br>` : ''}
-                            ${group.memberCount ? `<small>Members: ${group.memberCount}</small>` : ''}
-                        </div>
-                    `;
-                });
-                if (data.metadata && data.metadata.total_records) {
-                    html += `<p><small>Showing ${data.groups.length} of ${data.metadata.total_records} total groups</small></p>`;
-                }
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load groups: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading groups: ' + error.message, 'error');
-    }
-}
-
-function setResourceContent(content, type) {
-    const element = document.getElementById('resourceContent');
-    if (element) {
-        const colors = {
-            'info': '#0066cc',
-            'success': '#28a745',
-            'error': '#dc3545'
-        };
-        element.style.color = colors[type] || '#333';
-        element.innerHTML = content;
-    }
-}
-
-/**
  * Load and render dashboard data
  */
 async function loadDashboard() {
@@ -722,9 +594,6 @@ async function loadDashboard() {
     dashboardHTML += renderMappingStatistics(syncStatusData);
         dashboardHTML += renderSyncStatus(dashboardData);
         dashboardHTML += renderSyncActions();
-        
-        // Add resource management section
-        dashboardHTML += renderResourceManagement();
         
         document.getElementById('dashboardContent').innerHTML = dashboardHTML;
         
@@ -803,11 +672,6 @@ async function detectCancellations() {
     }
 }
 
-function refreshDashboard() {
-    setActionStatus('Refreshing dashboard...', 'info');
-    loadDashboard();
-}
-
 function setActionStatus(message, type) {
     const statusDiv = document.getElementById('actionStatus');
     if (statusDiv) {
@@ -820,24 +684,6 @@ function setActionStatus(message, type) {
                 statusDiv.textContent = '';
             }, 5000);
         }
-    }
-}
-
-async function viewBridgesList() {
-    setActionStatus('Loading bridges...', 'info');
-    try {
-        const data = await fetchData('/bridges');
-        if (data.success && data.bridges) {
-            let message = `Found ${data.count} bridges:\n`;
-            Object.entries(data.bridges).forEach(([key, bridge]) => {
-                message += `\n• ${bridge.name} (${bridge.type}) - ${bridge.health?.status || 'unknown'}`;
-            });
-            setActionStatus(message, 'success');
-        } else {
-            setActionStatus('Failed to load bridges: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('Error loading bridges: ' + error.message, 'error');
     }
 }
 
@@ -987,43 +833,6 @@ async function viewCancelledEvents() {
     }
 }
 
-async function viewSyncStats() {
-    setActionStatus('Loading sync statistics...', 'info');
-    try {
-        const data = await fetchData('/bridges/sync-stats');
-        if (data.success) {
-            // Handle both all_bridge_stats and stats response formats
-            const stats = data.all_bridge_stats || data.stats || {};
-            
-            if (Object.keys(stats).length === 0) {
-                setActionStatus('✅ No sync statistics available', 'success');
-                return;
-            }
-            
-            let message = 'Sync Statistics:\n';
-            Object.entries(stats).forEach(([bridge, bridgeStats]) => {
-                message += `\n${bridge}:`;
-                if (Array.isArray(bridgeStats)) {
-                    // Array format from database
-                    bridgeStats.forEach(stat => {
-                        message += ` ${stat.sync_status}=${stat.count}`;
-                    });
-                } else {
-                    // Object format
-                    Object.entries(bridgeStats).forEach(([status, count]) => {
-                        message += ` ${status}=${count}`;
-                    });
-                }
-            });
-            setActionStatus(message, 'success');
-        } else {
-            setActionStatus('Failed to load sync stats: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('Error loading sync stats: ' + error.message, 'error');
-    }
-}
-
 function renderSyncActions() {
     return `
         <div class="card">
@@ -1049,12 +858,7 @@ function renderSyncActions() {
                 <h4>Maintenance:</h4>
                 <button class="action-button" onclick="cleanupLogs()">🧹 Cleanup Sync Logs</button>
             </div>
-            <div style="margin-bottom: 15px;">
-                <h4>Monitoring & Statistics:</h4>
-                <button class="action-button" onclick="viewSyncStats()">📊 View Sync Statistics</button>
-                <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
-                <button class="action-button" onclick="refreshDashboard()">🔄 Refresh Dashboard</button>
-            </div>
+
             <div id="actionStatus" style="margin-top: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem; min-height: 20px;"></div>
         </div>
     `;
