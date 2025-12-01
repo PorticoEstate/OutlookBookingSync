@@ -78,7 +78,7 @@ cat >> /tmp/crontab << 'EOF'
 0 2 * * 0 curl -s -X DELETE "http://localhost/alerts/old?days=7" -H "X-API-Key: $API_KEY" | sed 's/.*/[cleanup-alerts] &/' >> /var/www/html/storage/logs/bridge-cron.log 2>&1 && echo "" >> /var/www/html/storage/logs/bridge-cron.log
 
 # Renew expiring webhook subscriptions hourly (renew anything expiring in next ${RENEW_MINUTES} minutes)
-0 * * * * curl -s -X POST "http://localhost/maintenance/renew-subscriptions?bridge=outlook&renew_before_minutes=${RENEW_MINUTES}&limit=100" -H "X-API-Key: $API_KEY" | sed 's/.*/[renew-subscriptions] &/' >> /var/www/html/storage/logs/bridge-cron.log 2>&1 && echo "" >> /var/www/html/storage/logs/bridge-cron.log
+0 * * * * curl -s -X POST "http://localhost/maintenance/renew-subscriptions?renew_before_minutes=${RENEW_MINUTES}&limit=100" -H "X-API-Key: $API_KEY" | sed 's/.*/[renew-subscriptions] &/' >> /var/www/html/storage/logs/bridge-cron.log 2>&1 && echo "" >> /var/www/html/storage/logs/bridge-cron.log
 
 # 6. RESOURCE MAPPING MAINTENANCE
 # Validate resource mappings weekly on Monday at 1 AM
