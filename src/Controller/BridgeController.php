@@ -212,12 +212,12 @@ class BridgeController
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
-            // Unpack results for response handling
-            $jobsQueued = $result['jobs_queued'];
-            $jobsSkipped = $result['jobs_skipped'];
-            $eventsFound = $result['events_found'];
-            $allResults = $result['sync_results'];
-            $mappingsProcessed = $result['mappings_processed'];
+            // Unpack results for response handling (with defaults for dry_run)
+            $jobsQueued = $result['jobs_queued'] ?? 0;
+            $jobsSkipped = $result['jobs_skipped'] ?? 0;
+            $eventsFound = $result['events_found'] ?? 0;
+            $allResults = $result['sync_results'] ?? [];
+            $mappingsProcessed = $result['mappings_processed'] ?? 0;
 
             // Check if immediate processing is enabled and available
             $immediateProcessing = $_ENV['SYNC_IMMEDIATE_PROCESSING'] ?? 'true';
@@ -323,16 +323,19 @@ class BridgeController
                 $totalSkipped = 0;
                 $totalSourceEvents = 0;
 
-                foreach ($allResults as $mappingResult)
+                if (!empty($allResults))
                 {
-                    if (isset($mappingResult['results']) && !isset($mappingResult['error']))
+                    foreach ($allResults as $mappingResult)
                     {
-                        $results = $mappingResult['results'];
-                        $totalCreated += $results['created'] ?? 0;
-                        $totalUpdated += $results['updated'] ?? 0;
-                        $totalDeleted += $results['deleted'] ?? 0;
-                        $totalSkipped += $results['skipped'] ?? 0;
-                        $totalSourceEvents += $results['source_events_found'] ?? 0;
+                        if (isset($mappingResult['results']) && !isset($mappingResult['error']))
+                        {
+                            $results = $mappingResult['results'];
+                            $totalCreated += $results['created'] ?? 0;
+                            $totalUpdated += $results['updated'] ?? 0;
+                            $totalDeleted += $results['deleted'] ?? 0;
+                            $totalSkipped += $results['skipped'] ?? 0;
+                            $totalSourceEvents += $results['source_events_found'] ?? 0;
+                        }
                     }
                 }
 

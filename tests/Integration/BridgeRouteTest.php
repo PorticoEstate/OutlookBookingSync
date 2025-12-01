@@ -72,19 +72,6 @@ class BridgeRouteTest extends BaseTestCase
 
     public function testSyncBridges()
     {
-        // Mock active mappings
-        $mockResourceRepo = $this->container->get(BridgeResourceRepository::class);
-        $mockResourceRepo->method('findActiveMappings')->willReturn([
-            [
-                'id' => 1,
-                'tenant_id' => 'default',
-                'bridge_from' => 'outlook',
-                'bridge_to' => 'booking_system',
-                'source_calendar_id' => 'cal1',
-                'target_calendar_id' => 'res1'
-            ]
-        ]);
-
         // Mock BridgeManager to return a mock bridge
         $mockBridge = $this->createMock(\App\Bridge\AbstractCalendarBridge::class);
         $mockBridge->method('getEvents')->willReturn([
@@ -93,6 +80,34 @@ class BridgeRouteTest extends BaseTestCase
 
         $mockBridgeManager = $this->container->get('bridgeManager');
         $mockBridgeManager->method('getBridgeForTenant')->willReturn($mockBridge);
+
+        // Mock SyncOrchestrator to return dry run results
+        $mockOrchestrator = $this->container->get(SyncOrchestrator::class);
+        $mockOrchestrator->method('processSyncRequest')
+            ->willReturn([
+                'success' => true,
+                'jobs_queued' => 0,
+                'jobs_skipped' => 0,
+                'events_found' => 1,
+                'mappings_processed' => 1,
+                'sync_results' => [
+                    [
+                        'mapping_id' => 1,
+                        'source_calendar' => 'cal1',
+                        'target_calendar' => 'res1',
+                        'results' => [
+                            'dry_run' => true,
+                            'source_bridge' => 'outlook',
+                            'target_bridge' => 'booking_system',
+                            'source_events_found' => 1,
+                            'events_to_process' => [
+                                ['id' => 'evt1', 'title' => 'Test Event']
+                            ],
+                            'note' => 'This is a dry run - no actual changes were made'
+                        ]
+                    ]
+                ]
+            ]);
 
         $request = $this->createRequest('POST', '/bridges/sync/outlook/booking_system');
         // Add body params for dry run
