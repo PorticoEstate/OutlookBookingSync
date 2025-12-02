@@ -290,7 +290,10 @@ class BookingSystemBridge extends AbstractCalendarBridge
     private function getDefaultApiEndpoints(): array
     {
         return [
-            'list_events' => [
+            'get_allocation' => [
+                'method' => 'GET',
+                'url' => '/booking/allocations/{allocation_id}'
+            ],           'list_events' => [
                 'method' => 'GET',
                 'url' => '/booking/resources/{resource_id}/schedule',
                 'params' => ['start_date', 'end_date', 'format' => 'json']
@@ -470,7 +473,7 @@ class BookingSystemBridge extends AbstractCalendarBridge
         $parts = explode('_', $eventId, 2);
         $type = count($parts) >= 2 ? $parts[0] : 'event';
 
-        $event = $this->getEventViaApi($originalId);
+        $event = $this->getEventViaApi($originalId, $type);
         //mapped to generic format
         return $this->mapBookingEventToGeneric($event, $type);
     }
@@ -833,13 +836,22 @@ class BookingSystemBridge extends AbstractCalendarBridge
         return array_map([$this, 'mapBookingEventToGeneric'], $filteredEvents);
     }
 
-    private function getEventViaApi($eventId): array
+    private function getEventViaApi($eventId, $type): array
     {
-        $endpoint = $this->apiEndpoints['get_event'];
-        $url = $this->buildUrl($endpoint['url'], [
-            'event_id' => $eventId
-        ]);
-
+        if($type === 'allocation')
+        {
+            $endpoint = $this->apiEndpoints['get_allocation'];
+            $url = $this->buildUrl($endpoint['url'], [
+                'allocation_id' => $eventId
+            ]);
+        }
+        else
+        {
+            $endpoint = $this->apiEndpoints['get_event'];
+            $url = $this->buildUrl($endpoint['url'], [
+                'event_id' => $eventId
+            ]);
+        }
         $response = $this->makeApiRequest($endpoint['method'], $url);
 
         return $response ?? [];

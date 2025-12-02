@@ -298,22 +298,55 @@ class SyncOrchestrator
             $syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
             $isReversed = $mapping['normalized_reversed'] ?? false;
 
+
+            if ($isReversed) {
+                $target_event_id = $mapping['source_event_id'];
+                $source_event_id = $mapping['target_event_id'];
+            }
+            else
+            {
+                $target_event_id = $mapping['target_event_id'];
+                $source_event_id = $mapping['source_event_id'];
+            }
+
             // Get mapping configuration for ownership decisions
+
             $mappingConfig = $options['mapping_config'] ?? null;
+            // Fetch target event once for both deletion check and comparison
+            $target_bridge = $target->getBridgeType();
+            $targetCurrent = null;
+            $targetExists = true;
+            try
+            {
+                $targetCurrent = $target->getEvent($targetCalendarId, $target_event_id);
+            }
+            catch (\Throwable $e)
+            {
+                $targetExists = false;
+            }
+
+            $targetIsInactive = $targetExists && isset($targetCurrent['active']) && $targetCurrent['active'] === false;
 
             // Check if this sync direction is allowed by ownership model
             if (!$this->canSyncInDirection($syncDirection, $isReversed, $mappingConfig)) {
 
-                $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
-                //if the sync is reversed, and original event is cancelled, we should mark the mapping as cancelled
-                //and the target event which is the source in this case, should be cancelled / deleted as well
+                $action_text = 'skipped';
 
-                $source->deleteEvent($sourceCalendarId, $sourceEvent['source_event_id']);
+                if(!$targetExists || $targetIsInactive) {
+                    $action_text = 'deleted';
+                    // If target event doesn't exist or is inactive, we can consider the mapping cancelled
+                    $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
+                    //if the sync is reversed, and original event is cancelled, we should mark the mapping as cancelled
+                    //and the target event which is the source in this case, should be cancelled / deleted as well
+
+                    $source->deleteEvent($sourceCalendarId, $source_event_id);
+                }
+ 
                 $ownershipReason = $this->getOwnershipExplanation($syncDirection, $isReversed, $mappingConfig);
                 $this->logger->debug('Skipping sync due to ownership policy', [
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed,
                     'ownership_reason' => $ownershipReason,
@@ -322,9 +355,9 @@ class SyncOrchestrator
                 
                 return [
                     'success' => true,
-                    'action' => 'deleted',
-                    'source_event_id' => $sourceEvent['id'],
-                    'target_event_id' => $isReversed ? $mapping['source_event_id'] : $mapping['target_event_id'],
+                    'action' => $action_text,
+                    'source_event_id' => $source_event_id,
+                    'target_event_id' => $target_event_id,
                     'reason' => 'deleted due to ownership policy',
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed
@@ -343,31 +376,20 @@ class SyncOrchestrator
                 $shouldRecreateDeleted = !$respectDel;
             }
 
-            // Fetch target event once for both deletion check and comparison
-            $target_bridge = $target->getBridgeType();
-            $targetCurrent = null;
-            $targetExists = true;
-            try {
-                $targetCurrent = $target->getEvent($targetCalendarId, $mapping['target_event_id']);
-            } catch (\Throwable $e) {
-                $targetExists = false;
-            }
-
-            $targetIsInactive = $targetExists && isset($targetCurrent['active']) && $targetCurrent['active'] === false;
 
             if ($shouldRecreateDeleted && (!$targetExists || $targetIsInactive)) {
                 if ($respectDel && $syncDirection === 'bidirectional') {
                     return [
                         'success' => true,
                         'action' => 'skipped',
-                        'source_event_id' => $sourceEvent['id'],
+                        'source_event_id' => $source_event_id,
                         'reason' => 'target_deleted_respected'
                     ];
                 }
                 
                 $this->logger->info('Recreating/Reactivating deleted target event due to ownership policy', [
-                    'source_event_id' => $sourceEvent['id'],
-                    'target_event_id' => $mapping['target_event_id'],
+                    'source_event_id' => $source_event_id,
+                    'target_event_id' => $target_event_id,
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed,
                     'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement',
@@ -380,15 +402,15 @@ class SyncOrchestrator
                     $eventToUpdate['active'] = true;
                     
                     try {
-                        $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $eventToUpdate);
+                        $success = $target->updateEvent($targetCalendarId, $target_event_id, $eventToUpdate);
                         if ($success) {
                             $this->updateMappingTimestamp($mapping['id']);
                             $this->updateMappingEventData($mapping['id'], $sourceEvent);
                             return [
                                 'success' => true,
                                 'action' => 'reactivated',
-                                'source_event_id' => $sourceEvent['id'],
-                                'target_event_id' => $mapping['target_event_id'],
+                                'source_event_id' => $source_event_id,
+                                'target_event_id' => $target_event_id,
                                 'reason' => 'ownership_enforcement_reactivation'
                             ];
                         }
@@ -404,7 +426,7 @@ class SyncOrchestrator
                 return [
                     'success' => true,
                     'action' => 'recreated',
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'target_event_id' => $newId,
                     'reason' => 'ownership_enforcement'
                 ];
@@ -419,7 +441,7 @@ class SyncOrchestrator
             if ($options['skip_updates'] ?? false) {
                 return [
                     'action' => 'skipped',
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'reason' => 'updates_disabled'
                 ];
             }
@@ -433,8 +455,8 @@ class SyncOrchestrator
                         return [
                             'success' => true,
                             'action' => 'skipped',
-                            'source_event_id' => $sourceEvent['id'],
-                            'target_event_id' => $mapping['target_event_id'],
+                            'source_event_id' => $source_event_id,
+                            'target_event_id' => $target_event_id,
                             'reason' => 'no_changes_hash'
                         ];
                     }
@@ -453,14 +475,14 @@ class SyncOrchestrator
                         return [
                             'success' => true,
                             'action' => 'skipped',
-                            'source_event_id' => $sourceEvent['id'],
-                            'target_event_id' => $mapping['target_event_id'],
+                            'source_event_id' => $source_event_id,
+                            'target_event_id' => $target_event_id,
                             'reason' => 'no_changes'
                         ];
                     }
                 } catch (\Throwable $e) {
                     $this->logger->debug('No-op guard: failed to compare target event; proceeding with update', [
-                        'target_event_id' => $mapping['target_event_id'],
+                        'target_event_id' => $target_event_id,
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -469,15 +491,15 @@ class SyncOrchestrator
             try {
                 // Mark as pending before update
                 $source->updateSyncStatus(
-                    $source->getBridgeType(),
-                    $target->getBridgeType(),
+                    $mapping['source_bridge'],
+                    $mapping['target_bridge'],
                     $mapping['source_calendar_id'],
                     $mapping['target_calendar_id'],
-                    $sourceEvent['id'],
+                    $mapping['source_event_id'],
                     'pending'
                 );
 
-                $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $sourceEvent);
+                $success = $target->updateEvent($targetCalendarId, $target_event_id, $sourceEvent);
 
                 if ($success) {
                     $this->updateMappingTimestamp($mapping['id']);
@@ -494,23 +516,23 @@ class SyncOrchestrator
                         $target->getBridgeType(),
                         $mapping['source_calendar_id'],
                         $mapping['target_calendar_id'],
-                        $sourceEvent['id'],
+                        $source_event_id,
                         $options['sync_method'] ?? 'manual'
                     );
 
                     return [
                         'success' => true,
                         'action' => 'updated',
-                        'source_event_id' => $sourceEvent['id'],
-                        'target_event_id' => $mapping['target_event_id']
+                        'source_event_id' => $source_event_id,
+                        'target_event_id' => $target_event_id
                     ];
                 } else {
                     $source->updateSyncStatus(
-                        $source->getBridgeType(),
-                        $target->getBridgeType(),
+                        $mapping['source_bridge'],
+                        $mapping['target_bridge'],
                         $mapping['source_calendar_id'],
                         $mapping['target_calendar_id'],
-                        $sourceEvent['id'],
+                        $mapping['source_event_id'],
                         'error',
                         'Failed to update target event'
                     );
@@ -518,11 +540,11 @@ class SyncOrchestrator
                 }
             } catch (\Exception $e) {
                 $source->updateSyncStatus(
-                    $source->getBridgeType(),
-                    $target->getBridgeType(),
+                    $mapping['source_bridge'],
+                    $mapping['target_bridge'],
                     $mapping['source_calendar_id'],
                     $mapping['target_calendar_id'],
-                    $sourceEvent['id'],
+                    $mapping['source_event_id'],
                     'error',
                     $e->getMessage()
                 );
