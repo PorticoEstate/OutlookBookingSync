@@ -6,6 +6,8 @@ use PHPUnit\Framework\TestCase;
 use App\Services\SyncOrchestrator;
 use App\Services\BridgeManager;
 use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeResourceRepository;
+use App\Repository\BridgeQueueRepository;
 use App\Services\SyncLogService;
 use Psr\Log\LoggerInterface;
 use Mockery;
@@ -57,9 +59,17 @@ class SyncOrchestratorTest extends TestCase
         // Mock sync log write
         $mockSyncLog->shouldReceive('write')->once();
 
+        // Mock resource repository
+        $mockResourceRepo = \Mockery::mock(BridgeResourceRepository::class);
+        
+        // Mock queue repository
+        $mockQueueRepo = \Mockery::mock(BridgeQueueRepository::class);
+
         $orchestrator = new SyncOrchestrator(
             $mockBridgeManager,
             $mockMappingRepo,
+            $mockResourceRepo,
+            $mockQueueRepo,
             $mockSyncLog,
             $mockLogger
         );

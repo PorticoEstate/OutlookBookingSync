@@ -111,9 +111,10 @@ class WebhookService
      *
      * @param string|null $tenantId
      * @param int $batchSize
+     * @param string $queueType Queue type to process (webhook, sync, etc.)
      * @return void
      */
-    public function processWebhookQueueImmediate(?string $tenantId = null, int $batchSize = 1): void
+    public function processWebhookQueueImmediate(?string $tenantId = null, int $batchSize = 1, string $queueType = 'webhook'): void
     {
         try
         {
@@ -121,7 +122,7 @@ class WebhookService
             $startTime = time();
             
             // Get the most recent pending item for this tenant
-            $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId, 'DESC');
+            $queueItems = $this->queueRepository->findPendingItems($queueType, $batchSize, $tenantId, 'DESC');
 
             $processed = 0;
             $errors = 0;
@@ -143,17 +144,25 @@ class WebhookService
                     // Mark as processing
                     $this->queueRepository->markProcessing($item['id']);
 
-                    // Process the webhook payload
+                    // Process the payload based on queue type
                     $payload = json_decode($item['payload'], true);
                     $sourceBridge = $item['source_bridge'];
                     $targetBridge = $item['target_bridge'];
-                    $tenantId = $item['tenant_id'];
+                    $itemTenantId = $item['tenant_id'];
 
-                    // Process sync operation based on payload
-                    if ($payload && isset($payload['resource_id']))
+                    if ($queueType === 'webhook' && $payload && isset($payload['resource_id']))
                     {
-                        // This is a webhook event - process it
-                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $tenantId);
+                        // Webhook event processing
+                        $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $itemTenantId);
+                    }
+                    elseif ($queueType === 'sync' && $payload && isset($payload['mapping_id']))
+                    {
+                        // Sync operation processing
+                        $this->processSyncOperation($payload);
+                    }
+                    else
+                    {
+                        throw new \Exception("Invalid queue payload for queue_type: {$queueType}");
                     }
 
                     // Mark as completed
@@ -164,14 +173,19 @@ class WebhookService
                 catch (\Exception $e)
                 {
                     $errors++;
-                    // Mark as failed if max attempts reached, otherwise back to pending
+                    // Check if max attempts will be reached after incrementing
                     $maxAttempts = 3;
-                    $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                    $nextAttemptCount = $item['attempts'] + 1;
+                    $newStatus = $nextAttemptCount >= $maxAttempts ? 'failed' : 'pending';
                     
                     $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
                     $this->logger->error('Failed to process immediate webhook queue item', [
                         'queue_id' => $item['id'],
+                        'current_attempts' => $item['attempts'],
+                        'next_attempt_count' => $nextAttemptCount,
+                        'max_attempts' => $maxAttempts,
+                        'new_status' => $newStatus,
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -188,12 +202,13 @@ class WebhookService
      *
      * @param int $batchSize
      * @param string|null $tenantId
+     * @param string $queueType Queue type to process (webhook, sync, etc.)
      * @return array Processing statistics
      */
-    public function processWebhookQueueBatch(int $batchSize = 50, ?string $tenantId = null): array
+    public function processWebhookQueueBatch(int $batchSize = 50, ?string $tenantId = null, string $queueType = 'webhook'): array
     {
         // Get pending webhook queue items
-        $queueItems = $this->queueRepository->findPendingItems('bridge_sync', $batchSize, $tenantId);
+        $queueItems = $this->queueRepository->findPendingItems($queueType, $batchSize, $tenantId);
 
         $processed = 0;
         $errors = 0;
@@ -204,16 +219,20 @@ class WebhookService
                 // Mark as processing
                 $this->queueRepository->markProcessing($item['id']);
 
-                // Process the webhook payload
+                // Process the payload based on queue type
                 $payload = json_decode($item['payload'], true);
                 $sourceBridge = $item['source_bridge'];
                 $targetBridge = $item['target_bridge'];
                 $itemTenantId = $item['tenant_id'];
 
-                // Process sync operation based on payload
-                if ($payload && isset($payload['resource_id'])) {
-                    // This is a webhook event - process it
+                if ($queueType === 'webhook' && $payload && isset($payload['resource_id'])) {
+                    // Webhook event processing
                     $this->processWebhookEvent($sourceBridge, $targetBridge, $payload, $itemTenantId);
+                } elseif ($queueType === 'sync' && $payload && isset($payload['source_event_id'])) {
+                    // Sync operation processing (event-level)
+                    $this->processSyncOperation($payload);
+                } else {
+                    throw new \Exception("Invalid queue payload for queue_type: {$queueType}");
                 }
 
                 // Mark as completed
@@ -228,15 +247,17 @@ class WebhookService
                     'error' => $e->getMessage()
                 ];
 
-                // Mark as failed if max attempts reached, otherwise back to pending
+                // Check if max attempts will be reached after incrementing
                 $maxAttempts = 3;
-                $newStatus = ($item['attempts'] + 1) >= $maxAttempts ? 'failed' : 'pending';
+                $nextAttemptCount = $item['attempts'] + 1;
+                $newStatus = $nextAttemptCount >= $maxAttempts ? 'failed' : 'pending';
                 
                 $this->queueRepository->updateStatus($item['id'], $newStatus, $e->getMessage());
 
                 $this->logger->error('Failed to process webhook queue item', [
                     'queue_id' => $item['id'],
-                    'attempts' => $item['attempts'] + 1,
+                    'current_attempts' => $item['attempts'],
+                    'next_attempt_count' => $nextAttemptCount,
                     'max_attempts' => $maxAttempts,
                     'new_status' => $newStatus,
                     'error' => $e->getMessage()
@@ -338,14 +359,22 @@ class WebhookService
     private function queueSyncOperation($sourceBridge, $targetBridge, $webhookData, ?string $tenantId = null)
     {
         try {
-            $this->queueRepository->enqueue(
-                'bridge_sync',
+            $queued = $this->queueRepository->enqueueIfNotExists(
+                'webhook',
                 $sourceBridge,
                 $targetBridge,
                 $webhookData,
                 1,
                 $tenantId
             );
+            
+            if (!$queued) {
+                $this->logger->info('Duplicate webhook operation skipped', [
+                    'source_bridge' => $sourceBridge,
+                    'target_bridge' => $targetBridge,
+                    'tenant_id' => $tenantId
+                ]);
+            }
         } catch (\Exception $e) {
             $this->logger->error('Failed to enqueue sync operation', [
                 'error' => $e->getMessage(),
@@ -910,4 +939,113 @@ class WebhookService
             ]
         ];
     }
+
+    /**
+     * Process a sync operation from the queue
+     * 
+     * @param array $payload Queue payload containing sync parameters
+     * @throws \Exception If sync fails
+     */
+    /**
+     * Process a queued sync operation (event-level granularity).
+     * 
+     * @param array $payload Queue payload containing event data
+     * @return void
+     * @throws \Exception on sync failure
+     */
+    private function processSyncOperation(array $payload): void
+    {
+        // Event-level sync payload
+        $mappingId = $payload['mapping_id'];
+        $sourceBridge = $payload['source_bridge'];
+        $targetBridge = $payload['target_bridge'];
+        $sourceCalendarId = $payload['source_calendar_id'];
+        $targetCalendarId = $payload['target_calendar_id'];
+        $sourceEventId = $payload['source_event_id'];
+        $eventData = $payload['event_data'];
+        $options = $payload['options'];
+        $tenantId = $payload['tenant_id'];
+
+        $this->logger->info('Processing queued sync operation', [
+            'mapping_id' => $mappingId,
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'source_event_id' => $sourceEventId,
+            'tenant_id' => $tenantId
+        ]);
+
+        // Execute the sync via SyncOrchestrator (single event)
+        $options['tenant_id'] = $tenantId;
+        $options['mapping_config'] = [
+            'mapping_id' => $mappingId,
+            'bridge_from' => $sourceBridge,
+            'bridge_to' => $targetBridge,
+        ];
+
+        $syncResults = $this->syncOrchestrator->processSingleEventSync(
+            $sourceBridge,
+            $targetBridge,
+            $sourceCalendarId,
+            $targetCalendarId,
+            $eventData,
+            $options
+        );
+
+        if (!$syncResults['success']) {
+            throw new \Exception("Sync operation failed: " . ($syncResults['error'] ?? 'Unknown error'));
+        }
+
+        // Update or create mapping for this event
+        $totalCreated = $syncResults['created'] ?? 0;
+        $totalUpdated = $syncResults['updated'] ?? 0;
+        $targetEventId = $syncResults['target_event_id'] ?? null;
+
+        if ($totalCreated > 0) {
+            // Event was created - insert new mapping
+            $this->mappingRepository->createOrUpdateWithTargetEventId([
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $sourceEventId,
+                'sync_status' => 'completed',
+                'tenant_id' => $tenantId,
+                'target_event_id' => $targetEventId
+            ]);
+        } elseif ($totalUpdated > 0) {
+            // Event was updated - update existing mapping
+            $this->mappingRepository->updateStatusAndTargetEventId([
+                'sync_status' => 'completed',
+                'target_event_id' => $targetEventId,
+                'source_bridge' => $sourceBridge,
+                'target_bridge' => $targetBridge,
+                'source_calendar_id' => $sourceCalendarId,
+                'target_calendar_id' => $targetCalendarId,
+                'source_event_id' => $sourceEventId,
+                'tenant_id' => $tenantId
+            ]);
+        }
+
+        // Update last_synced_at timestamp on resource mapping
+        try
+        {
+            $this->resourceRepository->updateLastSyncedAt((int)$mappingId);
+        }
+        catch (\Throwable $e)
+        {
+            $this->logger->warning('Failed to update resource last_synced_at after queue sync', [
+                'mapping_id' => $mappingId,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        $this->logger->info('Queued sync operation completed', [
+            'mapping_id' => $mappingId,
+            'source_event_id' => $sourceEventId,
+            'target_event_id' => $targetEventId,
+            'created' => $totalCreated,
+            'updated' => $totalUpdated
+        ]);
+    }
 }
+

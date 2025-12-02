@@ -77,10 +77,10 @@ class WebhookServiceTest extends TestCase
             ->andReturn($mockOutlookBridge);
 
         // Expectation: The service should enqueue a job into the database
-        $this->mockQueueRepo->shouldReceive('enqueue')
+        $this->mockQueueRepo->shouldReceive('enqueueIfNotExists')
             ->once()
             ->with(
-                'bridge_sync', // queue name
+                'webhook',     // queue_type
                 'outlook',     // source
                 Mockery::any(), // target (determined by logic inside handleWebhook)
                 Mockery::on(function ($jobPayload) {
@@ -88,9 +88,10 @@ class WebhookServiceTest extends TestCase
                         && $jobPayload['change_type'] === 'created'
                         && $jobPayload['resource_id'] === 'user@example.com';
                 }), 
-                Mockery::any(), // priority
-                $tenantId  // tenant
-            );
+                1,             // priority
+                $tenantId      // tenant
+            )
+            ->andReturn(true);
 
         // Act
         $result = $this->webhookService->handleWebhook($bridgeName, $payload, [], $tenantId);
@@ -120,7 +121,7 @@ class WebhookServiceTest extends TestCase
 
         // Mock finding pending items
         $this->mockQueueRepo->shouldReceive('findPendingItems')
-            ->with('bridge_sync', $batchSize, $tenantId)
+            ->with('webhook', $batchSize, $tenantId)
             ->andReturn([$queueItem]);
 
         // Mock marking as processing

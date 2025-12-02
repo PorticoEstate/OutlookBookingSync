@@ -2,15 +2,76 @@
 
 ## Automation (Cron Examples)
 
+### Recommended Configuration (Unified Queue-Based)
+
+| Purpose | Cron | Endpoint | Notes |
+|---------|------|----------|-------|
+| **Unified queue processor** | `*/5 * * * *` | POST /bridges/process-queue | Processes webhook + sync queues (recommended) |
+| Subscription renewal | `*/30 * * * *` | POST /maintenance/renew-subscriptions | Keep subscriptions active |
+| Queue cleanup | `0 2 * * *` | POST /maintenance/cleanup-queue?days=30 | Daily at 2 AM |
+| Log cleanup | `0 3 * * *` | POST /maintenance/cleanup-logs?days=30 | Daily at 3 AM |
+
+### Legacy Configuration (Separate Jobs)
+
+Still supported for backward compatibility:
+
 | Purpose | Cron | Endpoint |
 |---------|------|----------|
 | Forward sync (booking → outlook) | `*/5 * * * *` | POST /bridges/sync/booking_system/outlook |
 | Reverse sync (outlook → booking) | `*/10 * * * *` | POST /bridges/sync/outlook/booking_system |
 | Deletion sweep | `*/5 * * * *` | POST /bridges/sync-deletions |
 | Deletion queue process | `*/5 * * * *` | POST /bridges/process-deletion-queue |
-| Webhook queue process | `*/5 * * * *` | POST /bridges/process-webhook-queue |
-| Subscription renewal | `*/30 * * * *` | POST /maintenance/renew-subscriptions |
-| Log cleanup | `3 3 * * *` | POST /maintenance/cleanup-logs?days=30 |
+| Queue process (webhook) | `*/5 * * * *` | POST /bridges/process-queue with queue_types=["webhook"] |
+
+### Unified Queue Processor Configuration
+
+The unified queue processor (`POST /bridges/process-queue`) handles multiple queue types in a single call:
+
+**Default behavior (no body)**:
+```bash
+# Processes both webhook and sync queues with batch_size=50
+curl -X POST \
+  -H "X-API-Key: <KEY>" \
+  -H "X-Tenant-Id: <TENANT>" \
+  https://bridge.example.com/bridges/process-queue
+```
+
+**Custom configuration**:
+```bash
+# Process specific queue types with custom batch size
+curl -X POST \
+  -H "X-API-Key: <KEY>" \
+  -H "X-Tenant-Id: <TENANT>" \
+  -H "Content-Type: application/json" \
+  -d '{"queue_types": ["webhook", "sync", "deletion"], "batch_size": 100}' \
+  https://bridge.example.com/bridges/process-queue
+```
+
+**Benefits of unified processor**:
+- Single cron job instead of separate jobs for each queue type
+- Consistent batch processing across all queues
+- Combined statistics and error reporting
+- Reduced cron job complexity
+
+### Queue Cleanup Configuration
+
+**Automatic cleanup**:
+```bash
+# Remove completed/failed items older than 30 days (default)
+curl -X POST \
+  -H "X-API-Key: <KEY>" \
+  -H "X-Tenant-Id: <TENANT>" \
+  https://bridge.example.com/maintenance/cleanup-queue
+```
+
+**Custom retention period**:
+```bash
+# Keep only last 7 days
+curl -X POST \
+  -H "X-API-Key: <KEY>" \
+  -H "X-Tenant-Id: <TENANT>" \
+  https://bridge.example.com/maintenance/cleanup-queue?days=7
+```
 
 ## Health & Metrics
 
@@ -106,7 +167,7 @@ Response (illustrative):
 1. Bridge issues Graph subscription create request with `notificationUrl` = `<WEBHOOK_BASE_URL>/bridges/webhook/outlook`.
 2. Microsoft Graph sends `GET` with `validationToken` query param.
 3. Bridge must echo the token (already implemented in the webhook controller) within 10 seconds.
-4. Subsequent notifications arrive as `POST` payloads, queued for processing (`/bridges/process-webhook-queue`).
+4. Subsequent notifications arrive as `POST` payloads, queued for processing (`/bridges/process-queue`).
 
 ### Renewal Lifecycle
 
@@ -121,7 +182,7 @@ Schedule: `*/30 * * * *` (see table above). Adjust more frequently if short-live
 ### Processing Notifications
 
 1. Inbound POST enqueued (lightweight validation & tenant lookup by subscription id).
-2. Batch processor (`/bridges/process-webhook-queue`) expands notification into targeted delta or event fetches.
+2. Batch processor (`/bridges/process-queue`) expands notification into targeted delta or event fetches.
 3. Normal sync pipelines apply ownership, dedupe, and persistence logic.
 
 ### Troubleshooting

@@ -136,8 +136,9 @@ $container->set('db', function ()
     catch (PDOException $e)
     {
         error_log("Database connection failed: " . $e->getMessage());
-        // For dashboard/health endpoints, we can return null and handle gracefully
-        return null;
+        // Throw exception instead of returning null to prevent TypeErrors in repositories
+        // that expect a valid PDO instance.
+        throw new \RuntimeException("Database connection failed: " . $e->getMessage(), 0, $e);
     }
 });
 
@@ -223,6 +224,7 @@ $container->set(\App\Controller\MaintenanceController::class, function () use ($
     return new \App\Controller\MaintenanceController(
         $container->get('syncLog'),
         $container->get(\App\Services\WebhookService::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get('logger')
     );
 });
@@ -437,6 +439,8 @@ $container->set(\App\Services\SyncOrchestrator::class, function () use ($contain
     return new \App\Services\SyncOrchestrator(
         $container->get('bridgeManager'),
         $container->get(\App\Repository\BridgeMappingRepository::class),
+        $container->get(\App\Repository\BridgeResourceRepository::class),
+        $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get('syncLog'),
         $container->get('logger')
     );
@@ -532,14 +536,14 @@ $app->get('/bridges/health', [\App\Controller\BridgeController::class, 'getHealt
 // Session diagnostics for debugging
 $app->get('/bridges/{bridgeName}/session-debug', [\App\Controller\BridgeController::class, 'getSessionDiagnostics']);
 
-// Manual deletion sync
-$app->post('/bridges/sync-deletions', [\App\Controller\BridgeController::class, 'syncDeletions']);
+// Unified queue processor - handles multiple queue types (webhook, sync, deletion)
+// This replaces the legacy /bridges/process-webhook-queue endpoint
+$app->post('/bridges/process-queue', [\App\Controller\BridgeController::class, 'processQueue']);
 
-// Process deletion check queue
-$app->post('/bridges/process-deletion-queue', [\App\Controller\BridgeController::class, 'processDeletionQueue']);
-
-// Process webhook queue (bridge_sync queue items)
-$app->post('/bridges/process-webhook-queue', [\App\Controller\BridgeController::class, 'processWebhookQueue']);
+// Queue Management API Routes
+$app->get('/bridges/queue/failed', [\App\Controller\BridgeController::class, 'getFailedQueueItems']);
+$app->post('/bridges/queue/{id}/retry', [\App\Controller\BridgeController::class, 'retryFailedQueueItem']);
+$app->delete('/bridges/queue/{id}', [\App\Controller\BridgeController::class, 'deleteQueueItem']);
 
 // Resource Mapping API Routes
 
@@ -583,9 +587,6 @@ $app->get('/health/sync-status', [\App\Controller\HealthController::class, 'getS
 
 // Get queue statistics for dashboard monitoring
 $app->get('/health/queue-stats', [\App\Controller\HealthController::class, 'getQueueStats']);
-
-// Process pending syncs for specific bridge or all bridges
-$app->post('/bridges/process-pending-syncs[/{bridgeName}]', [\App\Controller\BridgeController::class, 'processPendingSyncs']);
 
 // Re-enable failed events for specific bridge or all bridges
 $app->post('/bridges/re-enable-failed[/{bridgeName}]', [\App\Controller\BridgeController::class, 'reEnableFailedEvents']);
@@ -637,16 +638,19 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
                 'POST /bridges/{bridge}/subscriptions' => 'Create webhook subscriptions for a bridge (body: webhook_url, optional: calendar_ids[])',
                 'GET /bridges/{bridge}/subscriptions' => 'List webhook subscriptions (query: ?search=string&status=active|expired|expiring&limit=int&offset=int&stats_only=bool)',
                 'DELETE /bridges/subscriptions/{subscriptionId}' => 'Delete a webhook subscription',
-                'POST /bridges/process-webhook-queue' => 'Process webhook queue (bridge_sync queue items) (optional body: batch_size=int)',
+                'POST /bridges/process-queue' => 'Unified queue processor - process multiple queue types (body: queue_types=["webhook","sync","deletion"], batch_size=int)',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync|deletion, limit=100)',
+                'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
+                'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
                 'POST /bridges/process-deletion-queue' => 'Process deletion queue (optional body: batch_size=int)',
-                'POST /bridges/sync-deletions' => 'Sync deletions across bridges',
+                'GET /bridges/queue/failed' => 'Get failed queue items (query: queue_type=webhook|sync|deletion, limit=100)',
+                'POST /bridges/queue/{id}/retry' => 'Retry a failed queue item',
+                'DELETE /bridges/queue/{id}' => 'Delete a queue item permanently',
                 'GET /bridges/health' => 'Get health status of all bridges'
             ],
             'sync_status_management' => [
                 'GET /health/sync-status' => 'Get detailed sync status monitoring (optional query: ?status=failed|pending|completed&limit=int&offset=int)',
                 'GET /health/queue-stats' => 'Get queue statistics for dashboard monitoring',
-                'POST /bridges/process-pending-syncs' => 'Process pending syncs (all bridges) (body: batch_size=int)',
-                'POST /bridges/process-pending-syncs/{bridge}' => 'Process pending syncs for specific bridge (body: batch_size=int)',
                 'POST /bridges/re-enable-failed' => 'Re-enable failed events (all bridges)',
                 'POST /bridges/re-enable-failed/{bridge}' => 'Re-enable failed events for specific bridge',
                 'GET /bridges/sync-stats' => 'Get sync statistics (all bridges) (optional query: ?from=YYYY-MM-DD&to=YYYY-MM-DD)',
@@ -684,6 +688,7 @@ $app->map(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], '/{routes:.+}', function ($
             ],
             'maintenance' => [
                 'POST /maintenance/cleanup-logs' => 'Cleanup old sync logs (optional query: ?days=int, default 30)',
+                'POST /maintenance/cleanup-queue' => 'Cleanup old completed/failed queue items (query: days=30)',
                 'POST /maintenance/renew-subscriptions' => 'Renew expiring webhook subscriptions (query: ?bridge=outlook&renew_before_minutes=int&limit=int)'
             ]
         ],

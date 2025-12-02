@@ -3,23 +3,31 @@
 namespace App\Services;
 
 use App\Repository\BridgeMappingRepository;
+use App\Repository\BridgeResourceRepository;
+use App\Repository\BridgeQueueRepository;
 use Psr\Log\LoggerInterface;
 
 class SyncOrchestrator
 {
     private $bridgeManager;
     private $mappingRepository;
+    private $resourceRepository;
+    private $queueRepository;
     private $syncLog;
     private $logger;
 
     public function __construct(
         BridgeManager $bridgeManager,
         BridgeMappingRepository $mappingRepository,
+        BridgeResourceRepository $resourceRepository,
+        BridgeQueueRepository $queueRepository,
         SyncLogService $syncLog,
         LoggerInterface $logger
     ) {
         $this->bridgeManager = $bridgeManager;
         $this->mappingRepository = $mappingRepository;
+        $this->resourceRepository = $resourceRepository;
+        $this->queueRepository = $queueRepository;
         $this->syncLog = $syncLog;
         $this->logger = $logger;
     }
@@ -290,17 +298,55 @@ class SyncOrchestrator
             $syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
             $isReversed = $mapping['normalized_reversed'] ?? false;
 
+
+            if ($isReversed) {
+                $target_event_id = $mapping['source_event_id'];
+                $source_event_id = $mapping['target_event_id'];
+            }
+            else
+            {
+                $target_event_id = $mapping['target_event_id'];
+                $source_event_id = $mapping['source_event_id'];
+            }
+
             // Get mapping configuration for ownership decisions
+
             $mappingConfig = $options['mapping_config'] ?? null;
+            // Fetch target event once for both deletion check and comparison
+            $target_bridge = $target->getBridgeType();
+            $targetCurrent = null;
+            $targetExists = true;
+            try
+            {
+                $targetCurrent = $target->getEvent($targetCalendarId, $target_event_id);
+            }
+            catch (\Throwable $e)
+            {
+                $targetExists = false;
+            }
+
+            $targetIsInactive = $targetExists && isset($targetCurrent['active']) && $targetCurrent['active'] === false;
 
             // Check if this sync direction is allowed by ownership model
             if (!$this->canSyncInDirection($syncDirection, $isReversed, $mappingConfig)) {
 
-                $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
 
+                $action_text = 'skipped';
+
+                if(!$targetExists || $targetIsInactive) {
+                    $action_text = 'deleted';
+                    // If target event doesn't exist or is inactive, we can consider the mapping cancelled
+                    $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
+
+                    //if the sync is reversed, and original event is cancelled, we should mark the mapping as cancelled
+                    //and the target event which is the source in this case, should be cancelled / deleted as well
+
+                    $source->deleteEvent($sourceCalendarId, $source_event_id);
+                }
+ 
                 $ownershipReason = $this->getOwnershipExplanation($syncDirection, $isReversed, $mappingConfig);
                 $this->logger->debug('Skipping sync due to ownership policy', [
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed,
                     'ownership_reason' => $ownershipReason,
@@ -309,10 +355,10 @@ class SyncOrchestrator
                 
                 return [
                     'success' => true,
-                    'action' => 'skipped',
-                    'source_event_id' => $sourceEvent['id'],
-                    'target_event_id' => $isReversed ? $mapping['source_event_id'] : $mapping['target_event_id'],
-                    'reason' => 'ownership_policy_violation',
+                    'action' => $action_text,
+                    'source_event_id' => $source_event_id,
+                    'target_event_id' => $target_event_id,
+                    'reason' => 'deleted due to ownership policy',
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed
                 ];
@@ -330,31 +376,20 @@ class SyncOrchestrator
                 $shouldRecreateDeleted = !$respectDel;
             }
 
-            // Fetch target event once for both deletion check and comparison
-            $target_bridge = $target->getBridgeType();
-            $targetCurrent = null;
-            $targetExists = true;
-            try {
-                $targetCurrent = $target->getEvent($targetCalendarId, $mapping['target_event_id']);
-            } catch (\Throwable $e) {
-                $targetExists = false;
-            }
-
-            $targetIsInactive = $targetExists && isset($targetCurrent['active']) && $targetCurrent['active'] === false;
 
             if ($shouldRecreateDeleted && (!$targetExists || $targetIsInactive)) {
                 if ($respectDel && $syncDirection === 'bidirectional') {
                     return [
                         'success' => true,
                         'action' => 'skipped',
-                        'source_event_id' => $sourceEvent['id'],
+                        'source_event_id' => $source_event_id,
                         'reason' => 'target_deleted_respected'
                     ];
                 }
                 
                 $this->logger->info('Recreating/Reactivating deleted target event due to ownership policy', [
-                    'source_event_id' => $sourceEvent['id'],
-                    'target_event_id' => $mapping['target_event_id'],
+                    'source_event_id' => $source_event_id,
+                    'target_event_id' => $target_event_id,
                     'sync_direction' => $syncDirection,
                     'is_reversed' => $isReversed,
                     'ownership_reason' => $syncDirection === 'bidirectional' ? 'bidirectional_consistency' : 'owner_enforcement',
@@ -367,15 +402,15 @@ class SyncOrchestrator
                     $eventToUpdate['active'] = true;
                     
                     try {
-                        $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $eventToUpdate);
+                        $success = $target->updateEvent($targetCalendarId, $target_event_id, $eventToUpdate);
                         if ($success) {
                             $this->updateMappingTimestamp($mapping['id']);
                             $this->updateMappingEventData($mapping['id'], $sourceEvent);
                             return [
                                 'success' => true,
                                 'action' => 'reactivated',
-                                'source_event_id' => $sourceEvent['id'],
-                                'target_event_id' => $mapping['target_event_id'],
+                                'source_event_id' => $source_event_id,
+                                'target_event_id' => $target_event_id,
                                 'reason' => 'ownership_enforcement_reactivation'
                             ];
                         }
@@ -391,7 +426,7 @@ class SyncOrchestrator
                 return [
                     'success' => true,
                     'action' => 'recreated',
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'target_event_id' => $newId,
                     'reason' => 'ownership_enforcement'
                 ];
@@ -406,7 +441,7 @@ class SyncOrchestrator
             if ($options['skip_updates'] ?? false) {
                 return [
                     'action' => 'skipped',
-                    'source_event_id' => $sourceEvent['id'],
+                    'source_event_id' => $source_event_id,
                     'reason' => 'updates_disabled'
                 ];
             }
@@ -420,8 +455,8 @@ class SyncOrchestrator
                         return [
                             'success' => true,
                             'action' => 'skipped',
-                            'source_event_id' => $sourceEvent['id'],
-                            'target_event_id' => $mapping['target_event_id'],
+                            'source_event_id' => $source_event_id,
+                            'target_event_id' => $target_event_id,
                             'reason' => 'no_changes_hash'
                         ];
                     }
@@ -440,14 +475,14 @@ class SyncOrchestrator
                         return [
                             'success' => true,
                             'action' => 'skipped',
-                            'source_event_id' => $sourceEvent['id'],
-                            'target_event_id' => $mapping['target_event_id'],
+                            'source_event_id' => $source_event_id,
+                            'target_event_id' => $target_event_id,
                             'reason' => 'no_changes'
                         ];
                     }
                 } catch (\Throwable $e) {
                     $this->logger->debug('No-op guard: failed to compare target event; proceeding with update', [
-                        'target_event_id' => $mapping['target_event_id'],
+                        'target_event_id' => $target_event_id,
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -456,15 +491,15 @@ class SyncOrchestrator
             try {
                 // Mark as pending before update
                 $source->updateSyncStatus(
-                    $source->getBridgeType(),
-                    $target->getBridgeType(),
+                    $mapping['source_bridge'],
+                    $mapping['target_bridge'],
                     $mapping['source_calendar_id'],
                     $mapping['target_calendar_id'],
-                    $sourceEvent['id'],
+                    $mapping['source_event_id'],
                     'pending'
                 );
 
-                $success = $target->updateEvent($targetCalendarId, $mapping['target_event_id'], $sourceEvent);
+                $success = $target->updateEvent($targetCalendarId, $target_event_id, $sourceEvent);
 
                 if ($success) {
                     $this->updateMappingTimestamp($mapping['id']);
@@ -481,23 +516,23 @@ class SyncOrchestrator
                         $target->getBridgeType(),
                         $mapping['source_calendar_id'],
                         $mapping['target_calendar_id'],
-                        $sourceEvent['id'],
+                        $source_event_id,
                         $options['sync_method'] ?? 'manual'
                     );
 
                     return [
                         'success' => true,
                         'action' => 'updated',
-                        'source_event_id' => $sourceEvent['id'],
-                        'target_event_id' => $mapping['target_event_id']
+                        'source_event_id' => $source_event_id,
+                        'target_event_id' => $target_event_id
                     ];
                 } else {
                     $source->updateSyncStatus(
-                        $source->getBridgeType(),
-                        $target->getBridgeType(),
+                        $mapping['source_bridge'],
+                        $mapping['target_bridge'],
                         $mapping['source_calendar_id'],
                         $mapping['target_calendar_id'],
-                        $sourceEvent['id'],
+                        $mapping['source_event_id'],
                         'error',
                         'Failed to update target event'
                     );
@@ -505,11 +540,11 @@ class SyncOrchestrator
                 }
             } catch (\Exception $e) {
                 $source->updateSyncStatus(
-                    $source->getBridgeType(),
-                    $target->getBridgeType(),
+                    $mapping['source_bridge'],
+                    $mapping['target_bridge'],
                     $mapping['source_calendar_id'],
                     $mapping['target_calendar_id'],
-                    $sourceEvent['id'],
+                    $mapping['source_event_id'],
                     'error',
                     $e->getMessage()
                 );
@@ -777,6 +812,14 @@ class SyncOrchestrator
 
     private function getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options)
     {
+        // Provide default date range if not specified (used for single event syncs)
+        if ($startDate === null) {
+            $startDate = date('Y-m-d', strtotime('-30 days'));
+        }
+        if ($endDate === null) {
+            $endDate = date('Y-m-d', strtotime('+90 days'));
+        }
+        
         return $this->mappingRepository->findMappings(
             $sourceBridge,
             $targetBridge,
@@ -933,96 +976,186 @@ class SyncOrchestrator
     }
 
     /**
-     * Process pending syncs for a specific bridge
-     * 
-     * @param string $bridgeName Bridge name to process pending syncs for
-     * @param int $batchSize Maximum number of mappings to process
-     * @param array $options Additional options
-     * @return array Processing results
+     * Orchestrate sync request between two bridges
      */
-    public function processPendingSyncs(string $bridgeName, int $batchSize = 50, array $options = []): array
-    {
-        $tenantId = $options['tenant_id'] ?? null;
-        // Use default max retries of 3
-        $mappings = $this->mappingRepository->findPendingSyncsForBridge($bridgeName, $batchSize, 3, $tenantId);
-        
-        $results = [
-            'processed' => 0,
-            'errors' => 0,
-            'details' => []
-        ];
+    public function processSyncRequest(
+        string $sourceBridge,
+        string $targetBridge,
+        string $startDate,
+        string $endDate,
+        array $options = [],
+        ?string $tenantId = null
+    ): array {
+        $this->logger->info('Bridge sync requested', [
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'date_range' => [$startDate, $endDate],
+            'options' => $options
+        ]);
 
-        foreach ($mappings as $mapping) {
+        // Get all active mappings between these bridges
+        $resourceMappings = $this->resourceRepository->findActiveMappings($sourceBridge, $targetBridge, $tenantId);
+
+        if (empty($resourceMappings)) {
+            return [
+                'success' => false,
+                'error' => "No active mappings found between {$sourceBridge} and {$targetBridge}",
+                'suggestion' => "Create resource mappings first using the /mappings/resources endpoint"
+            ];
+        }
+
+        $jobsQueued = 0;
+        $jobsSkipped = 0;
+        $eventsFound = 0;
+        $allResults = [];
+
+        foreach ($resourceMappings as $resourceMapping) {
+            // Use tenant_id from the resource mapping record for proper isolation
+            $mappingTenantId = $resourceMapping['tenant_id'];
+
+            // Determine the correct source and target calendar IDs based on sync direction
+            if ($sourceBridge === $resourceMapping['bridge_from'] && $targetBridge === $resourceMapping['bridge_to']) {
+                // Forward direction: booking_system → outlook
+                $sourceCalendarId = $resourceMapping['source_calendar_id'];
+                $targetCalendarId = $resourceMapping['target_calendar_id'];
+            } else {
+                // Reverse direction: outlook → booking_system
+                $sourceCalendarId = $resourceMapping['target_calendar_id'];
+                $targetCalendarId = $resourceMapping['source_calendar_id'];
+            }
+
             try {
-                $sourceBridgeName = $mapping['source_bridge'];
-                $targetBridgeName = $mapping['target_bridge'];
-                
-                $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridgeName);
-                $target = $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridgeName);
-                
-                // Fetch source event
-                $sourceEvent = $source->getEvent($mapping['source_calendar_id'], $mapping['source_event_id']);
-                
-                if (!$sourceEvent) {
-                    $this->logger->warning("Source event not found for pending sync", [
-                        'mapping_id' => $mapping['id'],
-                        'source_event_id' => $mapping['source_event_id']
-                    ]);
-                    
-                    $this->mappingRepository->updateSyncStatus($mapping['id'], 'cancelled', 'Source event not found');
+                $this->logger->info('Processing mapping for sync', [
+                    'mapping_id' => $resourceMapping['id'],
+                    'mapping_tenant_id' => $mappingTenantId,
+                    'request_tenant_id' => $tenantId,
+                    'source_calendar' => $sourceCalendarId,
+                    'target_calendar' => $targetCalendarId
+                ]);
+
+                // Get source bridge instance and fetch events
+                $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($mappingTenantId ?: 'default', $sourceBridge);
+                $sourceEvents = $sourceBridgeInstance->getEvents($sourceCalendarId, $startDate, $endDate);
+
+                if (empty($sourceEvents)) {
+                    $allResults[] = [
+                        'mapping_id' => $resourceMapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'events_found' => 0,
+                        'events_queued' => 0,
+                        'status' => 'no_events'
+                    ];
                     continue;
                 }
-                
-                // Build mapping index for this single event
-                $mappingIndex = [$mapping['source_event_id'] => $mapping];
-                
-                $syncOptions = array_merge($options, [
-                    'force_update' => true // Pending usually means we want to force a retry/update
-                ]);
-                
-                $this->processSingleEventSafely(
-                    $source,
-                    $target,
-                    $sourceEvent,
-                    $mappingIndex,
-                    $mapping['source_calendar_id'],
-                    $mapping['target_calendar_id'],
-                    $syncOptions,
-                    $sourceBridgeName,
-                    $targetBridgeName,
-                    1,
-                    1
-                );
-                
-                $results['processed']++;
-                $results['details'][] = ['id' => $mapping['id'], 'status' => 'success'];
-                
+
+                $eventsFound += count($sourceEvents);
+                $mappingEventsQueued = 0;
+                $mappingEventsSkipped = 0;
+
+                if ($options['dry_run'] ?? false) {
+                    $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                    
+                    $allResults[] = [
+                        'mapping_id' => $resourceMapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'results' => $results
+                    ];
+                } else {
+                    // Queue each event individually
+                    foreach ($sourceEvents as $event) {
+                        $eventId = $event['id'] ?? $event['event_id'] ?? null;
+                        if (!$eventId) {
+                            continue;
+                        }
+
+                        $queuePayload = [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_bridge' => $sourceBridge,
+                            'target_bridge' => $targetBridge,
+                            'source_calendar_id' => $sourceCalendarId,
+                            'target_calendar_id' => $targetCalendarId,
+                            'source_event_id' => $eventId,
+                            'event_data' => $event,
+                            'options' => $options,
+                            'tenant_id' => $mappingTenantId
+                        ];
+
+                        $queued = $this->queueRepository->enqueueIfNotExists(
+                            'sync',
+                            $sourceBridge,
+                            $targetBridge,
+                            $queuePayload,
+                            3,
+                            $mappingTenantId
+                        );
+
+                        if ($queued) {
+                            $jobsQueued++;
+                            $mappingEventsQueued++;
+                        } else {
+                            $jobsSkipped++;
+                            $mappingEventsSkipped++;
+                        }
+                    }
+
+                    $allResults[] = [
+                        'mapping_id' => $resourceMapping['id'],
+                        'source_calendar' => $sourceCalendarId,
+                        'target_calendar' => $targetCalendarId,
+                        'events_found' => count($sourceEvents),
+                        'events_queued' => $mappingEventsQueued,
+                        'events_skipped' => $mappingEventsSkipped,
+                        'status' => $mappingEventsQueued > 0 ? 'queued' : 'all_duplicates'
+                    ];
+                }
             } catch (\Exception $e) {
-                $results['errors']++;
-                $results['details'][] = ['id' => $mapping['id'], 'status' => 'error', 'message' => $e->getMessage()];
-                
-                $this->logger->error("Failed to process pending sync mapping", [
-                    'mapping_id' => $mapping['id'],
+                $allResults[] = [
+                    'mapping_id' => $resourceMapping['id'],
+                    'source_calendar' => $sourceCalendarId ?? null,
+                    'target_calendar' => $targetCalendarId ?? null,
+                    'status' => 'error',
+                    'error' => $e->getMessage()
+                ];
+
+                $this->logger->error('Failed to process mapping sync', [
+                    'mapping_id' => $resourceMapping['id'],
                     'error' => $e->getMessage()
                 ]);
             }
         }
-        
-        return $results;
+
+        return [
+            'success' => true,
+            'jobs_queued' => $jobsQueued,
+            'jobs_skipped' => $jobsSkipped,
+            'events_found' => $eventsFound,
+            'mappings_processed' => count($resourceMappings),
+            'sync_results' => $allResults
+        ];
     }
 
-    /**
-     * Re-enable failed events for a bridge
-     * 
-     * @param string $bridgeName Bridge name
-     * @param array $eventIds Optional list of event IDs
-     * @param array $options Additional options
-     * @return int Number of re-enabled events
-     */
-    public function reEnableFailedEvents(string $bridgeName, array $eventIds = [], array $options = []): int
-    {
-        $tenantId = $options['tenant_id'] ?? null;
-        return $this->mappingRepository->resetSyncStatus($bridgeName, $eventIds, $tenantId);
+    private function performDryRun(
+        string $tenantId,
+        string $sourceBridge,
+        string $targetBridge,
+        string $sourceCalendarId,
+        string $targetCalendarId,
+        string $startDate,
+        string $endDate
+    ): array {
+        $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
+        $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
+
+        return [
+            'dry_run' => true,
+            'source_bridge' => $sourceBridge,
+            'target_bridge' => $targetBridge,
+            'source_events_found' => count($sourceEvents),
+            'events_to_process' => $sourceEvents,
+            'note' => 'This is a dry run - no actual changes were made'
+        ];
     }
 
     private function normalizeString(string $str): string
@@ -1056,5 +1189,111 @@ class SyncOrchestrator
                 'status' => $attendee['status'] ?? 'unknown'
             ];
         }, $attendees);
+    }
+
+    /**
+     * Process pending syncs for a specific bridge
+     * 
+     * @param string $bridgeName Bridge name to process pending syncs for
+     * @param int $batchSize Maximum number of mappings to process
+     * @param array $options Additional options
+     * @return array Processing results
+     */
+    public function processPendingSyncs(string $bridgeName, int $batchSize = 50, array $options = []): array
+    {
+        $tenantId = $options['tenant_id'] ?? null;
+        
+        // Use the new repository method
+        $pendingItems = $this->queueRepository->findPendingSyncsForBridge($bridgeName, $batchSize, $tenantId);
+        
+        $results = [
+            'processed' => 0,
+            'errors' => 0,
+            'error_details' => []
+        ];
+
+        foreach ($pendingItems as $item) {
+            try {
+                if ($item['queue_type'] === 'sync') {
+                    $payload = json_decode($item['payload'], true);
+                    if (!$payload) {
+                        throw new \Exception('Invalid payload JSON');
+                    }
+
+                    $sourceBridge = $payload['source_bridge'] ?? null;
+                    $targetBridge = $payload['target_bridge'] ?? null;
+                    $sourceCalendarId = $payload['source_calendar_id'] ?? null;
+                    $targetCalendarId = $payload['target_calendar_id'] ?? null;
+                    $sourceEvent = $payload['event_data'] ?? null;
+                    $syncOptions = $payload['options'] ?? [];
+                    $syncOptions['tenant_id'] = $tenantId;
+
+                    if ($sourceBridge && $targetBridge && $sourceEvent) {
+                        $this->processSingleEventSync(
+                            $sourceBridge,
+                            $targetBridge,
+                            $sourceCalendarId,
+                            $targetCalendarId,
+                            $sourceEvent,
+                            $syncOptions
+                        );
+                    }
+                }
+                
+                $this->queueRepository->markCompleted($item['id']);
+                $results['processed']++;
+                
+            } catch (\Exception $e) {
+                $this->queueRepository->updateStatus($item['id'], 'failed', $e->getMessage());
+                $results['errors']++;
+                $results['error_details'][] = [
+                    'id' => $item['id'],
+                    'error' => $e->getMessage()
+                ];
+                
+                $this->logger->error('Failed to process pending sync item', [
+                    'item_id' => $item['id'],
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Re-enable failed events for a bridge
+     * 
+     * @param string $bridgeName Bridge name
+     * @param array $eventIds Specific event IDs to retry (optional)
+     * @param array $options Additional options
+     * @return int Number of events re-enabled
+     */
+    public function reEnableFailedEvents(string $bridgeName, array $eventIds = [], array $options = []): int
+    {
+        $tenantId = $options['tenant_id'] ?? null;
+        $count = 0;
+        
+        if (empty($eventIds)) {
+            // If no IDs provided, retry all failed items for this bridge
+            // We need to fetch them first
+            // Assuming getFailedItems returns all failed items, we filter by bridge
+            $failedItems = $this->queueRepository->getFailedItems($tenantId, 500); // Limit 500 for safety
+            foreach ($failedItems as $item) {
+                if ($item['source_bridge'] === $bridgeName || $item['target_bridge'] === $bridgeName) {
+                    if ($this->queueRepository->retryFailedItem($item['id'])) {
+                        $count++;
+                    }
+                }
+            }
+        } else {
+            foreach ($eventIds as $id) {
+                if ($this->queueRepository->retryFailedItem($id)) {
+                    $count++;
+                }
+            }
+        }
+        
+        return $count;
     }
 }

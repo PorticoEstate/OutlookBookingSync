@@ -509,24 +509,25 @@ function renderSyncStatus(dashboardData) {
     // Performance Metrics
     if (dashboard.performance_metrics) {
         const perf = dashboard.performance_metrics;
+        // Convert bytes to MB (1024*1024 = 1048576)
+        const currentMb = perf.memory_usage ? (perf.memory_usage / 1048576).toFixed(2) : '0.00';
+        const peakMb = perf.peak_memory_usage ? (perf.peak_memory_usage / 1048576).toFixed(2) : '0.00';
+        const cpuLoad = Array.isArray(perf.cpu_load) ? perf.cpu_load[0].toFixed(2) : 'N/A';
+
         html += `
             <div class="card">
                 <h3>⚡ Performance Metrics</h3>
                 <div class="metric">
                     <span class="metric-label">Current Memory</span>
-                    <span class="metric-value">${perf.memory_usage?.current_mb || 0}MB</span>
+                    <span class="metric-value">${currentMb} MB</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Peak Memory</span>
-                    <span class="metric-value">${perf.memory_usage?.peak_mb || 0}MB</span>
+                    <span class="metric-value">${peakMb} MB</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">DB Connections</span>
-                    <span class="metric-value">${perf.database_connections || 0}</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Syncs/Hour</span>
-                    <span class="metric-value">${perf.sync_throughput?.syncs_last_hour || 0}</span>
+                    <span class="metric-label">CPU Load (1m)</span>
+                    <span class="metric-value">${cpuLoad}</span>
                 </div>
             </div>
         `;
@@ -562,134 +563,6 @@ function renderSyncStatus(dashboardData) {
 }
 
 /**
- * Render resource management section
- * @returns {string} - HTML for resource management
- */
-function renderResourceManagement() {
-    return `
-        <div class="card">
-            <h3>🔗 Resource Management</h3>
-            <div style="margin-bottom: 15px;">
-                <button class="action-button" onclick="viewResourceMappings()">📋 View Resource Mappings</button>
-                <button class="action-button" onclick="viewAvailableResources()">🏢 View Available Resources</button>
-                <button class="action-button" onclick="viewAvailableGroups()">👥 View Available Groups</button>
-            </div>
-            <div id="resourceContent" style="max-height: 300px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px; background: #f8f9fa;">
-                <p style="text-align: center; color: #666; margin: 20px 0;">Select an option above to view resource information</p>
-            </div>
-        </div>
-    `;
-}
-
-// Resource management functions
-async function viewResourceMappings() {
-    setResourceContent('Loading resource mappings...', 'info');
-    try {
-        const data = await fetchData('/mappings/resources');
-        if (data.success && data.mappings) {
-            let html = '<h4>Current Resource Mappings:</h4>';
-            if (data.mappings.length === 0) {
-                html += '<p>No resource mappings found.</p>';
-            } else {
-                data.mappings.forEach(mapping => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>ID:</strong> ${mapping.id}<br>
-                            <strong>From:</strong> ${mapping.bridge_from} (${mapping.source_calendar_id || mapping.source_calendar_name || 'N/A'})<br>
-                            <strong>To:</strong> ${mapping.bridge_to} (${mapping.target_calendar_id || mapping.target_calendar_name || 'N/A'})<br>
-                            <strong>Status:</strong> <span class="status-badge status-${mapping.sync_status}">${mapping.sync_status}</span><br>
-                            <strong>Last Sync:</strong> ${mapping.last_sync_time ? formatTimestamp(mapping.last_sync_time) : 'Never'}
-                        </div>
-                    `;
-                });
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load resource mappings: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading resource mappings: ' + error.message, 'error');
-    }
-}
-
-async function viewAvailableResources() {
-    setResourceContent('Loading available resources...', 'info');
-    try {
-        const data = await fetchData('/bridges/outlook/available-resources?limit=20');
-        if (data.success && data.resources) {
-            let html = '<h4>Available Outlook Resources:</h4>';
-            if (data.resources.length === 0) {
-                html += '<p>No resources found.</p>';
-            } else {
-                data.resources.forEach(resource => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>${resource.displayName || resource.name}</strong><br>
-                            <small>ID: ${resource.id}</small><br>
-                            ${resource.emailAddress ? `<small>Email: ${resource.emailAddress}</small><br>` : ''}
-                            ${resource.capacity ? `<small>Capacity: ${resource.capacity}</small>` : ''}
-                        </div>
-                    `;
-                });
-                if (data.metadata && data.metadata.total_records) {
-                    html += `<p><small>Showing ${data.resources.length} of ${data.metadata.total_records} total resources</small></p>`;
-                }
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load resources: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading resources: ' + error.message, 'error');
-    }
-}
-
-async function viewAvailableGroups() {
-    setResourceContent('Loading available groups...', 'info');
-    try {
-        const data = await fetchData('/bridges/outlook/available-groups?limit=20');
-        if (data.success && data.groups) {
-            let html = '<h4>Available Outlook Groups:</h4>';
-            if (data.groups.length === 0) {
-                html += '<p>No groups found.</p>';
-            } else {
-                data.groups.forEach(group => {
-                    html += `
-                        <div style="margin: 8px 0; padding: 8px; background: white; border-radius: 4px; border: 1px solid #ddd;">
-                            <strong>${group.displayName || group.name}</strong><br>
-                            <small>ID: ${group.id}</small><br>
-                            ${group.description ? `<small>Description: ${group.description}</small><br>` : ''}
-                            ${group.memberCount ? `<small>Members: ${group.memberCount}</small>` : ''}
-                        </div>
-                    `;
-                });
-                if (data.metadata && data.metadata.total_records) {
-                    html += `<p><small>Showing ${data.groups.length} of ${data.metadata.total_records} total groups</small></p>`;
-                }
-            }
-            setResourceContent(html, 'success');
-        } else {
-            setResourceContent('Failed to load groups: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setResourceContent('Error loading groups: ' + error.message, 'error');
-    }
-}
-
-function setResourceContent(content, type) {
-    const element = document.getElementById('resourceContent');
-    if (element) {
-        const colors = {
-            'info': '#0066cc',
-            'success': '#28a745',
-            'error': '#dc3545'
-        };
-        element.style.color = colors[type] || '#333';
-        element.innerHTML = content;
-    }
-}
-
-/**
  * Load and render dashboard data
  */
 async function loadDashboard() {
@@ -721,9 +594,6 @@ async function loadDashboard() {
     dashboardHTML += renderMappingStatistics(syncStatusData);
         dashboardHTML += renderSyncStatus(dashboardData);
         dashboardHTML += renderSyncActions();
-        
-        // Add resource management section
-        dashboardHTML += renderResourceManagement();
         
         document.getElementById('dashboardContent').innerHTML = dashboardHTML;
         
@@ -766,46 +636,7 @@ async function triggerSync(sourceBridge, targetBridge) {
     }
 }
 
-async function triggerDeletionSync() {
-    setActionStatus('Processing deletions...', 'info');
-    try {
-        const response = await fetch('/bridges/sync-deletions', { 
-            method: 'POST',
-            headers: { ...authHeaders() }
-        });
-        const result = await response.json();
-        if (result.success) {
-            setActionStatus('✅ Deletion sync completed', 'success');
-        } else {
-            setActionStatus('❌ Deletion sync failed: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Deletion sync failed: ' + error.message, 'error');
-    }
-}
 
-async function detectCancellations() {
-    setActionStatus('Detecting cancellations...', 'info');
-    try {
-        const response = await fetch('/bridges/sync-deletions', { 
-            method: 'POST',
-            headers: { ...authHeaders() }
-        });
-        const result = await response.json();
-        if (result.success) {
-            setActionStatus(`✅ Found ${result.results.deleted || 0} cancellations`, 'success');
-        } else {
-            setActionStatus('❌ Cancellation detection failed: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Cancellation detection failed: ' + error.message, 'error');
-    }
-}
-
-function refreshDashboard() {
-    setActionStatus('Refreshing dashboard...', 'info');
-    loadDashboard();
-}
 
 function setActionStatus(message, type) {
     const statusDiv = document.getElementById('actionStatus');
@@ -822,85 +653,21 @@ function setActionStatus(message, type) {
     }
 }
 
-async function viewBridgesList() {
-    setActionStatus('Loading bridges...', 'info');
-    try {
-        const data = await fetchData('/bridges');
-        if (data.success && data.bridges) {
-            let message = `Found ${data.count} bridges:\n`;
-            Object.entries(data.bridges).forEach(([key, bridge]) => {
-                message += `\n• ${bridge.name} (${bridge.type}) - ${bridge.health?.status || 'unknown'}`;
-            });
-            setActionStatus(message, 'success');
-        } else {
-            setActionStatus('Failed to load bridges: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('Error loading bridges: ' + error.message, 'error');
-    }
-}
-
-// Process webhook queue action
-async function processWebhookQueue() {
-    setActionStatus('Processing webhook queue...', 'info');
-    try {
-        const response = await fetch('/bridges/process-webhook-queue', { 
-            method: 'POST',
-            headers: { 
-                ...authHeaders(),
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ batch_size: 50 })
-        });
-        const result = await response.json();
-        if (result.success) {
-            const processed = result.processed || 0;
-            const errors = result.errors || 0;
-            const totalItems = result.total_items || 0;
-            
-            let message = `📬 Processed ${processed}/${totalItems} webhook queue items`;
-            if (errors > 0) {
-                message += ` (${errors} errors)`;
-                setActionStatus(message, 'warning');
-            } else if (processed === 0) {
-                message = '📬 No webhook queue items to process';
-                setActionStatus(message, 'info');
-            } else {
-                setActionStatus(message, 'success');
-            }
-            
-            // Refresh dashboard to show updated queue stats
-            setTimeout(() => loadDashboard(), 1000);
-        } else {
-            setActionStatus('❌ Failed to process webhook queue: ' + (result.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('❌ Error processing webhook queue: ' + error.message, 'error');
-    }
-}
-
 // New sync status action functions
 async function processPendingSyncs() {
     setActionStatus('Processing pending syncs...', 'info');
     try {
-        const response = await fetch('/bridges/process-pending-syncs', { 
+        const response = await fetch('/bridges/process-queue', { 
             method: 'POST',
-            headers: { ...authHeaders() }
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queue_types: ['sync'], batch_size: 50 })
         });
         const result = await response.json();
         if (result.success) {
-            let totalProcessed = 0;
-            let totalErrors = 0;
-            
-            if (result.results) {
-                Object.values(result.results).forEach(bridgeResult => {
-                    totalProcessed += bridgeResult.processed || 0;
-                    totalErrors += bridgeResult.errors || 0;
-                });
-            }
-            
-            const processed = result.processed || totalProcessed;
-            const errors = result.errors || totalErrors;
+            // Extract from unified queue response format
+            const syncResult = result.results?.sync || {};
+            const processed = syncResult.processed || result.summary?.total_processed || 0;
+            const errors = syncResult.errors || result.summary?.total_errors || 0;
             
             let message = `✅ Processed ${processed} pending syncs`;
             if (errors > 0) {
@@ -986,43 +753,6 @@ async function viewCancelledEvents() {
     }
 }
 
-async function viewSyncStats() {
-    setActionStatus('Loading sync statistics...', 'info');
-    try {
-        const data = await fetchData('/bridges/sync-stats');
-        if (data.success) {
-            // Handle both all_bridge_stats and stats response formats
-            const stats = data.all_bridge_stats || data.stats || {};
-            
-            if (Object.keys(stats).length === 0) {
-                setActionStatus('✅ No sync statistics available', 'success');
-                return;
-            }
-            
-            let message = 'Sync Statistics:\n';
-            Object.entries(stats).forEach(([bridge, bridgeStats]) => {
-                message += `\n${bridge}:`;
-                if (Array.isArray(bridgeStats)) {
-                    // Array format from database
-                    bridgeStats.forEach(stat => {
-                        message += ` ${stat.sync_status}=${stat.count}`;
-                    });
-                } else {
-                    // Object format
-                    Object.entries(bridgeStats).forEach(([status, count]) => {
-                        message += ` ${status}=${count}`;
-                    });
-                }
-            });
-            setActionStatus(message, 'success');
-        } else {
-            setActionStatus('Failed to load sync stats: ' + (data.error || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        setActionStatus('Error loading sync stats: ' + error.message, 'error');
-    }
-}
-
 function renderSyncActions() {
     return `
         <div class="card">
@@ -1034,26 +764,15 @@ function renderSyncActions() {
             </div>
             <div style="margin-bottom: 15px;">
                 <h4>Sync Status Management:</h4>
-                <button class="action-button" onclick="processWebhookQueue()">📬 Process Webhook Queue</button>
                 <button class="action-button" onclick="processPendingSyncs()">⏳ Process Pending Syncs</button>
                 <button class="action-button" onclick="reEnableFailedEvents()">🔄 Re-enable Failed Events</button>
-            </div>
-            <div style="margin-bottom: 15px;">
-                <h4>Deletion & Cancellation:</h4>
-                <button class="action-button" onclick="triggerDeletionSync()">🗑️ Process Deletions</button>
-                <button class="action-button" onclick="detectCancellations()">🔍 Detect Cancellations</button>
                 <button class="action-button" onclick="viewCancelledEvents()">📋 View Cancelled Events</button>
             </div>
             <div style="margin-bottom: 15px;">
                 <h4>Maintenance:</h4>
                 <button class="action-button" onclick="cleanupLogs()">🧹 Cleanup Sync Logs</button>
             </div>
-            <div style="margin-bottom: 15px;">
-                <h4>Monitoring & Statistics:</h4>
-                <button class="action-button" onclick="viewSyncStats()">📊 View Sync Statistics</button>
-                <button class="action-button" onclick="viewBridgesList()">🌉 View Bridges</button>
-                <button class="action-button" onclick="refreshDashboard()">🔄 Refresh Dashboard</button>
-            </div>
+
             <div id="actionStatus" style="margin-top: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem; min-height: 20px;"></div>
         </div>
     `;

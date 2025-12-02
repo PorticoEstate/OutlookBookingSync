@@ -131,26 +131,19 @@ class BridgeManager
 	 * Get bridge information.
 	 *
 	 * @param string $name
+     * @param string|null $tenantId
 	 * @return array
 	 */
-	public function getBridgeInfo($name): array
+	public function getBridgeInfo(string $name, ?string $tenantId = null): array
 	{
 		if (!isset($this->bridges[$name]))
 		{
 			throw new \Exception("Bridge '{$name}' not found");
 		}
 
-		// Prefer tenant-aware config if a tenant id is available (header or DEFAULT_TENANT_ID)
-		$tenantId = $_SERVER['HTTP_X_TENANT_ID'] ?? $_ENV['DEFAULT_TENANT_ID'] ?? null;
-		if ($tenantId !== null)
-		{
-			$bridge = $this->getBridgeForTenant((string)$tenantId, $name);
-		}
-		else
-		{
-			// return error: need the tenant id
-			throw new \Exception("Tenant ID is required to access bridge '{$name}'");
-		}
+		$tenantId = $tenantId ?? $_ENV['DEFAULT_TENANT_ID'] ?? 'default';
+        
+        $bridge = $this->getBridgeForTenant($tenantId, $name);
 
 		return [
 			'name' => $name,
@@ -164,17 +157,22 @@ class BridgeManager
 	/**
 	 * Get information about all bridges.
 	 *
+     * @param string|null $tenantId
 	 * @return array
 	 */
-	public function getAllBridgesInfo(): array
+	public function getAllBridgesInfo(?string $tenantId = null): array
 	{
+		// get 'HTTP_X_TENANT_ID' from headers if tenantId is not provided
+		if ($tenantId === null && isset($_SERVER['HTTP_X_TENANT_ID'])) {
+			$tenantId = $_SERVER['HTTP_X_TENANT_ID'];
+		}
 		$info = [];
 
 		foreach (array_keys($this->bridges) as $name)
 		{
 			try
 			{
-				$info[$name] = $this->getBridgeInfo($name);
+				$info[$name] = $this->getBridgeInfo($name, $tenantId);
 			}
 			catch (\Exception $e)
 			{
@@ -275,7 +273,7 @@ class BridgeManager
 	/**
 	 * Get all configured bridges organized per tenant with their active configurations.
 	 */
-	public function get_configured_bridges()
+	public function getConfiguredBridges()
 	{
 		$row = $this->configRepository->findAllActive();
 		$result = [];
@@ -301,10 +299,10 @@ class BridgeManager
 	{
 		$allStats = [];
 
-		$configuredBridges = $this->get_configured_bridges();
-		foreach ($configuredBridges as $tenantId => $Bridges)
+		$configuredBridges = $this->getConfiguredBridges();
+		foreach ($configuredBridges as $tenantId => $bridges)
 		{
-			foreach (array_keys($Bridges) as $bridgeName)
+			foreach (array_keys($bridges) as $bridgeName)
 			{
 				try
 				{
@@ -349,7 +347,7 @@ class BridgeManager
 	{
 		$allCancelled = [];
 
-		$configuredBridges = $this->get_configured_bridges();
+		$configuredBridges = $this->getConfiguredBridges();
 		// Process pending syncs for all bridges
 
 		foreach ($configuredBridges as $tenantId => $Bridges)

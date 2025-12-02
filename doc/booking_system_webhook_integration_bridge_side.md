@@ -520,7 +520,9 @@ WHERE status = 'processing'
   AND updated_at < NOW() - INTERVAL '15 minutes';
 
 # Manually trigger queue processing
-curl -X POST http://localhost:8082/bridges/process-webhook-queue \
+curl -X POST http://localhost:8082/bridges/process-queue \
+  -H "Content-Type: application/json" \
+  -d '{"queue_types":["webhook"],"batch_size":50}' \
   -H "X-API-Key: change-me"
 ```
 

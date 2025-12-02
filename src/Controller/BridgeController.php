@@ -195,182 +195,166 @@ class BridgeController
 
         try
         {
-            $this->logger->info('Bridge sync requested', [
-                'source_bridge' => $sourceBridge,
-                'target_bridge' => $targetBridge,
-                'date_range' => [$startDate, $endDate],
-                'options' => $options
-            ]);
-
-            // Get all active mappings between these bridges (handle bidirectional)
             $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-            $resourceMappings = $this->resourceRepository->findActiveMappings($sourceBridge, $targetBridge, $tenantId ?: null);
+            
+            // Delegate to orchestrator
+            $result = $this->syncOrchestrator->processSyncRequest(
+                $sourceBridge,
+                $targetBridge,
+                $startDate,
+                $endDate,
+                $options,
+                $tenantId ?: null
+            );
 
-            if (empty($resourceMappings))
-            {
-                $response->getBody()->write(json_encode([
-                    'success' => false,
-                    'error' => "No active mappings found between {$sourceBridge} and {$targetBridge}",
-                    'suggestion' => "Create resource mappings first using the /mappings/resources endpoint"
-                ]));
-
+            if (isset($result['success']) && !$result['success']) {
+                $response->getBody()->write(json_encode($result));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
-            $allResults = [];
-            $totalSynced = 0;
-            $totalErrors = 0;
+            // Unpack results for response handling (with defaults for dry_run)
+            $jobsQueued = $result['jobs_queued'] ?? 0;
+            $jobsSkipped = $result['jobs_skipped'] ?? 0;
+            $eventsFound = $result['events_found'] ?? 0;
+            $allResults = $result['sync_results'] ?? [];
+            $mappingsProcessed = $result['mappings_processed'] ?? 0;
 
-            foreach ($resourceMappings as $resourceMapping)
+            // Check if immediate processing is enabled and available
+            $immediateProcessing = $_ENV['SYNC_IMMEDIATE_PROCESSING'] ?? 'true';
+            $immediateProcessing = filter_var($immediateProcessing, FILTER_VALIDATE_BOOLEAN);
+            $phpFpmAvailable = function_exists('fastcgi_finish_request');
+
+            if (!$options['dry_run'] && $jobsQueued > 0 && $immediateProcessing && $phpFpmAvailable)
             {
-                // Use tenant_id from the resource mapping record for proper isolation
-                $mappingTenantId = $resourceMapping['tenant_id'];
+                // Send response immediately, then process queue
+                $responseData = [
+                    'success' => true,
+                    'mode' => 'queue_with_immediate_processing',
+                    'events_found' => $eventsFound,
+                    'events_queued' => $jobsQueued,
+                    'events_skipped' => $jobsSkipped,
+                    'mappings_processed' => $mappingsProcessed,
+                    'processing_status' => 'processing_started',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ];
 
-                // Determine the correct source and target calendar IDs based on sync direction
-                // The database columns are semantic: source_calendar_id is always the booking system resource
-                // and target_calendar_id is always the Outlook calendar
+                // Build response
+                $jsonResponse = json_encode($responseData);
+                $response->getBody()->write($jsonResponse);
+                $response = $response->withHeader('Content-Type', 'application/json')
+                                   ->withHeader('Content-Length', (string)strlen($jsonResponse));
 
-                if ($sourceBridge === $resourceMapping['bridge_from'] && $targetBridge === $resourceMapping['bridge_to'])
+                // Manually emit the response to the client BEFORE fastcgi_finish_request
+                // This is necessary because Slim normally emits after controller returns
+                http_response_code($response->getStatusCode());
+                foreach ($response->getHeaders() as $name => $values)
                 {
-                    // Forward direction: booking_system → outlook
-                    $sourceCalendarId = $resourceMapping['source_calendar_id']; // booking system resource
-                    $targetCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar
+                    foreach ($values as $value)
+                    {
+                        header(sprintf('%s: %s', $name, $value), false);
+                    }
                 }
-                else
+                echo $response->getBody();
+                
+                // Now flush and close connection to client
+                if (function_exists('fastcgi_finish_request'))
                 {
-                    // Reverse direction: outlook → booking_system
-                    $sourceCalendarId = $resourceMapping['target_calendar_id']; // outlook calendar (now source)
-                    $targetCalendarId = $resourceMapping['source_calendar_id']; // booking system resource (now target)
+                    fastcgi_finish_request();
                 }
-
-
+                
+                // Process the queue in background after client received response
                 try
                 {
-                    $this->logger->info('Syncing mapping', [
-                        'mapping_id' => $resourceMapping['id'],
-                        'mapping_tenant_id' => $mappingTenantId,
-                        'request_tenant_id' => $tenantId,
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
-                        'original_bridge_from' => $resourceMapping['bridge_from'],
-                        'original_bridge_to' => $resourceMapping['bridge_to']
-                    ]);
-
-                    if ($options['dry_run'])
-                    {
-                        $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
-                    }
-                    else
-                    {
-                        // Use tenant_id from the resource mapping record
-                        $options['tenant_id'] = $mappingTenantId;
-
-                        // Pass mapping configuration for ownership decisions
-                        $options['mapping_config'] = [
-                            'mapping_id' => $resourceMapping['id'],
-                            'bridge_from' => $sourceBridge, //actual source bridge for this sync call
-                            'bridge_to' => $targetBridge, //actual target bridge for this sync call
-                        ];
-                        
-                        $results = $this->syncOrchestrator->syncBetweenBridges(
-                            $sourceBridge,
-                            $targetBridge,
-                            $sourceCalendarId,
-                            $targetCalendarId,
-                            $startDate,
-                            $endDate,
-                            $options
-                        );
-                    }
-
-                    $allResults[] = [
-                        'mapping_id' => $resourceMapping['id'],
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
-                        'results' => $results
-                    ];
-
-                    // On successful HTTP sync (not dry-run), bump resource-level last_synced_at
-                    if (!$options['dry_run'])
-                    {
-                        try
-                        {
-                            $failedEvents = $results['summary']['failed_events'] ?? 0;
-                            $hasSummary = isset($results['summary']);
-                            // Treat as success when there is no summary (legacy) or when failed_events == 0
-                            if (!$hasSummary || $failedEvents === 0)
-                            {
-                                $this->resourceRepository->updateLastSyncedAt((int)$resourceMapping['id']);
-                            }
-                        }
-                        catch (\Throwable $e)
-                        {
-                            // Log but do not fail the request if timestamp update fails
-                            $this->logger->warning('Failed to update resource last_synced_at after HTTP sync', [
-                                'mapping_id' => $resourceMapping['id'],
-                                'error' => $e->getMessage()
-                            ]);
-                        }
-                    }
-
-                    // Calculate total synced events (created + updated)
-                    $syncedInThisMapping = ($results['created'] ?? 0) + ($results['updated'] ?? 0);
-                    $totalSynced += $syncedInThisMapping;
+                    $this->webhookService->processWebhookQueueImmediate($tenantId, 50, 'sync');
+                    $this->logger->info('Immediate queue processing completed', ['events_processed' => $jobsQueued]);
                 }
                 catch (\Exception $e)
                 {
-                    $totalErrors++;
-                    $allResults[] = [
-                        'mapping_id' => $resourceMapping['id'],
-                        'source_calendar' => $sourceCalendarId,
-                        'target_calendar' => $targetCalendarId,
-                        'error' => $e->getMessage()
-                    ];
-
-                    $this->logger->error('Mapping sync failed', [
-                        'mapping_id' => $resourceMapping['id'],
-                        'error' => $e->getMessage()
-                    ]);
+                    $this->logger->error('Immediate queue processing failed', ['error' => $e->getMessage()]);
                 }
+
+                return $response;
             }
-
-            // Calculate totals across all mappings
-            $totalCreated = 0;
-            $totalUpdated = 0;
-            $totalDeleted = 0;
-            $totalSkipped = 0;
-            $totalSourceEvents = 0;
-
-            foreach ($allResults as $mappingResult)
+            elseif (!$options['dry_run'] && $jobsQueued > 0)
             {
-                if (isset($mappingResult['results']) && !isset($mappingResult['error']))
-                {
-                    $results = $mappingResult['results'];
-                    $totalCreated += $results['created'] ?? 0;
-                    $totalUpdated += $results['updated'] ?? 0;
-                    $totalDeleted += $results['deleted'] ?? 0;
-                    $totalSkipped += $results['skipped'] ?? 0;
-                    $totalSourceEvents += $results['source_events_found'] ?? 0;
-                }
-            }
+                // Queue-based processing without immediate execution
+                $this->logger->info('Sync events queued for cron processing', [
+                    'events_queued' => $jobsQueued,
+                    'events_found' => $eventsFound,
+                    'immediate_processing_enabled' => $immediateProcessing,
+                    'php_fpm_available' => $phpFpmAvailable
+                ]);
 
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'mappings_processed' => count($resourceMappings),
-                'total_synced' => $totalSynced,
-                'total_errors' => $totalErrors,
-                'summary' => [
-                    'total_source_events' => $totalSourceEvents,
-                    'created' => $totalCreated,
-                    'updated' => $totalUpdated,
-                    'deleted' => $totalDeleted,
-                    'skipped' => $totalSkipped,
-                    'errors' => $totalErrors,
-                    'success_rate' => $totalSourceEvents > 0 ? round((($totalCreated + $totalUpdated) / $totalSourceEvents) * 100, 2) : 100
-                ],
-                'sync_results' => $allResults,
-                'timestamp' => date('c')
-            ]));
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'queue_based',
+                    'events_found' => $eventsFound,
+                    'events_queued' => $jobsQueued,
+                    'events_skipped' => $jobsSkipped,
+                    'mappings_processed' => $mappingsProcessed,
+                    'processing_status' => 'queued_for_cron',
+                    'message' => 'Sync events queued. They will be processed by the next cron job execution.',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
+
+            }
+            elseif (!$options['dry_run'] && $eventsFound === 0)
+            {
+                // No events found in any mapping
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'queue_based',
+                    'events_found' => 0,
+                    'events_queued' => 0,
+                    'mappings_processed' => $mappingsProcessed,
+                    'message' => 'No events found in date range for any mapping.',
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
+            }
+            else
+            {
+                // Dry run results - return synchronous data
+                $totalCreated = 0;
+                $totalUpdated = 0;
+                $totalDeleted = 0;
+                $totalSkipped = 0;
+                $totalSourceEvents = 0;
+
+                if (!empty($allResults))
+                {
+                    foreach ($allResults as $mappingResult)
+                    {
+                        if (isset($mappingResult['results']) && !isset($mappingResult['error']))
+                        {
+                            $results = $mappingResult['results'];
+                            $totalCreated += $results['created'] ?? 0;
+                            $totalUpdated += $results['updated'] ?? 0;
+                            $totalDeleted += $results['deleted'] ?? 0;
+                            $totalSkipped += $results['skipped'] ?? 0;
+                            $totalSourceEvents += $results['source_events_found'] ?? 0;
+                        }
+                    }
+                }
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'mode' => 'dry_run',
+                    'mappings_processed' => $mappingsProcessed,
+                    'summary' => [
+                        'total_source_events' => $totalSourceEvents,
+                        'created' => $totalCreated,
+                        'updated' => $totalUpdated,
+                        'deleted' => $totalDeleted,
+                        'skipped' => $totalSkipped,
+                        'success_rate' => $totalSourceEvents > 0 ? round((($totalCreated + $totalUpdated) / $totalSourceEvents) * 100, 2) : 100
+                    ],
+                    'sync_results' => $allResults,
+                    'timestamp' => date('c')
+                ]));
+            }
 
             return $response->withHeader('Content-Type', 'application/json');
         }
@@ -799,32 +783,7 @@ class BridgeController
         }
     }
 
-    /**
-     * Perform dry run sync to see what would happen.
-     *
-     * @param string $tenantId Tenant identifier
-     * @param string $sourceBridge Source bridge name
-     * @param string $targetBridge Target bridge name
-     * @param string $sourceCalendarId Source calendar/resource ID
-     * @param string $targetCalendarId Target calendar/resource ID
-     * @param string $startDate ISO date
-     * @param string $endDate ISO date
-     * @return array
-     */
-    private function performDryRun(string $tenantId, $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate)
-    {
-        $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
-        $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
 
-        return [
-            'dry_run' => true,
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge,
-            'source_events_found' => count($sourceEvents),
-            'events_to_process' => $sourceEvents,
-            'note' => 'This is a dry run - no actual changes were made'
-        ];
-    }
 
 
 
@@ -845,122 +804,286 @@ class BridgeController
     }
 
     /**
-     * Trigger manual deletion sync check.
-     * POST /bridges/sync-deletions
+     * Process multiple queue types in a unified endpoint.
+     * Accepts queue_types array and batch_size, processes each queue type sequentially.
      *
      * @param Request $request
      * @param Response $response
      * @param array $args
      * @return Response
      */
-    public function syncDeletions(Request $request, Response $response, $args)
+    public function processQueue(Request $request, Response $response, $args)
     {
-        try
-        {
-            $deletionService = new \App\Services\DeletionSyncService(
-                $this->logger,
-                $this->bridgeManager,
-                $this->queueRepository,
-                $this->mappingRepository,
-                $this->syncLogService
-            );
-
-            $results = $deletionService->syncDeletedEvents();
-
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => 'Deletion sync completed',
-                'results' => $results
-            ]));
-
-            return $response->withHeader('Content-Type', 'application/json');
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Deletion sync failed', ['error' => $e->getMessage()]);
-
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => $e->getMessage()
-            ]));
-
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
-
-    /**
-     * Process deletion check queue.
-     * POST /bridges/process-deletion-queue
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args
-     * @return Response
-     */
-    public function processDeletionQueue(Request $request, Response $response, $args)
-    {
-        try
-        {
-            $deletionService = new \App\Services\DeletionSyncService(
-                $this->logger,
-                $this->bridgeManager,
-                $this->queueRepository,
-                $this->mappingRepository,
-                $this->syncLogService
-            );
-
-            $results = $deletionService->processDeletionChecks();
-
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => 'Deletion queue processed',
-                'results' => $results
-            ]));
-
-            return $response->withHeader('Content-Type', 'application/json');
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Deletion queue processing failed', ['error' => $e->getMessage()]);
-
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => $e->getMessage()
-            ]));
-
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
-
-    /**
-     * Process webhook queue (bridge_sync queue items).
-     * POST /bridges/process-webhook-queue
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args
-     * @return Response
-     */
-    public function processWebhookQueue(Request $request, Response $response, $args)
-    {
+        $startTime = microtime(true);
+        
         try
         {
             $body = json_decode($request->getBody()->getContents(), true) ?? [];
+            $queueTypes = $body['queue_types'] ?? ['webhook', 'sync'];
             $batchSize = $body['batch_size'] ?? 50;
             $tenantId = $request->getAttribute('tenant_id');
 
-            $result = $this->webhookService->processWebhookQueueBatch($batchSize, $tenantId);
+            // Validate queue_types is an array
+            if (!is_array($queueTypes))
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'queue_types must be an array'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
 
-            $response->getBody()->write(json_encode(array_merge([
+            // Validate queue types
+            $validQueueTypes = ['webhook', 'sync', 'deletion'];
+            foreach ($queueTypes as $queueType)
+            {
+                if (!in_array($queueType, $validQueueTypes))
+                {
+                    $response->getBody()->write(json_encode([
+                        'success' => false,
+                        'error' => "Invalid queue_type: {$queueType}. Valid types: " . implode(', ', $validQueueTypes)
+                    ]));
+                    return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                }
+            }
+
+            $this->logger->info('Processing unified queue', [
+                'queue_types' => $queueTypes,
+                'batch_size' => $batchSize,
+                'tenant_id' => $tenantId
+            ]);
+
+            $results = [];
+            $totalProcessed = 0;
+            $totalErrors = 0;
+
+            // Process each queue type
+            foreach ($queueTypes as $queueType)
+            {
+                try
+                {
+                    $queueResult = $this->webhookService->processWebhookQueueBatch($batchSize, $tenantId, $queueType);
+                    
+                    $results[$queueType] = [
+                        'processed' => $queueResult['processed'] ?? 0,
+                        'errors' => $queueResult['errors'] ?? 0,
+                        'total_items' => $queueResult['total_items'] ?? 0
+                    ];
+                    
+                    // Only include error_details if there are errors
+                    if (!empty($queueResult['error_details']))
+                    {
+                        $results[$queueType]['error_details'] = $queueResult['error_details'];
+                    }
+                    
+                    $totalProcessed += $queueResult['processed'] ?? 0;
+                    $totalErrors += $queueResult['errors'] ?? 0;
+                }
+                catch (\Exception $e)
+                {
+                    $results[$queueType] = [
+                        'processed' => 0,
+                        'errors' => 1,
+                        'error' => $e->getMessage()
+                    ];
+                    $totalErrors++;
+                    
+                    $this->logger->error('Failed to process queue type', [
+                        'queue_type' => $queueType,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            $duration = round(microtime(true) - $startTime, 3);
+
+            $response->getBody()->write(json_encode([
                 'success' => true,
-                'message' => 'Webhook queue processed'
-            ], $result)));
+                'message' => 'Queue processing completed',
+                'queue_types_processed' => $queueTypes,
+                'summary' => [
+                    'total_processed' => $totalProcessed,
+                    'total_errors' => $totalErrors,
+                    'duration_seconds' => $duration
+                ],
+                'results' => $results,
+                'timestamp' => date('c')
+            ]));
 
             return $response->withHeader('Content-Type', 'application/json');
         }
         catch (\Exception $e)
         {
-            $this->logger->error('Webhook queue processing failed', ['error' => $e->getMessage()]);
+            $this->logger->error('Unified queue processing failed', ['error' => $e->getMessage()]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'duration_seconds' => round(microtime(true) - $startTime, 3)
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Get failed queue items for manual review.
+     * Query params: queue_type (optional), limit (optional, default 100)
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args
+     * @return Response
+     */
+    public function getFailedQueueItems(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $queryParams = $request->getQueryParams();
+            $queueType = $queryParams['queue_type'] ?? null;
+            $limit = isset($queryParams['limit']) ? max(1, min(500, (int)$queryParams['limit'])) : 100;
+            $tenantId = $request->getAttribute('tenant_id');
+
+            $failedItems = $this->queueRepository->getFailedItems($tenantId, $limit);
+
+            // Filter by queue_type if specified
+            if ($queueType)
+            {
+                $failedItems = array_filter($failedItems, function($item) use ($queueType) {
+                    return $item['queue_type'] === $queueType;
+                });
+                $failedItems = array_values($failedItems); // Re-index array
+            }
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'count' => count($failedItems),
+                'items' => $failedItems,
+                'filters' => [
+                    'queue_type' => $queueType,
+                    'limit' => $limit,
+                    'tenant_id' => $tenantId
+                ],
+                'timestamp' => date('c')
+            ]));
+
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to get failed queue items', ['error' => $e->getMessage()]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Retry a failed queue item by resetting its attempts and status.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include 'id'
+     * @return Response
+     */
+    public function retryFailedQueueItem(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $id = (int)$args['id'];
+
+            $retried = $this->queueRepository->retryFailedItem($id);
+
+            if ($retried)
+            {
+                $this->logger->info('Queue item retried', ['queue_id' => $id]);
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Queue item reset to pending status',
+                    'queue_id' => $id,
+                    'timestamp' => date('c')
+                ]));
+
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Queue item not found or not in failed status',
+                    'queue_id' => $id
+                ]));
+
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to retry queue item', [
+                'queue_id' => $args['id'] ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]));
+
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Delete a queue item permanently.
+     *
+     * @param Request $request
+     * @param Response $response
+     * @param array $args Must include 'id'
+     * @return Response
+     */
+    public function deleteQueueItem(Request $request, Response $response, $args)
+    {
+        try
+        {
+            $id = (int)$args['id'];
+
+            $deleted = $this->queueRepository->deleteQueueItem($id);
+
+            if ($deleted)
+            {
+                $this->logger->info('Queue item deleted', ['queue_id' => $id]);
+
+                $response->getBody()->write(json_encode([
+                    'success' => true,
+                    'message' => 'Queue item deleted',
+                    'queue_id' => $id,
+                    'timestamp' => date('c')
+                ]));
+
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+            else
+            {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'error' => 'Queue item not found',
+                    'queue_id' => $id
+                ]));
+
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+        }
+        catch (\Exception $e)
+        {
+            $this->logger->error('Failed to delete queue item', [
+                'queue_id' => $args['id'] ?? null,
+                'error' => $e->getMessage()
+            ]);
 
             $response->getBody()->write(json_encode([
                 'success' => false,
@@ -1313,91 +1436,6 @@ class BridgeController
     }
 
     /**
-     * Process pending syncs for a specific bridge or all bridges.
-     *
-     * @param Request $request
-     * @param Response $response
-     * @param array $args
-     * @return Response
-     */
-    public function processPendingSyncs(Request $request, Response $response, $args)
-    {
-        try
-        {
-            $body = json_decode($request->getBody()->getContents(), true) ?? [];
-            $bridgeName = $args['bridgeName'] ?? null;
-            $batchSize = $body['batch_size'] ?? 50;
-            $tenantId = (string)($request->getAttribute('tenant_id') ?? '');
-
-            $results = [];
-            
-            if ($bridgeName)
-            {
-                // Process for specific bridge (and tenant if provided)
-                $results[$bridgeName] = $this->syncOrchestrator->processPendingSyncs($bridgeName, $batchSize, ['tenant_id' => $tenantId ?: null]);
-            }
-            else
-            {
-                // Process for all bridges
-                $configuredBridges = $this->bridgeManager->get_configured_bridges();
-                
-                foreach ($configuredBridges as $tId => $bridges)
-                {
-                    // If request is scoped to a specific tenant, skip others
-                    if ($tenantId && $tenantId !== 'default' && $tenantId !== $tId)
-                    {
-                        continue;
-                    }
-
-                    foreach (array_keys($bridges) as $bName)
-                    {
-                        try
-                        {
-                            $results[$bName] = $this->syncOrchestrator->processPendingSyncs($bName, $batchSize, ['tenant_id' => $tId]);
-                        }
-                        catch (\Exception $e)
-                        {
-                            $results[$bName] = [
-                                'processed' => 0,
-                                'errors' => 1,
-                                'error_details' => [['error' => $e->getMessage()]]
-                            ];
-                            
-                            $this->logger->error('Failed to process pending syncs for bridge', [
-                                'bridge' => $bName,
-                                'tenant_id' => $tId,
-                                'error' => $e->getMessage()
-                            ]);
-                        }
-                    }
-                }
-            }
-
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => 'Pending syncs processed',
-                'results' => $results
-            ]));
-
-            return $response->withHeader('Content-Type', 'application/json');
-        }
-        catch (\Exception $e)
-        {
-            $this->logger->error('Failed to process pending syncs', [
-                'bridge' => $bridgeName ?? 'all',
-                'error' => $e->getMessage()
-            ]);
-
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'error' => $e->getMessage()
-            ]));
-
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
-    }
-
-    /**
      * Re-enable failed events for a bridge.
      *
      * @param Request $request
@@ -1423,7 +1461,7 @@ class BridgeController
             }
             else
             {
-                $configuredBridges = $this->bridgeManager->get_configured_bridges();
+                $configuredBridges = $this->bridgeManager->getConfiguredBridges();
                 foreach ($configuredBridges as $tId => $bridges)
                 {
                     if ($tenantId && $tenantId !== 'default' && $tenantId !== $tId)
