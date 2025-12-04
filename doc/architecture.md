@@ -12,7 +12,6 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 | AbstractCalendarBridge | Contract for bridges (fetch, create, update, delete, transform) |
 | OutlookBridge | Microsoft Graph implementation (calendars, subscriptions, events) - requires email format for calendar_id |
 | BookingSystemBridge | Generic booking API integration (resources/events) |
-| DeletionSyncService | Reconciles deletions & cancellations (poll + webhook/deletion queue) |
 | SyncLogService | Persists audit trail of sync actions, errors, ownership decisions |
 | AlertService | Evaluates and records alert conditions |
 | Controllers | BridgeController, ResourceMappingController, BridgeResourceController, MaintenanceController, HealthController, AlertController, AdminController, MigrationController |
@@ -23,7 +22,7 @@ Provide an extensible, tenant-aware bridge that synchronizes events between hete
 | Table | Purpose | Notes |
 |-------|---------|-------|
 | bridge_mappings | Cross-system event pairing + ownership state | Contains sync_direction & status fields |
-| bridge_queue | Pending webhook/event sync tasks | Types: webhook, deletion, pending_sync |
+| bridge_queue | Pending webhook/event sync tasks | Types: webhook, sync |
 | bridge_subscriptions | Provider subscription records (Outlook) | Expiry based renewal |
 | bridge_sync_logs | Event-level audit (create/update/delete/skip) | Includes ownership policy outcomes |
 | outlook_sync_alerts | Operational alerts | Threshold & anomaly tracking |
@@ -51,7 +50,6 @@ Notes:
 |------|---------|-------------|-------------|
 | webhook | Inbound provider notifications | WebhookService | Unified processor or webhook-specific |
 | sync | Manual/scheduled sync operations | BridgeController::syncBridges() | Unified processor |
-| deletion | Deletion verification | DeletionSyncService | Unified processor or deletion-specific |
 
 ### Processing Flow
 
