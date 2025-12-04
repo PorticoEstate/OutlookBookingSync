@@ -403,12 +403,12 @@ class BridgeMappingRepository
         int $limit = 50
     ): array {
         $sql = "SELECT * FROM bridge_mappings 
-                WHERE (source_bridge = :bridge_name OR target_bridge = :bridge_name2)
-                AND sync_status = 'cancelled'";
+                WHERE (source_bridge = :bridge_name)" // OR target_bridge = :bridge_name2)
+                ." AND sync_status = 'cancelled'";
         
         $params = [
             ':bridge_name' => $bridgeName,
-            ':bridge_name2' => $bridgeName
+   //         ':bridge_name2' => $bridgeName
         ];
 
         if ($tenantId !== null) {
