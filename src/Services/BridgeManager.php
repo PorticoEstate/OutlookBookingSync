@@ -357,9 +357,9 @@ class BridgeManager
 				try
 				{
 					$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
-					if (method_exists($bridge, 'getCancelledEvents'))
+                if (method_exists($bridge, 'getCancelledEvents'))
 					{
-						$cancelled = $bridge->getCancelledEvents($bridgeName, null); // Get for this bridge
+						$cancelled = $bridge->getCancelledEvents($bridgeName);
 						if (!empty($cancelled))
 						{
 							$allCancelled[$bridgeName] = $cancelled;

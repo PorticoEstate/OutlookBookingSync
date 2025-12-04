@@ -398,18 +398,17 @@ class BridgeMappingRepository
     }
 
     public function getCancelledEvents(
-        string $sourceBridge,
-        string $targetBridge,
-        ?string $tenantId = null
+        string $bridgeName,
+        ?string $tenantId = null,
+        int $limit = 50
     ): array {
         $sql = "SELECT * FROM bridge_mappings 
-                WHERE source_bridge = :source_bridge 
-                AND target_bridge = :target_bridge 
+                WHERE (source_bridge = :bridge_name OR target_bridge = :bridge_name2)
                 AND sync_status = 'cancelled'";
         
         $params = [
-            ':source_bridge' => $sourceBridge,
-            ':target_bridge' => $targetBridge
+            ':bridge_name' => $bridgeName,
+            ':bridge_name2' => $bridgeName
         ];
 
         if ($tenantId !== null) {
@@ -417,10 +416,14 @@ class BridgeMappingRepository
             $params[':tenant_id'] = $tenantId;
         }
 
-        $sql .= " ORDER BY updated_at DESC LIMIT 50";
+        $sql .= " ORDER BY updated_at DESC LIMIT :limit";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
         
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

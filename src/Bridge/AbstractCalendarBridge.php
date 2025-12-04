@@ -691,20 +691,20 @@ abstract class AbstractCalendarBridge
         }
     }
 
-    public function getCancelledEvents($sourceBridge, $targetBridge): array
+    public function getCancelledEvents(string $bridgeName, int $limit = 50): array
     {
         try
         {
             $tenantId = $this->config['context_tenant_id'] ?? null;
             return $this->mappingRepository->getCancelledEvents(
-                $sourceBridge,
-                $targetBridge,
-                $tenantId
+                $bridgeName,
+                $tenantId,
+                $limit
             );
         }
         catch (\Exception $e)
         {
-            $this->logger->error('Failed to get cancelled events', ['error' => $e->getMessage(), 'source_bridge' => $sourceBridge, 'target_bridge' => $targetBridge]);
+            $this->logger->error('Failed to get cancelled events', ['error' => $e->getMessage(), 'bridge_name' => $bridgeName]);
             return [];
         }
     }
