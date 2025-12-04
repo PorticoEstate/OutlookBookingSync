@@ -230,7 +230,33 @@ class OutlookBridge extends AbstractCalendarBridge
 			$eventsResponse = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->get($requestConfig)->wait();
 			$events = $eventsResponse->getValue();
 
-			return array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
+			$genericEvents = array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
+
+			// Reverse events to prioritize the last occurrence (latest) when deduplicating
+			$genericEvents = array_reverse($genericEvents);
+
+			// Deduplicate events: Keep only the first encountered (which was the last in original list)
+			$uniqueEvents = [];
+			$seenSignatures = [];
+
+			foreach ($genericEvents as $event) {
+				// Create a unique signature based on key fields
+				$signature = md5($event['subject'] . '|' . $event['start'] . '|' . $event['end']);
+
+				if (!isset($seenSignatures[$signature])) {
+					$seenSignatures[$signature] = true;
+					$uniqueEvents[] = $event;
+				} else {
+					$this->logger->info('Skipping duplicate event found in Outlook (keeping latest)', [
+						'subject' => $event['subject'],
+						'start' => $event['start'],
+						'id' => $event['id']
+					]);
+				}
+			}
+
+			// Restore original chronological order
+			return array_reverse($uniqueEvents);
 		}
 		catch (\Exception $e)
 		{
