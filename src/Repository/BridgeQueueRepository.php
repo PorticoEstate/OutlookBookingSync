@@ -304,39 +304,4 @@ class BridgeQueueRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * Find pending sync items for a specific bridge
-     * 
-     * @param string $bridgeName
-     * @param int $limit
-     * @param string|null $tenantId
-     * @return array
-     */
-    public function findPendingSyncsForBridge(string $bridgeName, int $limit = 50, ?string $tenantId = null): array
-    {
-        $sql = "
-            SELECT id, queue_type, tenant_id, source_bridge, target_bridge, payload, attempts, max_attempts, created_at
-            FROM bridge_queue 
-            WHERE queue_type = 'sync' 
-            AND status = 'pending'
-            AND (source_bridge = :bridge_name OR target_bridge = :bridge_name)
-        ";
-        
-        if ($tenantId) {
-            $sql .= " AND tenant_id = :tenant_id";
-        }
-        
-        $sql .= " ORDER BY priority ASC, created_at ASC LIMIT :limit";
-        
-        $stmt = $this->db->prepare($sql);
-        
-        $stmt->bindParam(':bridge_name', $bridgeName);
-        if ($tenantId) {
-            $stmt->bindParam(':tenant_id', $tenantId);
-        }
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
 }

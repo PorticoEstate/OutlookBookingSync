@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file. This projec
 ### Removed
 
 - `DeletionSyncService` (logic moved to `SyncOrchestrator`)
+- `BookingSystemBridge::processPendingSyncs()` and helper methods (`processPendingSyncAsSource`, `processPendingSyncAsTarget`, `getEventById`) - legacy code superseded by unified queue processor
+- `OutlookBridge::processPendingSyncs()` and helper methods (`processPendingSyncAsSource`, `processPendingSyncAsTarget`, `getEventById`) - legacy code superseded by unified queue processor
 
 ### Planned
 

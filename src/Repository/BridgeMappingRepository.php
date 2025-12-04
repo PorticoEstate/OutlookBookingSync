@@ -524,35 +524,6 @@ class BridgeMappingRepository
         ]);
     }
 
-    public function findPendingSyncsForBridge(
-        string $bridgeName,
-        int $limit = 50,
-        int $maxRetries = 3,
-        ?string $tenantId = null
-    ): array {
-        $sql = "SELECT * FROM bridge_mappings 
-                WHERE (source_bridge = :bridge_name OR target_bridge = :bridge_name)
-                AND sync_status IN ('pending', 'failed') 
-                AND retry_count < :max_retries";
-        
-        $params = [
-            ':bridge_name' => $bridgeName,
-            ':max_retries' => $maxRetries
-        ];
-
-        if ($tenantId !== null) {
-            $sql .= " AND tenant_id IS NOT DISTINCT FROM :tenant_id";
-            $params[':tenant_id'] = $tenantId;
-        }
-
-        $sql .= " ORDER BY created_at ASC LIMIT " . (int)$limit;
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
     public function findMappingBySourceEventId(
         string $sourceBridge,
         string $targetBridge,
