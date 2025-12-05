@@ -403,7 +403,7 @@ class BridgeMappingRepository
         int $limit = 50
     ): array {
         $sql = "SELECT * FROM bridge_mappings 
-                WHERE (source_bridge = :bridge_name)" // OR target_bridge = :bridge_name2)
+                WHERE (source_bridge = :bridge_name)" 
                 ." AND sync_status = 'cancelled'";
         
         $params = [

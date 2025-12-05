@@ -726,8 +726,27 @@ async function viewCancelledEvents() {
     try {
         const data = await fetchData('/bridges/cancelled-events');
         if (data.success) {
-            // Handle both all_cancelled_events and cancelled_events response formats
-            const events = data.all_cancelled_events || data.cancelled_events || [];
+            // Handle response format: all_cancelled_events is an object keyed by bridge name
+            const allCancelled = data.all_cancelled_events || {};
+            const cancelledEvents = data.cancelled_events || [];
+            
+            // Flatten the object structure into an array
+            let events = [];
+            
+            // First check if all_cancelled_events has data (object keyed by bridge name)
+            if (typeof allCancelled === 'object' && !Array.isArray(allCancelled) && Object.keys(allCancelled).length > 0) {
+                // all_cancelled_events is { bridge_name: [events], ... }
+                Object.entries(allCancelled).forEach(([bridgeName, bridgeEvents]) => {
+                    if (Array.isArray(bridgeEvents)) {
+                        bridgeEvents.forEach(event => {
+                            events.push({ ...event, _bridge: bridgeName });
+                        });
+                    }
+                });
+            } else if (Array.isArray(cancelledEvents) && cancelledEvents.length > 0) {
+                // Fallback to cancelled_events array if provided
+                events = cancelledEvents;
+            }
             
             if (events.length === 0) {
                 setActionStatus('✅ No cancelled events found', 'success');
@@ -736,9 +755,18 @@ async function viewCancelledEvents() {
             
             let message = `Found ${events.length} cancelled events:\n`;
             events.slice(0, 5).forEach(event => {
-                message += `\n• ${event.event_title || event.subject || 'No title'} (${event.bridge_from} → ${event.bridge_to})`;
-                if (event.cancelled_at) {
-                    message += ` - Cancelled: ${formatTimestamp(event.cancelled_at)}`;
+                let subject = event.subject || 'No title';
+                try {
+                    if (!event.subject && event.event_data) {
+                        const parsed = JSON.parse(event.event_data);
+                        subject = parsed.subject || 'No title';
+                    }
+                } catch (e) { /* ignore parse errors */ }
+                const from = event.source_bridge || event._bridge || 'unknown';
+                const to = event.target_bridge || 'unknown';
+                message += `\n• ${subject} (${from} → ${to})`;
+                if (event.updated_at) {
+                    message += ` - ${formatTimestamp(event.updated_at)}`;
                 }
             });
             if (events.length > 5) {
