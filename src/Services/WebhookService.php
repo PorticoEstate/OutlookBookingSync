@@ -622,7 +622,7 @@ class WebhookService
                     'source_calendar_id' => $sourceCalendarId,
                     'target_calendar_id' => $targetCalendarId,
                     'source_event_id' => $eventId,
-                    'sync_status' => 'completed',
+                    'sync_status' => 'synced',
                     'tenant_id' => $tenantId,
                     'target_event_id' => $targetEventId
                 ]);
@@ -637,7 +637,7 @@ class WebhookService
             } elseif ($totalUpdated > 0) {
                 // Event was updated - only update existing mapping if it exists
                 $updatedRows = $this->mappingRepository->updateStatusAndTargetEventId([
-                    'sync_status' => 'completed',
+                    'sync_status' => 'synced',
                     'target_event_id' => $targetEventId,
                     'source_bridge' => $sourceBridge,
                     'target_bridge' => $targetBridge,
@@ -1015,14 +1015,14 @@ class WebhookService
                 'source_calendar_id' => $sourceCalendarId,
                 'target_calendar_id' => $targetCalendarId,
                 'source_event_id' => $sourceEventId,
-                'sync_status' => 'completed',
+                'sync_status' => 'synced',
                 'tenant_id' => $tenantId,
                 'target_event_id' => $targetEventId
             ]);
         } elseif ($totalUpdated > 0) {
             // Event was updated - update existing mapping
             $this->mappingRepository->updateStatusAndTargetEventId([
-                'sync_status' => 'completed',
+                'sync_status' => 'synced',
                 'target_event_id' => $targetEventId,
                 'source_bridge' => $sourceBridge,
                 'target_bridge' => $targetBridge,
