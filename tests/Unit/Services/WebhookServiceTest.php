@@ -119,6 +119,11 @@ class WebhookServiceTest extends TestCase
             'attempts' => 0
         ];
 
+        // Mock reset stuck processing (called at start of batch)
+        $this->mockQueueRepo->shouldReceive('resetStuckProcessing')
+            ->with(10, $tenantId)
+            ->andReturn(['total_reset' => 0, 'reset_to_pending' => 0, 'marked_as_failed' => 0]);
+
         // Mock finding pending items
         $this->mockQueueRepo->shouldReceive('findPendingItems')
             ->with('webhook', $batchSize, $tenantId)

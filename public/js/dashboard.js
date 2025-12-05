@@ -799,6 +799,7 @@ function renderSyncActions() {
             <div style="margin-bottom: 15px;">
                 <h4>Maintenance:</h4>
                 <button class="action-button" onclick="cleanupLogs()">🧹 Cleanup Sync Logs</button>
+                <button class="action-button" onclick="resetStuckQueue()">🔄 Reset Stuck Queue</button>
             </div>
 
             <div id="actionStatus" style="margin-top: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem; min-height: 20px;"></div>
@@ -840,6 +841,49 @@ async function cleanupLogs() {
         }
     } catch (error) {
         setActionStatus('❌ Cleanup failed: ' + error.message, 'error');
+    }
+}
+
+// Maintenance action: reset stuck queue items
+async function resetStuckQueue() {
+    let minutes = window.prompt('Reset queue items stuck in processing for more than N minutes (default 10):', '10');
+    if (minutes === null) {
+        setActionStatus('Reset cancelled.', 'info');
+        return;
+    }
+    minutes = parseInt(minutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 1) {
+        setActionStatus('Please enter a valid number of minutes (>= 1).', 'error');
+        return;
+    }
+    setActionStatus(`Resetting queue items stuck for more than ${minutes} minutes...`, 'info');
+    try {
+        const response = await fetch(`/maintenance/reset-stuck-queue?minutes=${encodeURIComponent(minutes)}`, {
+            method: 'POST',
+            headers: { ...authHeaders() }
+        });
+        if (!response.ok) {
+            if (response.status === 401) {
+                promptForApiKey('Unauthorized (401). Enter a valid API key:');
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const result = await response.json();
+        if (result && result.success) {
+            const resetToPending = result.reset_to_pending ?? 0;
+            const markedFailed = result.marked_as_failed ?? 0;
+            const total = result.total_reset ?? 0;
+            if (total === 0) {
+                setActionStatus(`✅ No stuck items found (threshold: ${minutes} minutes).`, 'success');
+            } else {
+                setActionStatus(`✅ Reset complete: ${resetToPending} back to pending, ${markedFailed} marked failed.`, 'success');
+            }
+            loadDashboard(); // Refresh to show updated queue stats
+        } else {
+            setActionStatus('❌ Reset failed: ' + (result && result.error ? result.error : 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        setActionStatus('❌ Reset failed: ' + error.message, 'error');
     }
 }
 

@@ -337,6 +337,8 @@ $app->delete('/alerts/old', [\App\Controller\AlertController::class, 'clearOldAl
 $app->post('/maintenance/cleanup-logs', [\App\Controller\MaintenanceController::class, 'cleanupLogs']);
 // Renew expiring webhook subscriptions
 $app->post('/maintenance/renew-subscriptions', [\App\Controller\MaintenanceController::class, 'renewSubscriptions']);
+// Reset stuck queue items
+$app->post('/maintenance/reset-stuck-queue', [\App\Controller\MaintenanceController::class, 'resetStuckQueue']);
 
 // CSRF token endpoint (GET only) - creates/returns token in session
 $app->get('/admin/csrf', function (Request $request, Response $response)

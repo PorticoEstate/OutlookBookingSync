@@ -182,4 +182,56 @@ class MaintenanceController
 			return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
 		}
 	}
+
+	/**
+	 * Reset stuck queue items that have been in 'processing' status too long.
+	 * Query params:
+	 *  - minutes (optional, default 10): items processing longer than this are reset
+	 *
+	 * @param Request $request
+	 * @param Response $response
+	 * @param array $args
+	 * @return Response
+	 */
+	public function resetStuckQueue(Request $request, Response $response, $args)
+	{
+		try
+		{
+			$queryParams = $request->getQueryParams();
+			$minutes = isset($queryParams['minutes']) ? max(1, (int)$queryParams['minutes']) : 10;
+			$tenantId = $request->getAttribute('tenant_id');
+
+			$result = $this->queueRepository->resetStuckProcessing($minutes, $tenantId);
+
+			$payload = [
+				'success' => true,
+				'threshold_minutes' => $minutes,
+				'reset_to_pending' => $result['reset_to_pending'],
+				'marked_as_failed' => $result['marked_as_failed'],
+				'total_reset' => $result['total_reset'],
+				'tenant_id' => $tenantId,
+				'timestamp' => date('c')
+			];
+
+			if ($this->logger)
+			{
+				$this->logger->info('reset_stuck_queue executed', $payload);
+			}
+
+			$response->getBody()->write(json_encode($payload));
+			return $response->withHeader('Content-Type', 'application/json');
+		}
+		catch (Exception $e)
+		{
+			if ($this->logger)
+			{
+				$this->logger->error('Failed to reset stuck queue items', ['error' => $e->getMessage()]);
+			}
+			$response->getBody()->write(json_encode([
+				'success' => false,
+				'error' => 'Reset stuck queue failed: ' . $e->getMessage()
+			]));
+			return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+		}
+	}
 }

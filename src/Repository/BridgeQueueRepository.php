@@ -270,6 +270,71 @@ class BridgeQueueRepository
     }
 
     /**
+     * Reset stuck processing items back to pending or mark as failed.
+     * 
+     * Items stuck in 'processing' status for longer than the threshold are reset.
+     * If an item has exceeded max_attempts, it is marked 'failed' instead.
+     * 
+     * @param int $minutesThreshold Items processing longer than this are considered stuck (default: 10)
+     * @param string|null $tenantId Optional tenant filter
+     * @return array Statistics about reset items
+     */
+    public function resetStuckProcessing(int $minutesThreshold = 10, ?string $tenantId = null): array
+    {
+        // First, mark items that have exceeded max_attempts as 'failed'
+        $sqlFailed = "UPDATE bridge_queue 
+                      SET status = 'failed', 
+                          error_message = COALESCE(error_message, '') || ' [Auto-reset: stuck processing, max attempts exceeded]'
+                      WHERE status = 'processing' 
+                      AND created_at < NOW() - INTERVAL '" . intval($minutesThreshold) . " minutes'
+                      AND attempts >= max_attempts";
+        
+        if ($tenantId)
+        {
+            $sqlFailed .= " AND tenant_id = :tenant_id";
+        }
+        
+        $stmtFailed = $this->db->prepare($sqlFailed);
+        
+        if ($tenantId)
+        {
+            $stmtFailed->bindValue(':tenant_id', $tenantId);
+        }
+        
+        $stmtFailed->execute();
+        $failedCount = $stmtFailed->rowCount();
+        
+        // Second, reset remaining stuck items back to 'pending'
+        $sqlPending = "UPDATE bridge_queue 
+                       SET status = 'pending', 
+                           error_message = COALESCE(error_message, '') || ' [Auto-reset: stuck processing]'
+                       WHERE status = 'processing' 
+                       AND created_at < NOW() - INTERVAL '" . intval($minutesThreshold) . " minutes'";
+        
+        if ($tenantId)
+        {
+            $sqlPending .= " AND tenant_id = :tenant_id";
+        }
+        
+        $stmtPending = $this->db->prepare($sqlPending);
+        
+        if ($tenantId)
+        {
+            $stmtPending->bindValue(':tenant_id', $tenantId);
+        }
+        
+        $stmtPending->execute();
+        $pendingCount = $stmtPending->rowCount();
+        
+        return [
+            'reset_to_pending' => $pendingCount,
+            'marked_as_failed' => $failedCount,
+            'total_reset' => $pendingCount + $failedCount,
+            'threshold_minutes' => $minutesThreshold
+        ];
+    }
+
+    /**
      * Get failed queue items for manual review
      * 
      * @param string|null $tenantId Optional tenant filter

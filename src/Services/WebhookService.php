@@ -207,6 +207,13 @@ class WebhookService
      */
     public function processWebhookQueueBatch(int $batchSize = 50, ?string $tenantId = null, string $queueType = 'webhook'): array
     {
+        // Reset any stuck processing items before fetching new batch
+        $stuckReset = $this->queueRepository->resetStuckProcessing(10, $tenantId);
+        if ($stuckReset['total_reset'] > 0)
+        {
+            $this->logger->warning('Reset stuck processing queue items', $stuckReset);
+        }
+
         // Get pending webhook queue items
         $queueItems = $this->queueRepository->findPendingItems($queueType, $batchSize, $tenantId);
 
