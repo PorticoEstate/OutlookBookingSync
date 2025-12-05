@@ -33,173 +33,6 @@ class SyncOrchestrator
     }
 
     /**
-     * Core sync logic between two bridges
-     * 
-     * @param string $sourceBridge Source bridge name
-     * @param string $targetBridge Target bridge name
-     * @param string $sourceCalendarId Source calendar ID
-     * @param string $targetCalendarId Target calendar ID
-     * @param string $startDate Start date (Y-m-d)
-     * @param string $endDate End date (Y-m-d)
-     * @param array $options Additional options (dry_run, force_update, etc.)
-     */
-    public function syncBetweenBridges(
-        string $sourceBridge,
-        string $targetBridge,
-        string $sourceCalendarId,
-        string $targetCalendarId,
-        string $startDate,
-        string $endDate,
-        array $options = []
-    ): array {
-        $tenantId = $options['tenant_id'] ?? null;
-        $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridge);
-        $target = $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridge);
-
-        // Get events from source
-        $sourceEvents = $source->getEvents($sourceCalendarId, $startDate, $endDate);
-
-        // Get existing mappings (bounded by sync window) and build an index by source_event_id for O(1) lookups
-        $mappings = $this->getBridgeMappings($sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate, $options);
-        $mappingIndex = $this->indexMappingsBySourceId($mappings);
-
-        // Ensure startDate and endDate are in options for downstream use
-        $options['startDate'] = $startDate;
-        $options['endDate'] = $endDate;
-
-        $results = [
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge,
-            'source_events_found' => count($sourceEvents),
-            'created' => 0,
-            'updated' => 0,
-            'deleted' => 0,
-            'skipped' => 0,
-            'recreated' => 0,
-            'reactivated' => 0,
-            'errors' => [],
-            'processed_events' => []
-        ];
-
-        // Process each event individually with direction awareness
-        $totalEvents = count($sourceEvents);
-        $this->logger->info("Starting to process {$totalEvents} events", [
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge
-        ]);
-
-        for ($index = 0; $index < $totalEvents; $index++) {
-            $sourceEvent = $sourceEvents[$index];
-
-            $this->logger->info("Processing event {$index}/{$totalEvents}", [
-                'event_id' => $sourceEvent['id'] ?? 'unknown',
-                'event_subject' => $sourceEvent['subject'] ?? 'N/A',
-            ]);
-
-            // Process this single event in complete isolation
-            $eventProcessingResult = $this->processSingleEventSafely(
-                $source,
-                $target,
-                $sourceEvent,
-                $mappingIndex,
-                $sourceCalendarId,
-                $targetCalendarId,
-                $options,
-                $sourceBridge,
-                $targetBridge,
-                $index + 1,
-                $totalEvents
-            );
-
-            // Add result to our collection
-            if ($eventProcessingResult['success']) {
-                $results[$eventProcessingResult['action']]++;
-                $results['processed_events'][] = $eventProcessingResult;
-            } else {
-                $results['errors'][] = $eventProcessingResult['error'];
-            }
-
-            $this->logger->info("Completed event {$index}/{$totalEvents} - Status: " .
-                ($eventProcessingResult['success'] ? 'SUCCESS' : 'FAILED'));
-        }
-
-        // Handle deletions if requested (with direction awareness)
-        if ($options['handle_deletions'] ?? false) {
-            try {
-                $deletionResults = $this->handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options);
-                $results['deleted'] += $deletionResults['deleted'];
-                $results['errors'] = array_merge($results['errors'], $deletionResults['errors']);
-            } catch (\Exception $e) {
-                $this->logger->error('Failed to handle deletions - continuing without deletion processing', [
-                    'error' => $e->getMessage(),
-                ]);
-                $results['errors'][] = [
-                    'event_id' => 'deletion_process',
-                    'error' => 'Failed to handle deletions: ' . $e->getMessage(),
-                    'error_type' => get_class($e)
-                ];
-            }
-        }
-
-        // Calculate success rate and add summary
-        $totalProcessed = $results['created'] + $results['updated'] + $results['skipped'] + $results['recreated'] + $results['reactivated'];
-        $successRate = count($sourceEvents) > 0 ? ($totalProcessed / count($sourceEvents)) * 100 : 100;
-
-        $results['summary'] = [
-            'total_source_events' => count($sourceEvents),
-            'successfully_processed' => $totalProcessed,
-            'failed_events' => count($results['errors']),
-            'success_rate_percent' => round($successRate, 2)
-        ];
-
-        $this->logger->info('Bridge sync completed', array_merge($results['summary'], [
-            'source_bridge' => $sourceBridge,
-            'target_bridge' => $targetBridge,
-            'details' => [
-                'created' => $results['created'],
-                'updated' => $results['updated'],
-                'deleted' => $results['deleted'],
-                'skipped' => $results['skipped'],
-                'recreated' => $results['recreated'],
-                'reactivated' => $results['reactivated'],
-                'errors' => count($results['errors'])
-            ]
-        ]));
-
-        // Persist sync summary to bridge_sync_logs for health metrics
-        try {
-            $processedCount = (int)(($results['created'] ?? 0) + ($results['updated'] ?? 0) + ($results['recreated'] ?? 0) + ($results['reactivated'] ?? 0));
-            $status = (count($results['errors'] ?? []) > 0) ? 'error' : 'success';
-            $this->syncLog->write(
-                ($options['dry_run'] ?? false) ? 'dry_run' : 'sync',
-                (string)$sourceBridge,
-                (string)$targetBridge,
-                $status,
-                $processedCount,
-                [
-                    'source_calendar_id' => $sourceCalendarId,
-                    'target_calendar_id' => $targetCalendarId,
-                    'date_range' => [$startDate, $endDate],
-                    'created' => $results['created'] ?? 0,
-                    'updated' => $results['updated'] ?? 0,
-                    'deleted' => $results['deleted'] ?? 0,
-                    'skipped' => $results['skipped'] ?? 0,
-                    'recreated' => $results['recreated'] ?? 0,
-                    'reactivated' => $results['reactivated'] ?? 0,
-                    'failed_events' => count($results['errors'] ?? [])
-                ],
-                null,
-                null,
-                $options['tenant_id'] ?? null
-            );
-        } catch (\Throwable $e) {
-            $this->logger->warning('Failed to write bridge_sync_logs summary', ['error' => $e->getMessage()]);
-        }
-
-        return $results;
-    }
-
-    /**
      * Process a single event sync (e.g. from webhook)
      * 
      * @param string $sourceBridgeName Source bridge name
@@ -597,64 +430,6 @@ class SyncOrchestrator
         }
     }
 
-    private function handleDeletedEvents($source, $target, $mappings, $sourceEvents, $targetCalendarId, $startDate, $endDate, $options = [])
-    {
-        $sourceEventIds = array_column($sourceEvents, 'id');
-        $sourceEventIdSet = array_fill_keys($sourceEventIds, true);
-        $results = ['deleted' => 0, 'errors' => []];
-
-        foreach ($mappings as $mapping) {
-            if (($mapping['sync_status'] ?? '') === 'cancelled' || ($mapping['sync_status'] ?? '') === 'deleted') {
-                continue;
-            }
-
-            $syncDirection = $mapping['sync_direction'] ?? 'bidirectional';
-            $mappingConfig = $options['mapping_config'] ?? null;
-            $mappingConfig['api_call_reversed'] = $mapping['normalized_reversed'];
-            $mappingConfig['sync_direction'] = $syncDirection;
-
-            if (!$this->canDeleteInDirection($syncDirection, $mapping['normalized_reversed'] ?? false, $mappingConfig)) {
-                continue;
-            }
-
-            if (!$this->isEventWithinTimeframe($mapping, $startDate, $endDate)) {
-                continue;
-            }
-
-            if (!isset($sourceEventIdSet[$mapping['source_event_id']])) {
-                try {
-                    $this->updateMappingSyncStatus($mapping['id'], 'deleting');
-                    $target->deleteEvent($targetCalendarId, $mapping['target_event_id']);
-                    $this->updateMappingSyncStatus($mapping['id'], 'cancelled');
-
-                    $this->updateMappingSyncMethod(
-                        $source->getBridgeType(),
-                        $target->getBridgeType(),
-                        $mapping['source_calendar_id'],
-                        $mapping['target_calendar_id'],
-                        $mapping['source_event_id'],
-                        $options['sync_method'] ?? 'automated'
-                    );
-
-                    $results['deleted']++;
-
-                    $this->logger->info('Deleted event from target due to source deletion (cron-triggered)', [
-                        'source_event_id' => $mapping['source_event_id'],
-                        'target_event_id' => $mapping['target_event_id']
-                    ]);
-                } catch (\Exception $e) {
-                    $this->updateMappingSyncStatus($mapping['id'], 'error', 'Failed to delete from target: ' . $e->getMessage());
-                    $results['errors'][] = [
-                        'mapping_id' => $mapping['id'],
-                        'error' => $e->getMessage()
-                    ];
-                }
-            }
-        }
-
-        return $results;
-    }
-
     private function indexMappingsBySourceId(array $mappings): array
     {
         $idx = [];
@@ -666,29 +441,6 @@ class SyncOrchestrator
             }
         }
         return $idx;
-    }
-
-    private function isEventWithinTimeframe($mapping, $startDate, $endDate)
-    {
-        $windowStart = strtotime($startDate . ' 00:00:00');
-        $windowEnd = strtotime($endDate . ' 23:59:59');
-        
-        if (!empty($mapping['source_event_start']) && !empty($mapping['source_event_end'])) {
-            $eventStart = strtotime($mapping['source_event_start']);
-            $eventEnd = strtotime($mapping['source_event_end']);
-            return $eventStart < $windowEnd && $eventEnd > $windowStart;
-        } elseif (!empty($mapping['source_event_start'])) {
-            $eventStart = strtotime($mapping['source_event_start']);
-            return $eventStart >= $windowStart && $eventStart <= $windowEnd;
-        }
-
-        if (!empty($mapping['created_at'])) {
-            $createdAt = strtotime($mapping['created_at']);
-            $creationWindowEnd = strtotime($endDate . ' +1 day 23:59:59');
-            return $createdAt >= $windowStart && $createdAt <= $creationWindowEnd;
-        }
-
-        return false;
     }
 
     private function canSyncInDirection(string $syncDirection, bool $isReversed, array|null $mappingConfig): bool
@@ -759,11 +511,6 @@ class SyncOrchestrator
             default:
                 return 'Unknown ownership model';
         }
-    }
-
-    private function canDeleteInDirection(string $syncDirection, bool $isReversed, array|null $mappingConfig): bool
-    {
-        return $this->canSyncInDirection($syncDirection, $isReversed, $mappingConfig);
     }
 
     private function computeEventHash(array $event): string
@@ -1046,6 +793,26 @@ class SyncOrchestrator
                         'events_queued' => 0,
                         'status' => 'no_events'
                     ];
+                    $this->syncLog->write(
+                        'sync',
+                        $sourceBridge,
+                        $targetBridge,
+                        'no_events',
+                        0,
+                        [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_calendar' => $sourceCalendarId,
+                            'target_calendar' => $targetCalendarId,
+                            'events_found' => 0,
+                            'events_queued' => 0,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate
+                        ],
+                        null,
+                        null,
+                        $mappingTenantId
+                    );
+
                     continue;
                 }
 
@@ -1099,6 +866,28 @@ class SyncOrchestrator
                             $mappingEventsSkipped++;
                         }
                     }
+
+                    // Log the sync operation for this mapping
+                    $this->syncLog->write(
+                        'sync',
+                        $sourceBridge,
+                        $targetBridge,
+                        'success',
+                        $mappingEventsQueued,
+                        [
+                            'mapping_id' => $resourceMapping['id'],
+                            'source_calendar' => $sourceCalendarId,
+                            'target_calendar' => $targetCalendarId,
+                            'events_found' => count($sourceEvents),
+                            'events_queued' => $mappingEventsQueued,
+                            'events_skipped' => $mappingEventsSkipped,
+                            'start_date' => $startDate,
+                            'end_date' => $endDate
+                        ],
+                        null,
+                        null,
+                        $mappingTenantId
+                    );
 
                     $allResults[] = [
                         'mapping_id' => $resourceMapping['id'],

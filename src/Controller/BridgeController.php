@@ -3,7 +3,6 @@
 namespace App\Controller;
 
 use App\Services\BridgeManager;
-use App\Services\SyncLogService;
 use App\Repository\BridgeResourceRepository;
 use App\Repository\BridgeMappingRepository;
 use App\Repository\BridgeQueueRepository;
@@ -26,7 +25,6 @@ class BridgeController
     private $subscriptionRepository;
     private $syncOrchestrator;
     private $webhookService;
-    private $syncLogService;
 
     /**
      * @param BridgeManager $bridgeManager Bridge orchestrator
@@ -37,7 +35,6 @@ class BridgeController
      * @param BridgeSubscriptionRepository $subscriptionRepository
      * @param \App\Services\SyncOrchestrator $syncOrchestrator
      * @param \App\Services\WebhookService $webhookService
-     * @param SyncLogService $syncLogService
      */
     public function __construct(
         BridgeManager $bridgeManager, 
@@ -47,8 +44,7 @@ class BridgeController
         BridgeQueueRepository $queueRepository,
         BridgeSubscriptionRepository $subscriptionRepository,
         \App\Services\SyncOrchestrator $syncOrchestrator,
-        \App\Services\WebhookService $webhookService,
-        SyncLogService $syncLogService
+        \App\Services\WebhookService $webhookService
     ) {
         $this->bridgeManager = $bridgeManager;
         $this->logger = $logger;
@@ -58,7 +54,6 @@ class BridgeController
         $this->subscriptionRepository = $subscriptionRepository;
         $this->syncOrchestrator = $syncOrchestrator;
         $this->webhookService = $webhookService;
-        $this->syncLogService = $syncLogService;
     }
 
     /**

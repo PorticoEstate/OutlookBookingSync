@@ -9,6 +9,20 @@ All notable changes to this project will be documented in this file. This projec
 - `DeletionSyncService` (logic moved to `SyncOrchestrator`)
 - `BookingSystemBridge::processPendingSyncs()` and helper methods (`processPendingSyncAsSource`, `processPendingSyncAsTarget`, `getEventById`) - legacy code superseded by unified queue processor
 - `OutlookBridge::processPendingSyncs()` and helper methods (`processPendingSyncAsSource`, `processPendingSyncAsTarget`, `getEventById`) - legacy code superseded by unified queue processor
+- `SyncOrchestrator::syncBetweenBridges()` - legacy synchronous batch sync method superseded by queue-based flow via `processSingleEventSync()`
+- `SyncOrchestrator::handleDeletedEvents()` - helper method only used by removed `syncBetweenBridges()`
+- `SyncOrchestrator::isEventWithinTimeframe()` - helper method only used by removed `handleDeletedEvents()`
+- `SyncOrchestrator::canDeleteInDirection()` - helper method only used by removed `handleDeletedEvents()`
+
+### Added
+
+- `SyncLogService` integration in `WebhookService` - queue batch processing now logs to `bridge_sync_logs` for health metrics
+- `SyncLogService` integration in `BridgeController::syncBridges()` - all sync API requests now logged to `bridge_sync_logs` including:
+  - Queue-based sync requests (with events queued count)
+  - Immediate processing sync requests (with events processed count)  
+  - No events found scenarios (0 event count logged)
+  - Dry run requests (with summary counts)
+  - Error/exception cases (with error message)
 
 ### Planned
 

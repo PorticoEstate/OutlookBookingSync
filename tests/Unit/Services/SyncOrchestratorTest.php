@@ -14,7 +14,7 @@ use Mockery;
 
 class SyncOrchestratorTest extends TestCase
 {
-    public function testSyncOrchestrationLogic()
+    public function testProcessSingleEventSync()
     {
         // Arrange
         $mockBridgeManager = Mockery::mock(BridgeManager::class);
@@ -39,25 +39,28 @@ class SyncOrchestratorTest extends TestCase
             ->with('tenant-1', 'outlook')
             ->andReturn($mockTargetBridge);
 
-        // Mock getting events
-        $mockSourceBridge->shouldReceive('getEvents')->andReturn([
-            ['id' => 'evt-1', 'subject' => 'Test Event', 'start' => '2025-01-01', 'end' => '2025-01-02']
+        // Mock finding no existing mapping (new event)
+        $mockMappingRepo->shouldReceive('findMappingBySourceEventId')
+            ->with('booking_system', 'outlook', 'source-cal-1', 'target-cal-1', 'evt-1', 'tenant-1')
+            ->andReturn(null);
+
+        // Mock mapping lookup for post-creation update
+        $mockMappingRepo->shouldReceive('findMappings')->andReturn([
+            [
+                'id' => 1,
+                'source_event_id' => 'evt-1',
+                'target_event_id' => 'target-evt-1',
+                'normalized_reversed' => false
+            ]
         ]);
         
-        // Mock mapping repository calls
-        $mockMappingRepo->shouldReceive('findMappings')->andReturn([]);
-        
-        // Mock target bridge calls
-        // Since there are no mappings, it should try to create the event
+        // Mock target bridge creates the event
         $mockTargetBridge->shouldReceive('createEvent')->once()->andReturn('target-evt-1');
         
         // Mock mapping updates after creation
         $mockMappingRepo->shouldReceive('updateSourceTiming');
         $mockMappingRepo->shouldReceive('updateEventData');
         $mockMappingRepo->shouldReceive('updateSyncMethod');
-
-        // Mock sync log write
-        $mockSyncLog->shouldReceive('write')->once();
 
         // Mock resource repository
         $mockResourceRepo = \Mockery::mock(BridgeResourceRepository::class);
@@ -74,20 +77,29 @@ class SyncOrchestratorTest extends TestCase
             $mockLogger
         );
 
-        // Act
-        $result = $orchestrator->syncBetweenBridges(
+        // Source event data
+        $sourceEvent = [
+            'id' => 'evt-1',
+            'subject' => 'Test Event',
+            'start' => '2025-01-01',
+            'end' => '2025-01-02'
+        ];
+
+        // Act - use processSingleEventSync (queue-based flow)
+        $result = $orchestrator->processSingleEventSync(
             'booking_system',
             'outlook',
             'source-cal-1',
             'target-cal-1',
-            '2025-01-01',
-            '2025-01-30',
+            $sourceEvent,
             ['tenant_id' => 'tenant-1']
         );
         
         // Assert
-        $this->assertArrayHasKey('created', $result);
-        $this->assertEquals(1, $result['created']);
+        $this->assertTrue($result['success']);
+        $this->assertEquals('created', $result['action']);
+        $this->assertEquals('evt-1', $result['source_event_id']);
+        $this->assertEquals('target-evt-1', $result['target_event_id']);
     }
     
     protected function tearDown(): void

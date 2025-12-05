@@ -469,8 +469,7 @@ $container->set(\App\Controller\BridgeController::class, function () use ($conta
         $container->get(\App\Repository\BridgeQueueRepository::class),
         $container->get(\App\Repository\BridgeSubscriptionRepository::class),
         $container->get(\App\Services\SyncOrchestrator::class),
-        $container->get(\App\Services\WebhookService::class),
-        $container->get('syncLog')
+        $container->get(\App\Services\WebhookService::class)
     );
 });
 
