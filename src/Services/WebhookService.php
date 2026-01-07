@@ -884,9 +884,36 @@ class WebhookService
                     $result = $bridgeInstance->renewSubscription($row['subscription_id']);
                     if (!empty($result['success'])) {
                         $renewed[] = $result;
+
+                        // Normalize expiration string across bridges
+                        $expiresAtRaw = $result['new_expires_at']
+                            ?? $result['expirationDateTime']
+                            ?? null;
+
+                        // Fallback: +1 day from now if bridge didn't return it
+                        if ($expiresAtRaw === null)
+                        {
+                            $expiresAtDt = new \DateTime('+1 day');
+                        }
+                        else
+                        {
+                            try
+                            {
+                                $expiresAtDt = new \DateTime($expiresAtRaw);
+                            }
+                            catch (\Exception $e)
+                            {
+                                // Last-resort fallback to +1 day
+                                $expiresAtDt = new \DateTime('+1 day');
+                            }
+                        }
+
+                        // Use consistent DB format
+                        $expiresAt = $expiresAtDt->format('Y-m-d H:i:s');
+
                         $this->subscriptionRepository->updateExpiration(
                             $row['subscription_id'],
-                            $result['expirationDateTime']
+                            $expiresAt
                         );
                     } else {
                         // Check if 404/not found
