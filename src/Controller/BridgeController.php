@@ -381,7 +381,7 @@ class BridgeController
     public function handleWebhook(Request $request, Response $response, $args)
     {
         $bridgeName = $args['bridgeName'];
-        $body = json_decode($request->getBody()->getContents(), true);
+        $body = json_decode($request->getBody()->getContents(), true) ?? [];
         $queryParams = $request->getQueryParams();
         $tenantId = (string)($queryParams['tenant_id'] ?? $request->getAttribute('tenant_id') ?? '');
 
