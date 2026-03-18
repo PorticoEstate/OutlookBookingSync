@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS bridge_resource_mappings (
     source_calendar_name VARCHAR(255),        -- human-readable name of source calendar
     target_calendar_name VARCHAR(255),        -- human-readable name of target calendar
     sync_direction VARCHAR(20) DEFAULT 'source_to_target', -- 'source_to_target', 'target_to_source', 'bidirectional'
+    horizon INTEGER,
     is_active BOOLEAN DEFAULT TRUE,
     sync_enabled BOOLEAN DEFAULT TRUE,
     last_synced_at TIMESTAMP,
@@ -195,14 +196,28 @@ CREATE INDEX IF NOT EXISTS idx_bridge_resource_mappings_pair_tenant ON bridge_re
 -- Active resource mappings view
 CREATE OR REPLACE VIEW v_active_resource_mappings AS
 SELECT 
-    brm.*,
+    brm.id,
+    brm.bridge_from,
+    brm.bridge_to,
+    brm.source_calendar_id,
+    brm.target_calendar_id,
+    brm.source_calendar_name,
+    brm.target_calendar_name,
+    brm.sync_direction,
+    brm.is_active,
+    brm.sync_enabled,
+    brm.last_synced_at,
+    brm.tenant_id,
+    brm.created_at,
+    brm.updated_at,
     CASE 
         WHEN brm.last_synced_at > NOW() - INTERVAL '1 hour' THEN 'recent'
         WHEN brm.last_synced_at > NOW() - INTERVAL '1 day' THEN 'daily'
         WHEN brm.last_synced_at > NOW() - INTERVAL '1 week' THEN 'weekly'
         ELSE 'stale'
     END as sync_freshness,
-    COUNT(bm.id) as mapped_events
+    COUNT(bm.id) as mapped_events,
+    brm.horizon
 FROM bridge_resource_mappings brm
 LEFT JOIN bridge_mappings bm ON (
     (
@@ -213,8 +228,9 @@ LEFT JOIN bridge_mappings bm ON (
 ) AND (bm.tenant_id IS NOT DISTINCT FROM brm.tenant_id)
 WHERE brm.is_active = true
 GROUP BY brm.id, brm.bridge_from, brm.bridge_to, brm.source_calendar_id, brm.target_calendar_id, 
-         brm.source_calendar_name, brm.target_calendar_name, brm.sync_direction, brm.sync_enabled, 
-         brm.last_synced_at, brm.created_at, brm.updated_at;
+         brm.source_calendar_name, brm.target_calendar_name, brm.sync_direction,
+         brm.is_active, brm.sync_enabled, brm.last_synced_at, brm.tenant_id, brm.created_at, brm.updated_at,
+         brm.horizon;
 
 -- Active bridge mappings view
 CREATE OR REPLACE VIEW v_active_bridge_mappings AS

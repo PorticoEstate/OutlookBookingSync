@@ -165,6 +165,7 @@ class BridgeController
         // Support snake_case and camelCase
         $startDate = $params['start_date'] ?? $params['startDate'] ?? date('Y-m-d');
         $endDate   = $params['end_date']   ?? $params['endDate']   ?? date('Y-m-d', strtotime('+30 days'));
+        $endDateExplicit = array_key_exists('end_date', $params) || array_key_exists('endDate', $params);
 
         // Determine sync method - defaults to 'manual' but can be overridden
         $syncMethod = $params['sync_method'] ?? $params['syncMethod'] ?? 'manual';
@@ -183,6 +184,7 @@ class BridgeController
             'skip_updates'     => $toBool($params['skip_updates']     ?? $params['skipUpdates']     ?? false),
             'dry_run'          => $toBool($params['dry_run']          ?? $params['dryRun']          ?? false),
             'sync_method'      => $syncMethod,
+            'end_date_explicit' => $endDateExplicit,
             // Optional policy: if true, do not recreate target when user deletes it (for one-way mappings)
             // NOTE: Defaulting to true to avoid unintended recreations
             'respect_target_deletions' => $toBool($params['respect_target_deletions'] ?? $params['respectTargetDeletions'] ?? true)

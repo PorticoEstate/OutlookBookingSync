@@ -9,7 +9,7 @@
       body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
       .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
       label { min-width: 120px; display: inline-block; }
-      select, input[type="text"] { padding: 6px 8px; }
+      select, input[type="text"], input[type="number"] { padding: 6px 8px; }
       button { padding: 6px 10px; }
       .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
       .panel { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #fff; }
@@ -87,7 +87,12 @@
           <option value="target_to_source">Target owns → Source follows</option>
           <option value="bidirectional" selected>Bidirectional (both can modify)</option>
         </select>
+        <label for="horizonDays">Horizon (days)</label>
+        <input type="number" id="horizonDays" min="0" step="1" placeholder="Default window" />
         <button id="create" disabled>Create mapping</button>
+      </div>
+      <div class="row">
+        <span class="muted">Leave Horizon empty to use the default sync end-date window.</span>
       </div>
       <div id="bridgeNote" class="note" style="margin-top:8px; display:none;">
         📧 <strong>Note:</strong> Outlook bridge requires email format for calendar IDs (e.g., user@company.com)
@@ -98,7 +103,7 @@
       <h3>Existing mappings (both directions)</h3>
       <table>
         <thead>
-          <tr><th>From</th><th>→</th><th>To</th><th>Direction</th><th>Active</th><th>Actions</th></tr>
+          <tr><th>From</th><th>→</th><th>To</th><th>Direction</th><th>Horizon</th><th>Active</th><th>Actions</th></tr>
         </thead>
         <tbody id="mappings"></tbody>
       </table>
@@ -255,11 +260,12 @@
             const from = `${x.source_calendar_name||''} [${x.source_calendar_id}]`;
             const to = `${x.target_calendar_name||''} [${x.target_calendar_id}]`;
             const dir = formatSyncDirection(x.sync_direction);
+            const horizon = (x.horizon === null || x.horizon === undefined || x.horizon === '') ? 'default' : String(x.horizon);
             const act = x.is_active ? 'yes' : 'no';
             const del = `<button data-bridge-from="${x.bridge_from}" data-source-id="${x.source_calendar_id}" data-target-id="${x.target_calendar_id}" class="del">Delete</button>`;
-            return `<tr><td>${from}</td><td>→</td><td>${to}</td><td>${dir}</td><td>${act}</td><td>${del}</td></tr>`;
+            return `<tr><td>${from}</td><td>→</td><td>${to}</td><td>${dir}</td><td>${horizon}</td><td>${act}</td><td>${del}</td></tr>`;
           }).join('');
-          tbody.innerHTML = rows || '<tr><td colspan="6" class="muted">No mappings</td></tr>';
+          tbody.innerHTML = rows || '<tr><td colspan="7" class="muted">No mappings</td></tr>';
           Array.from(document.querySelectorAll('button.del')).forEach(btn => {
             btn.onclick = async () => {
               const tenantId2 = document.getElementById('tenantSelect').value;
@@ -298,6 +304,7 @@
         const src = document.getElementById('sourceBridge').value;
         const tgt = document.getElementById('targetBridge').value;
         const syncDirection = document.getElementById('syncDirection').value;
+        const horizonRaw = (document.getElementById('horizonDays').value || '').trim();
         if(!(state.selSrc && state.selTgt)){ return; }
         
         // Use email format for Outlook bridge calendar IDs
@@ -315,12 +322,23 @@
           is_active: true,
           sync_enabled: true
         };
+
+        if (horizonRaw !== '') {
+          const horizon = Number(horizonRaw);
+          if (!Number.isInteger(horizon) || horizon < 0) {
+            setMsg('Horizon must be a non-negative integer', true);
+            return;
+          }
+          body.horizon = horizon;
+        }
+
         try{
           await fetchJSON('/mappings/resources', { method:'POST', body: JSON.stringify(body) }, tenantId);
           setMsg('Mapping created with ' + syncDirection + ' ownership');
           state.selSrc = null; state.selTgt = null;
           document.getElementById('selSrc').textContent = '(none)';
           document.getElementById('selTgt').textContent = '(none)';
+          document.getElementById('horizonDays').value = '';
           document.getElementById('create').disabled = true;
           await loadMappings();
         } catch(e){ setMsg('Failed to create mapping: '+ e.message, true); }

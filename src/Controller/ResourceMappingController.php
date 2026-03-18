@@ -90,7 +90,7 @@ class ResourceMappingController
 	{
 		try
 		{
-			$data = json_decode($request->getBody()->getContents(), true);
+			$data = json_decode($request->getBody()->getContents(), true) ?? [];
 
 			// Validate required fields with new semantic names
 			$required = ['bridge_from', 'bridge_to', 'source_calendar_id', 'target_calendar_id'];
@@ -125,6 +125,23 @@ class ResourceMappingController
 				return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
 			}
 
+			if (array_key_exists('horizon', $data) && $data['horizon'] !== null && $data['horizon'] !== '')
+			{
+				if (!is_numeric($data['horizon']) || (int)$data['horizon'] < 0 || (string)(int)$data['horizon'] !== (string)$data['horizon'])
+				{
+					$response->getBody()->write(json_encode([
+						'success' => false,
+						'error' => 'horizon must be a non-negative integer'
+					]));
+					return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+				}
+				$data['horizon'] = (int)$data['horizon'];
+			}
+			else
+			{
+				$data['horizon'] = null;
+			}
+
 			// Check if mapping already exists (active or inactive)
 			$existingMapping = $this->repository->findResourceMapping(
 				$data['bridge_from'],
@@ -152,6 +169,15 @@ class ResourceMappingController
 						$data['sync_direction'] ?? 'bidirectional'
 					);
 
+					if (array_key_exists('horizon', $data))
+					{
+						$this->repository->updateResourceMapping(
+							$existingMapping['id'],
+							['horizon = :horizon'],
+							['horizon' => $data['horizon']]
+						);
+					}
+
 					$response->getBody()->write(json_encode([
 						'success' => true,
 						'mapping_id' => $existingMapping['id'],
@@ -172,6 +198,7 @@ class ResourceMappingController
 				'source_calendar_name' => $data['source_calendar_name'] ?? null,
 				'target_calendar_name' => $data['target_calendar_name'] ?? null,
 				'sync_direction' => $data['sync_direction'] ?? 'bidirectional',
+				'horizon' => $data['horizon'],
 				'is_active' => $data['is_active'] ?? true,
 				'sync_enabled' => $data['sync_enabled'] ?? true,
 				'tenant_id' => $request->getAttribute('tenant_id')
@@ -211,7 +238,7 @@ class ResourceMappingController
 		try
 		{
 			$mappingId = $args['id'];
-			$data = json_decode($request->getBody()->getContents(), true);
+			$data = json_decode($request->getBody()->getContents(), true) ?? [];
 
 			// Check if mapping exists
 			$existing = $this->repository->findResourceMappingById($mappingId);
@@ -233,6 +260,7 @@ class ResourceMappingController
 				'source_calendar_name',
 				'target_calendar_name',
 				'sync_direction',
+				'horizon',
 				'is_active',
 				'sync_enabled',
 				'bridge_to',
@@ -240,6 +268,26 @@ class ResourceMappingController
 				'source_calendar_id',
 				'target_calendar_id'
 			];
+
+			if (array_key_exists('horizon', $data))
+			{
+				if ($data['horizon'] === '' || $data['horizon'] === null)
+				{
+					$data['horizon'] = null;
+				}
+				elseif (!is_numeric($data['horizon']) || (int)$data['horizon'] < 0 || (string)(int)$data['horizon'] !== (string)$data['horizon'])
+				{
+					$response->getBody()->write(json_encode([
+						'success' => false,
+						'error' => 'horizon must be a non-negative integer'
+					]));
+					return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+				}
+				else
+				{
+					$data['horizon'] = (int)$data['horizon'];
+				}
+			}
 
 
 			foreach ($allowedFields as $field)

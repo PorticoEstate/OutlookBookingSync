@@ -678,9 +678,9 @@ class BridgeMappingRepository
     {
         $sql = "INSERT INTO bridge_resource_mappings 
                 (bridge_from, bridge_to, source_calendar_id, target_calendar_id, 
-                source_calendar_name, target_calendar_name, sync_direction, is_active, sync_enabled, tenant_id) 
+                source_calendar_name, target_calendar_name, sync_direction, horizon, is_active, sync_enabled, tenant_id) 
                 VALUES (:bridge_from, :bridge_to, :source_calendar_id, :target_calendar_id, 
-                :source_calendar_name, :target_calendar_name, :sync_direction, :is_active, :sync_enabled, :tenant_id)
+                :source_calendar_name, :target_calendar_name, :sync_direction, :horizon, :is_active, :sync_enabled, :tenant_id)
                 RETURNING id";
 
         $stmt = $this->db->prepare($sql);
@@ -692,6 +692,7 @@ class BridgeMappingRepository
             'source_calendar_name' => $data['source_calendar_name'] ?? null,
             'target_calendar_name' => $data['target_calendar_name'] ?? null,
             'sync_direction' => $data['sync_direction'] ?? 'bidirectional',
+            'horizon' => $data['horizon'] ?? null,
             'is_active' => $data['is_active'] ?? true,
             'sync_enabled' => $data['sync_enabled'] ?? true,
             'tenant_id' => $data['tenant_id'] ?? null

@@ -772,17 +772,25 @@ class SyncOrchestrator
             }
 
             try {
+                $effectiveEndDate = $this->resolveMappingEndDate(
+                    $endDate,
+                    $resourceMapping,
+                    (bool)($options['end_date_explicit'] ?? false)
+                );
+
                 $this->logger->info('Processing mapping for sync', [
                     'mapping_id' => $resourceMapping['id'],
                     'mapping_tenant_id' => $mappingTenantId,
                     'request_tenant_id' => $tenantId,
                     'source_calendar' => $sourceCalendarId,
-                    'target_calendar' => $targetCalendarId
+                    'target_calendar' => $targetCalendarId,
+                    'horizon' => $resourceMapping['horizon'] ?? null,
+                    'effective_end_date' => $effectiveEndDate
                 ]);
 
                 // Get source bridge instance and fetch events
                 $sourceBridgeInstance = $this->bridgeManager->getBridgeForTenant($mappingTenantId ?: 'default', $sourceBridge);
-                $sourceEvents = $sourceBridgeInstance->getEvents($sourceCalendarId, $startDate, $endDate);
+                $sourceEvents = $sourceBridgeInstance->getEvents($sourceCalendarId, $startDate, $effectiveEndDate);
 
                 if (empty($sourceEvents)) {
                     $allResults[] = [
@@ -806,7 +814,7 @@ class SyncOrchestrator
                             'events_found' => 0,
                             'events_queued' => 0,
                             'start_date' => $startDate,
-                            'end_date' => $endDate
+                            'end_date' => $effectiveEndDate
                         ],
                         null,
                         null,
@@ -821,7 +829,7 @@ class SyncOrchestrator
                 $mappingEventsSkipped = 0;
 
                 if ($options['dry_run'] ?? false) {
-                    $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $endDate);
+                    $results = $this->performDryRun($mappingTenantId ?: 'default', $sourceBridge, $targetBridge, $sourceCalendarId, $targetCalendarId, $startDate, $effectiveEndDate);
                     
                     $allResults[] = [
                         'mapping_id' => $resourceMapping['id'],
@@ -882,7 +890,7 @@ class SyncOrchestrator
                             'events_queued' => $mappingEventsQueued,
                             'events_skipped' => $mappingEventsSkipped,
                             'start_date' => $startDate,
-                            'end_date' => $endDate
+                            'end_date' => $effectiveEndDate
                         ],
                         null,
                         null,
@@ -923,6 +931,37 @@ class SyncOrchestrator
             'mappings_processed' => count($resourceMappings),
             'sync_results' => $allResults
         ];
+    }
+
+    private function resolveMappingEndDate(string $requestedEndDate, array $resourceMapping, bool $endDateExplicit): string
+    {
+        if ($endDateExplicit)
+        {
+            return $requestedEndDate;
+        }
+
+        $horizon = $resourceMapping['horizon'] ?? null;
+        if ($horizon === null || $horizon === '' || !is_numeric($horizon))
+        {
+            return $requestedEndDate;
+        }
+
+        $days = (int)$horizon;
+        if ($days < 0)
+        {
+            return $requestedEndDate;
+        }
+
+        try
+        {
+            $endDate = new \DateTime('today');
+            $endDate->modify('+' . $days . ' days');
+            return $endDate->format('Y-m-d');
+        }
+        catch (\Exception $e)
+        {
+            return $requestedEndDate;
+        }
     }
 
     private function performDryRun(

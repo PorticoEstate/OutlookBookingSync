@@ -22,6 +22,7 @@ class BridgeResourceRepository
                     source_calendar_id,
                     target_calendar_id,
                     sync_direction, 
+                    horizon,
                     id,
                     bridge_from,
                     bridge_to
@@ -61,7 +62,7 @@ class BridgeResourceRepository
                 bridge_from,
                 bridge_to,
                 sync_direction
-            FROM bridge_resource_mappings 
+                        horizon,
             WHERE (
                 (bridge_from = ? AND bridge_to = ? AND source_calendar_id = ?) OR
                 (bridge_from = ? AND bridge_to = ? AND target_calendar_id = ?)
