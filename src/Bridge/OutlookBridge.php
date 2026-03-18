@@ -112,25 +112,6 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 	}
 
-	/**
-	 * Create a Graph API filter for event overlap detection with proper date-to-datetime conversion
-	 * Converts date strings to full day ranges and uses proper overlap logic
-	 * 
-	 * @param string $startDate Date string (e.g., "2025-09-15")
-	 * @param string $endDate Date string (e.g., "2025-09-16")
-	 * @return string Graph API filter string for overlapping events
-	 */
-	private function createOverlapFilter(string $startDate, string $endDate): string
-	{
-		// Convert date strings to full datetime ranges
-		$windowStart = $startDate . 'T00:00:00.000Z';  // Start of day in UTC
-		$windowEnd = $endDate . 'T23:59:59.999Z';      // End of day in UTC
-		
-		// Proper overlap logic: event_start < window_end AND event_end > window_start  
-		// In Graph API terms: start/dateTime lt 'windowEnd' and end/dateTime gt 'windowStart'
-		return "start/dateTime lt '{$windowEnd}' and end/dateTime gt '{$windowStart}'";
-	}
-
 	protected function initialize()
 	{
 		$this->initializeGraphClient();
@@ -205,10 +186,13 @@ class OutlookBridge extends AbstractCalendarBridge
 	/**
 	 * Fetch events for a calendar within a time window.
 	 *
+	 * Uses calendarView instead of events so that recurring series are automatically
+	 * expanded into individual occurrence instances within the requested window.
+	 *
 	 * @param string $calendarId Outlook user email address (UPN format)
-	 * @param string $startDate Date string (e.g., "2025-09-15") - converted to start of day
-	 * @param string $endDate Date string (e.g., "2025-09-16") - converted to end of day  
-	 * @return array List of generic event arrays (includes overlapping events)
+	 * @param string $startDate Date string (e.g., "2025-09-15")
+	 * @param string $endDate Date string (e.g., "2025-09-16")
+	 * @return array List of generic event arrays; each recurrence instance is a separate entry
 	 * @throws \Exception on API errors
 	 */
 	public function getEvents($calendarId, $startDate, $endDate): array
@@ -218,45 +202,21 @@ class OutlookBridge extends AbstractCalendarBridge
 
 		try
 		{
-			$requestConfig = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetRequestConfiguration();
-			$requestConfig->queryParameters = new \Microsoft\Graph\Generated\Users\Item\Calendar\Events\EventsRequestBuilderGetQueryParameters();
-			
-			// Use proper overlap detection with date-to-datetime conversion
-			$requestConfig->queryParameters->filter = $this->createOverlapFilter($startDate, $endDate);
+			$requestConfig = new \Microsoft\Graph\Generated\Users\Item\Calendar\CalendarView\CalendarViewRequestBuilderGetRequestConfiguration();
+			$requestConfig->queryParameters = new \Microsoft\Graph\Generated\Users\Item\Calendar\CalendarView\CalendarViewRequestBuilderGetQueryParameters();
+
+			// calendarView requires startDateTime/endDateTime as plain query params (not OData $filter)
+			// and automatically expands recurring series into individual occurrence instances
+			$requestConfig->queryParameters->startDateTime = $startDate . 'T00:00:00Z';
+			$requestConfig->queryParameters->endDateTime   = $endDate   . 'T23:59:59Z';
 			$requestConfig->queryParameters->select = ['id', 'subject', 'start', 'end', 'location', 'attendees', 'body', 'organizer', 'isAllDay', 'createdDateTime', 'lastModifiedDateTime'];
 			$requestConfig->queryParameters->top = 999;
 			$requestConfig->queryParameters->orderby = ['start/dateTime asc'];
 
-			$eventsResponse = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->events()->get($requestConfig)->wait();
+			$eventsResponse = $this->graphServiceClient->users()->byUserId($calendarId)->calendar()->calendarView()->get($requestConfig)->wait();
 			$events = $eventsResponse->getValue();
 
-			$genericEvents = array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
-
-			// Reverse events to prioritize the last occurrence (latest) when deduplicating
-			$genericEvents = array_reverse($genericEvents);
-
-			// Deduplicate events: Keep only the first encountered (which was the last in original list)
-			$uniqueEvents = [];
-			$seenSignatures = [];
-
-			foreach ($genericEvents as $event) {
-				// Create a unique signature based on key fields
-				$signature = md5($event['subject'] . '|' . $event['start'] . '|' . $event['end']);
-
-				if (!isset($seenSignatures[$signature])) {
-					$seenSignatures[$signature] = true;
-					$uniqueEvents[] = $event;
-				} else {
-					$this->logger->info('Skipping duplicate event found in Outlook (keeping latest)', [
-						'subject' => $event['subject'],
-						'start' => $event['start'],
-						'id' => $event['id']
-					]);
-				}
-			}
-
-			// Restore original chronological order
-			return array_reverse($uniqueEvents);
+			return array_map([$this, 'mapOutlookSDKEventToGeneric'], $events ?? []);
 		}
 		catch (\Exception $e)
 		{
@@ -1434,10 +1394,14 @@ class OutlookBridge extends AbstractCalendarBridge
 				$queryParams['$skip'] = $offset;
 			}
 
-			// Add date filtering if provided - use proper overlap detection
+			// Add date filtering if provided.
+			// When both dates are supplied use calendarView so recurring series are expanded
+			// into individual occurrences. Single-date filters fall back to /events + $filter.
 			if ($startDate && $endDate)
 			{
-				$queryParams['$filter'] = $this->createOverlapFilter($startDate, $endDate);
+				// calendarView requires startDateTime/endDateTime as plain query params, not $filter
+				$queryParams['startDateTime'] = $startDate . 'T00:00:00Z';
+				$queryParams['endDateTime']   = $endDate   . 'T23:59:59Z';
 			}
 			elseif ($startDate)
 			{
@@ -1447,7 +1411,7 @@ class OutlookBridge extends AbstractCalendarBridge
 			}
 			elseif ($endDate)
 			{
-				// Single date filter: events that start before end of the day  
+				// Single date filter: events that start before end of the day
 				$windowEnd = $endDate . 'T23:59:59.999Z';
 				$queryParams['$filter'] = "start/dateTime lt '{$windowEnd}'";
 			}
@@ -1455,11 +1419,13 @@ class OutlookBridge extends AbstractCalendarBridge
 			// Add ordering for consistent pagination
 			$queryParams['$orderby'] = 'start/dateTime';
 
-			// Make a direct API call to get calendar items for the resource (same as OutlookController)
+			// Make a direct API call to get calendar items for the resource
 			$calendarItemsRequest = new RequestInformation();
 
-			// Build the URL with query parameters
-			$baseUrl = "https://graph.microsoft.com/v1.0/users/{$resourceId}/events";
+			// Use calendarView when a full date range is provided (expands recurring series),
+			// otherwise fall back to /events for single-bound or open-ended queries
+			$endpoint = ($startDate && $endDate) ? 'calendarView' : 'events';
+			$baseUrl = "https://graph.microsoft.com/v1.0/users/{$resourceId}/{$endpoint}";
 			if (!empty($queryParams))
 			{
 				$baseUrl .= '?' . http_build_query($queryParams);
