@@ -61,8 +61,9 @@ class BridgeResourceRepository
                 id as mapping_id,
                 bridge_from,
                 bridge_to,
-                sync_direction
-                        horizon,
+                sync_direction,
+                horizon
+            FROM bridge_resource_mappings
             WHERE (
                 (bridge_from = ? AND bridge_to = ? AND source_calendar_id = ?) OR
                 (bridge_from = ? AND bridge_to = ? AND target_calendar_id = ?)
