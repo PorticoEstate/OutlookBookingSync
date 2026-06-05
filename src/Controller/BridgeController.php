@@ -1540,7 +1540,8 @@ class BridgeController
             else
             {
                 // Get stats for all bridges
-                $allStats = $this->bridgeManager->getAllSyncStats();
+                $tenantId = (string)($request->getAttribute('tenant_id') ?? 'default');
+                $allStats = $this->bridgeManager->getAllSyncStats($tenantId);
 
                 $response->getBody()->write(json_encode([
                     'success' => true,

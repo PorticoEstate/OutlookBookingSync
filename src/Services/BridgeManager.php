@@ -293,43 +293,56 @@ class BridgeManager
 
 
 	/**
-	 * Get sync statistics for all bridges
+	 * Get sync statistics for configured bridges.
+	 *
+	 * @param string|null $tenantId When provided, only that tenant's bridges are evaluated.
 	 */
-	public function getAllSyncStats(): array
+	public function getAllSyncStats(?string $tenantId = null): array
 	{
 		$allStats = [];
+		$tenantFilter = $tenantId;
 
 		$configuredBridges = $this->getConfiguredBridges();
-		foreach ($configuredBridges as $tenantId => $bridges)
+		foreach ($configuredBridges as $tenantKey => $bridges)
 		{
+			if ($tenantFilter !== null && (string)$tenantFilter !== (string)$tenantKey)
+			{
+				continue;
+			}
+
 			foreach (array_keys($bridges) as $bridgeName)
 			{
 				try
 				{
-					$bridge = $this->getBridgeForTenant((string)$tenantId, $bridgeName);
+					$bridge = $this->getBridgeForTenant((string)$tenantKey, $bridgeName);
+					$tenantBridgeStats = [
+						'tenant_id' => (string)$tenantKey,
+						'bridge_name' => $bridgeName
+					];
 
 					if (method_exists($bridge, 'getSyncStats'))
 					{
-						$allStats[$bridgeName] = $bridge->getSyncStats();
+						$allStats[$bridgeName] = array_merge($tenantBridgeStats, $bridge->getSyncStats());
 					}
 					else
 					{
 						// Fallback to basic stats
-						$allStats[$bridgeName] = [
-							'bridge_name' => $bridgeName,
+						$allStats[$bridgeName] = array_merge($tenantBridgeStats, [
 							'bridge_type' => $bridge->getBridgeType(),
 							'sync_stats_available' => false
-						];
+						]);
 					}
 				}
 				catch (\Exception $e)
 				{
 					$allStats[$bridgeName] = [
+						'tenant_id' => (string)$tenantKey,
 						'bridge_name' => $bridgeName,
 						'error' => $e->getMessage()
 					];
 
 					$this->logger->error('Failed to get sync stats for bridge', [
+						'tenant_id' => (string)$tenantKey,
 						'bridge' => $bridgeName,
 						'error' => $e->getMessage()
 					]);
