@@ -1951,10 +1951,19 @@ class OutlookBridge extends AbstractCalendarBridge
 	private function exceptionSummary(\Throwable $e): string
 	{
 		$parts = [];
+		$hasHttpStatus = false;
+		$hasOData = false;
 		$message = trim((string)$e->getMessage());
 		if ($message !== '')
 		{
 			$parts[] = $message;
+		}
+
+		// Prefer OData details directly from Kiota exception objects when available.
+		if ($odataFromException = $this->extractODataErrorFromException($e))
+		{
+			$parts[] = $odataFromException;
+			$hasOData = true;
 		}
 
 		// Include HTTP response details if present
@@ -1973,17 +1982,40 @@ class OutlookBridge extends AbstractCalendarBridge
 			$status = $response->getStatusCode();
 			$reason = $response->getReasonPhrase();
 			$parts[] = "http={$status} {$reason}";
+			$hasHttpStatus = true;
 			$body = (string)$response->getBody();
 			if (!empty($body))
 			{
-				if ($odata = $this->extractODataErrorFromBody($body))
+				if (!$hasOData && ($odata = $this->extractODataErrorFromBody($body)))
 				{
 					$parts[] = $odata;
+					$hasOData = true;
 				}
 				else
 				{
 					$parts[] = 'body=' . $this->truncate($body, 400);
 				}
+			}
+		}
+
+		// Kiota ApiException may provide status and response headers even without a PSR response body.
+		if ($e instanceof \Microsoft\Kiota\Abstractions\ApiException)
+		{
+			$status = $e->getResponseStatusCode();
+			if ($status !== null && !$hasHttpStatus)
+			{
+				$parts[] = "http={$status}";
+			}
+
+			$requestId = $this->getResponseHeaderValue($e->getResponseHeaders(), ['request-id', 'x-ms-request-id']);
+			$clientRequestId = $this->getResponseHeaderValue($e->getResponseHeaders(), ['client-request-id']);
+			if ($requestId)
+			{
+				$parts[] = 'request-id=' . $requestId;
+			}
+			if ($clientRequestId)
+			{
+				$parts[] = 'client-request-id=' . $clientRequestId;
 			}
 		}
 
@@ -1997,6 +2029,119 @@ class OutlookBridge extends AbstractCalendarBridge
 		}
 
 		return $this->truncate(implode(' | ', $parts), 1000);
+	}
+
+	/**
+	 * Extract OData details directly from Kiota ODataError exception objects.
+	 * Returns a compact string like: odata=ErrorCode: message | innerError=request-id=...,client-request-id=...
+	 */
+	private function extractODataErrorFromException(\Throwable $e): ?string
+	{
+		if (!($e instanceof ODataError))
+		{
+			return null;
+		}
+
+		try
+		{
+			$main = $e->getError();
+			if ($main === null)
+			{
+				return null;
+			}
+
+			$code = $main->getCode();
+			$message = $main->getMessage();
+			$target = $main->getTarget();
+
+			$odataParts = [];
+			if (!empty($code))
+			{
+				$odataParts[] = (string)$code;
+			}
+			if (!empty($message))
+			{
+				$odataParts[] = (string)$message;
+			}
+
+			$result = null;
+			if (!empty($odataParts))
+			{
+				$result = 'odata=' . $this->truncate(implode(': ', $odataParts), 400);
+			}
+
+			$innerError = $main->getInnerError();
+			if ($innerError !== null)
+			{
+				$innerParts = [];
+				if ($innerError->getRequestId())
+				{
+					$innerParts[] = 'request-id=' . $innerError->getRequestId();
+				}
+				if ($innerError->getClientRequestId())
+				{
+					$innerParts[] = 'client-request-id=' . $innerError->getClientRequestId();
+				}
+				if ($innerError->getDate())
+				{
+					$innerParts[] = 'date=' . $innerError->getDate()->format('c');
+				}
+				if (!empty($innerParts))
+				{
+					$innerSummary = 'innerError=' . implode(',', $innerParts);
+					$result = $result ? ($result . ' | ' . $innerSummary) : $innerSummary;
+				}
+			}
+
+			if (!empty($target))
+			{
+				$targetSummary = 'target=' . $target;
+				$result = $result ? ($result . ' | ' . $targetSummary) : $targetSummary;
+			}
+
+			return $result;
+		}
+		catch (\Throwable $ignored)
+		{
+			return null;
+		}
+	}
+
+	/**
+	 * Get first matching response header value (case-insensitive) from Kiota header map.
+	 *
+	 * @param array<string, string[]> $headers
+	 * @param array<int, string> $names
+	 */
+	private function getResponseHeaderValue(array $headers, array $names): ?string
+	{
+		if (empty($headers) || empty($names))
+		{
+			return null;
+		}
+
+		$normalized = [];
+		foreach ($headers as $key => $values)
+		{
+			$normalized[strtolower((string)$key)] = $values;
+		}
+
+		foreach ($names as $name)
+		{
+			$key = strtolower($name);
+			if (!isset($normalized[$key]) || !is_array($normalized[$key]) || empty($normalized[$key]))
+			{
+				continue;
+			}
+
+			$value = $normalized[$key][0] ?? null;
+			if ($value !== null && $value !== '')
+			{
+				return (string)$value;
+			}
+		}
+
+		return null;
 	}
 
 	/**
