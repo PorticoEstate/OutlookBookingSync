@@ -604,7 +604,7 @@ class WebhookService
 
             // Check if sync was successful
             if (!$syncResults['success']) {
-                throw new \Exception("Sync operation failed: " . ($syncResults['error'] ?? 'Unknown error'));
+                throw new \Exception("Sync operation failed: " . $this->formatSyncError($syncResults));
             }
 
             $totalCreated = $syncResults['created'] ?? 0;
@@ -1026,7 +1026,7 @@ class WebhookService
         );
 
         if (!$syncResults['success']) {
-            throw new \Exception("Sync operation failed: " . ($syncResults['error'] ?? 'Unknown error'));
+            throw new \Exception("Sync operation failed: " . $this->formatSyncError($syncResults));
         }
 
         // Update or create mapping for this event
@@ -1080,6 +1080,45 @@ class WebhookService
             'created' => $totalCreated,
             'updated' => $totalUpdated
         ]);
+    }
+
+    /**
+     * Format sync errors for logging/messages so structured errors are readable.
+     *
+     * @param array $syncResults
+     * @return string
+     */
+    private function formatSyncError(array $syncResults): string
+    {
+        $error = $syncResults['error'] ?? ($syncResults['errors'] ?? null);
+
+        if ($error === null || $error === '')
+        {
+            return 'Unknown error';
+        }
+
+        if (is_scalar($error))
+        {
+            return (string)$error;
+        }
+
+        if ($error instanceof \Throwable)
+        {
+            return $error->getMessage();
+        }
+
+        if (is_array($error) || is_object($error))
+        {
+            $json = json_encode($error, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+            if ($json !== false)
+            {
+                return $json;
+            }
+
+            return trim(print_r($error, true));
+        }
+
+        return 'Unknown error';
     }
 }
 
