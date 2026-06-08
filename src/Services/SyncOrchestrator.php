@@ -52,6 +52,7 @@ class SyncOrchestrator
         array $options = []
     ): array {
         $tenantId = $options['tenant_id'] ?? null;
+        $options['tenant_id'] = $tenantId;
         $source = $this->bridgeManager->getBridgeForTenant($tenantId, $sourceBridgeName);
         $target = $this->bridgeManager->getBridgeForTenant($tenantId, $targetBridgeName);
         
@@ -96,6 +97,7 @@ class SyncOrchestrator
         } catch (\Throwable $e) {
             $this->logger->error("Critical error processing event {$currentIndex}/{$totalEvents}", [
                 'event_id' => $sourceEvent['id'] ?? 'unknown',
+                'tenant_id' => $options['tenant_id'] ?? null,
                 'error' => $e->getMessage(),
             ]);
 
@@ -423,6 +425,7 @@ class SyncOrchestrator
                     'source_bridge' => $source->getBridgeType(),
                     'target_bridge' => $target->getBridgeType(),
                     'source_event_id' => $sourceEvent['id'],
+                    'tenant_id' => $options['tenant_id'] ?? null,
                     'error' => $e->getMessage()
                 ]);
                 throw $e;
@@ -918,6 +921,8 @@ class SyncOrchestrator
 
                 $this->logger->error('Failed to process mapping sync', [
                     'mapping_id' => $resourceMapping['id'],
+                    'tenant_id' => $mappingTenantId,
+                    'request_tenant_id' => $tenantId,
                     'error' => $e->getMessage()
                 ]);
             }
